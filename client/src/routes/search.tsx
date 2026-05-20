@@ -39,7 +39,7 @@ export const Route = createFileRoute('/search')({
     return { status: 'ok', query: q, hits: res.hits };
   },
   component: SearchPage,
-  head: () => ({ meta: [{ title: 'Moment search · YT Knowledge Base' }] }),
+  head: () => ({ meta: [{ title: 'Moment search · Music KB' }] }),
 });
 
 function SearchPage() {

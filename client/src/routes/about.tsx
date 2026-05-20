@@ -3,7 +3,7 @@ import { Button } from '#/components/ui/button';
 
 export const Route = createFileRoute('/about')({
   component: About,
-  head: () => ({ meta: [{ title: 'About · YT Knowledge Base' }] }),
+  head: () => ({ meta: [{ title: 'About · Music KB' }] }),
 });
 
 function About() {
@@ -15,14 +15,16 @@ function About() {
           About
         </span>
         <h1 className="display-title mt-5 text-4xl text-[var(--ink)] sm:text-6xl">
-          A local-first knowledge base for YouTube videos.
+          A local-first library for YouTube music tutorials.
         </h1>
         <p className="mt-6 text-base leading-relaxed text-[var(--ink-soft)] sm:text-lg">
-          Paste any YouTube URL — the app pulls the title, channel, and thumbnail, caches the
-          full transcript, and runs a local AI model (Ollama + Gemma 4) to produce a structured
-          summary with a timestamped walkthrough and concrete action steps. When you want a
-          bigger model, a built-in MCP server lets Claude Desktop (and other frontier clients)
-          drive the same knowledge base. Everything stays on your machine.
+          Paste any music-tutorial URL — the app pulls the title, channel, and thumbnail, caches
+          the full transcript, and runs a local AI model (Ollama + Gemma 4) to produce a structured
+          summary with timestamped sections and concrete things to practice. A built-in theory
+          companion (piano, guitar, Ableton Push, tab, sheet music) sits next to the player so you
+          can try chord shapes and scales without leaving the page. When you want a bigger model,
+          a built-in MCP server lets Claude Desktop drive the same library. Everything stays on
+          your machine.
         </p>
 
         <section className="mt-12 grid gap-6 sm:grid-cols-2">

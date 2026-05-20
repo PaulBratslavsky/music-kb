@@ -6,7 +6,7 @@ import { EmbeddingCoveragePanel } from '#/components/EmbeddingCoveragePanel';
 // future homes for MCP config, data export, API tokens, prefs.
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
-  head: () => ({ meta: [{ title: 'Settings · YT Knowledge Base' }] }),
+  head: () => ({ meta: [{ title: 'Settings · Music KB' }] }),
 });
 
 function SettingsPage() {

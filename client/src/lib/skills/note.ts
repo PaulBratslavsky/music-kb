@@ -31,6 +31,7 @@ export const NOTE_SKILL: Skill = {
     '2. `**TL;DR**` (bold label, NOT a heading), then 3–5 bulleted takeaways. Each bullet: one crisp sentence, two max.',
     '',
     '3. `##` H2 sections organized thematically (NOT per-video-timestamp). Weave specifics from the transcript — examples, numbers, names, quotes — into each theme. Use `###` H3 sparingly. Prose with occasional bullets. Fenced code blocks when the speaker shows code or commands. Block quotes for memorable lines.',
+    '   • This is a music-tutorial library. When the video covers playing, include sections for any chord shapes / voicings, scales or modes, techniques (picking, fingerings, articulations), and exercises or practice routines shown. Capture key signature, time signature, BPM, and tuning when the speaker states them. Use ASCII tab in fenced code blocks for tablature; use `C / G / Am / F` notation for chord progressions.',
     '',
     '4. `## Bottom line` — one short paragraph: what the reader should walk away with.',
     '',

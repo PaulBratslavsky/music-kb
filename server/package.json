@@ -13,6 +13,7 @@
     "strapi": "strapi",
     "export": "strapi export --no-encrypt --file ./seed-data/seed",
     "seed": "strapi import --file ./seed-data/seed.tar.gz",
+    "music-tags": "node scripts/seed-music-tags.mjs",
     "upgrade": "npx @strapi/upgrade latest",
     "upgrade:dry": "npx @strapi/upgrade latest --dry"
   },

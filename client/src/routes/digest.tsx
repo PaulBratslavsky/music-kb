@@ -43,7 +43,7 @@ export const Route = createFileRoute('/digest')({
   },
   component: DigestPage,
   pendingComponent: DigestPending,
-  head: () => ({ meta: [{ title: 'Digest · YT Knowledge Base' }] }),
+  head: () => ({ meta: [{ title: 'Digest · Music KB' }] }),
 });
 
 function DigestPending() {

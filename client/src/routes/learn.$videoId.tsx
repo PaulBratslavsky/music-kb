@@ -110,14 +110,14 @@ export const Route = createFileRoute('/learn/$videoId')({
       const v = loaderData.video;
       return {
         meta: [
-          { title: `${v.summaryTitle ?? v.videoTitle ?? 'Summary'} · YT Knowledge Base` },
+          { title: `${v.summaryTitle ?? v.videoTitle ?? 'Summary'} · Music KB` },
           ...(v.summaryDescription
             ? [{ name: 'description', content: v.summaryDescription }]
             : []),
         ],
       };
     }
-    return { meta: [{ title: 'Summary · YT Knowledge Base' }] };
+    return { meta: [{ title: 'Summary · Music KB' }] };
   },
 });
 

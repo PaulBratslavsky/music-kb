@@ -115,7 +115,7 @@ export const Route = createFileRoute('/feed')({
     return { kind: 'keyword', result };
   },
   component: FeedPage,
-  head: () => ({ meta: [{ title: 'Feed · YT Knowledge Base' }] }),
+  head: () => ({ meta: [{ title: 'Feed · Music KB' }] }),
 });
 
 function FeedPage() {

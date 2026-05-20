@@ -26,7 +26,7 @@ export default function Header() {
             </svg>
           </span>
           <span className="text-[15px] font-semibold tracking-tight text-[var(--ink)]">
-            YT Knowledge Base
+            Music KB
           </span>
         </Link>
 

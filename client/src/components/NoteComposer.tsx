@@ -324,8 +324,8 @@ export function NoteComposer({
           onChange={(e) => setPrompt(e.target.value)}
           placeholder={
             hasContent
-              ? 'What should change? e.g. "shorter", "add a section on X", "make it a list"'
-              : 'What do you want in this note? e.g. "summary of the three main takeaways", "three X posts with different angles"'
+              ? 'What should change? e.g. "shorter", "add the chord diagrams", "make it a practice plan"'
+              : 'What do you want in this note? e.g. "chord shapes and scales covered", "a 20-minute practice routine from this lesson", "ear-training exercises from the video"'
           }
           disabled={streaming || saving}
           rows={2}

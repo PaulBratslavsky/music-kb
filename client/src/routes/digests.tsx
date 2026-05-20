@@ -23,7 +23,7 @@ export const Route = createFileRoute('/digests')({
     return { result };
   },
   component: DigestsPage,
-  head: () => ({ meta: [{ title: 'Digests · YT Knowledge Base' }] }),
+  head: () => ({ meta: [{ title: 'Digests · Music KB' }] }),
 });
 
 function DigestsPage() {

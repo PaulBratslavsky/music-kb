@@ -26,13 +26,13 @@ export default function Footer() {
               </svg>
             </span>
             <span className="text-[15px] font-semibold tracking-tight text-[var(--ink)]">
-              YT Knowledge Base
+              Music KB
             </span>
           </div>
           <p className="mt-3 text-sm leading-relaxed text-[var(--ink-muted)]">
-            A local-first, single-user knowledge base for YouTube videos. Paste a URL, get
-            a structured AI summary with timestamped walkthrough — then chat with the
-            transcript.
+            A local-first library for YouTube music tutorials. Paste a URL, get a
+            structured AI summary with timestamped sections, then chat with the transcript
+            and follow along on the built-in theory companion.
           </p>
         </div>
 
@@ -115,7 +115,7 @@ export default function Footer() {
       </div>
       <div className="border-t border-[var(--line)]">
         <div className="flex flex-col gap-2 px-6 py-5 text-xs text-[var(--ink-muted)] sm:flex-row sm:items-center sm:justify-between sm:px-10 sm:gap-4 lg:px-14">
-          <span>&copy; {year} YT Knowledge Base — local-first, single-user.</span>
+          <span>&copy; {year} Music KB — local-first, single-user.</span>
           <span className="flex flex-wrap items-center gap-1.5">
             Built with{' '}
             <a

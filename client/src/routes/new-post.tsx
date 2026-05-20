@@ -3,7 +3,7 @@ import { NewPostForm } from '#/components/NewPostForm';
 
 export const Route = createFileRoute('/new-post')({
   component: NewPostPage,
-  head: () => ({ meta: [{ title: 'Share a video · YT Knowledge Base' }] }),
+  head: () => ({ meta: [{ title: 'Share a video · Music KB' }] }),
 });
 
 function NewPostPage() {

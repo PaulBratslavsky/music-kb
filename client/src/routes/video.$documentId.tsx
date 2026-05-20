@@ -16,8 +16,8 @@ export const Route = createFileRoute('/video/$documentId')({
     meta: [
       {
         title: loaderData?.video?.videoTitle
-          ? `${loaderData.video.videoTitle} · YT Knowledge Base`
-          : 'Video · YT Knowledge Base',
+          ? `${loaderData.video.videoTitle} · Music KB`
+          : 'Video · Music KB',
       },
     ],
   }),
