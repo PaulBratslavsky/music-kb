@@ -1,0 +1,172 @@
+{
+  "kind": "collectionType",
+  "collectionName": "videos",
+  "info": {
+    "singularName": "video",
+    "pluralName": "videos",
+    "displayName": "Video",
+    "description": "A YouTube video added to the knowledge base. Each row holds the source metadata, the user's own caption/tags, the cached transcript, and the AI-generated summary. Dedupe key: `youtubeVideoId` (unique)."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "transcript": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::transcript.transcript"
+    },
+    "youtubeVideoId": {
+      "type": "string",
+      "required": true,
+      "unique": true,
+      "maxLength": 32
+    },
+    "url": {
+      "type": "text",
+      "required": true,
+      "maxLength": 2000
+    },
+    "videoTitle": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "videoAuthor": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "videoThumbnailUrl": {
+      "type": "text",
+      "maxLength": 2000
+    },
+    "caption": {
+      "type": "text",
+      "maxLength": 500
+    },
+    "tags": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "api::tag.tag",
+      "inversedBy": "videos"
+    },
+    "digests": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "api::digest.digest",
+      "mappedBy": "videos"
+    },
+    "notes": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "api::note.note",
+      "mappedBy": "videos"
+    },
+    "summaryStatus": {
+      "type": "enumeration",
+      "enum": ["pending", "generated", "failed"],
+      "required": true,
+      "default": "pending"
+    },
+    "summaryTitle": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "summaryDescription": {
+      "type": "text",
+      "maxLength": 500
+    },
+    "summaryOverview": {
+      "type": "richtext"
+    },
+    "readableArticle": {
+      "type": "richtext"
+    },
+    "readableArticleGeneratedAt": {
+      "type": "datetime"
+    },
+    "readableArticleModel": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "watchVerdict": {
+      "type": "enumeration",
+      "enum": ["skip", "skim", "worth_it"]
+    },
+    "verdictSummary": {
+      "type": "string",
+      "maxLength": 280
+    },
+    "verdictReason": {
+      "type": "text",
+      "maxLength": 1000
+    },
+    "valueScore": {
+      "type": "integer",
+      "min": 0,
+      "max": 100
+    },
+    "valueScoreSource": {
+      "type": "enumeration",
+      "enum": ["model", "derived"]
+    },
+    "signalScores": {
+      "type": "json"
+    },
+    "signalScore": {
+      "type": "integer",
+      "min": 0,
+      "max": 100
+    },
+    "finalScore": {
+      "type": "integer",
+      "min": 0,
+      "max": 100
+    },
+    "summaryGeneratedAt": {
+      "type": "datetime"
+    },
+    "aiModel": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "transcriptSegments": {
+      "type": "json"
+    },
+    "summaryEmbedding": {
+      "type": "json",
+      "description": "Topical embedding computed from title + overview + takeaways + section headings + tags. number[] — opaque to the admin; used for relatedVideos and library semantic search."
+    },
+    "embeddingModel": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Ollama model that produced summaryEmbedding. Compound invalidation key with embeddingVersion — stored != current ⇒ stale ⇒ recompute."
+    },
+    "embeddingVersion": {
+      "type": "integer",
+      "description": "Version of the text-building logic that produced summaryEmbedding. Bumped when the set of fields fed into the embedder changes."
+    },
+    "embeddingGeneratedAt": {
+      "type": "datetime"
+    },
+    "passageEmbeddings": {
+      "type": "json",
+      "description": "Tier-2 passage-level embeddings for moment search. Self-contained blob holding the chunker output: { model, version, generatedAt, chunks: [{ text, startSec, endSec, embedding }] }. Independent from summaryEmbedding — different invalidation key and chunker."
+    },
+    "keyTakeaways": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.takeaway"
+    },
+    "sections": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.section"
+    },
+    "actionSteps": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.action-step"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "collectionName": "components_content_digest_unique_insights",
+  "info": {
+    "displayName": "Digest Unique Insight",
+    "description": "What one specific source video uniquely contributes to a digest, beyond what the others cover."
+  },
+  "options": {},
+  "attributes": {
+    "videoTitle": {
+      "type": "string",
+      "required": true,
+      "maxLength": 300
+    },
+    "insight": {
+      "type": "text",
+      "required": true,
+      "maxLength": 600
+    }
+  }
+}

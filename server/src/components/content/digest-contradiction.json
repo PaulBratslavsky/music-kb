@@ -1,0 +1,21 @@
+{
+  "collectionName": "components_content_digest_contradictions",
+  "info": {
+    "displayName": "Digest Contradiction",
+    "description": "A genuine disagreement between source videos on one concrete topic, with the positions taken by each side."
+  },
+  "options": {},
+  "attributes": {
+    "topic": {
+      "type": "string",
+      "required": true,
+      "maxLength": 200
+    },
+    "positions": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.digest-contradiction-position",
+      "min": 2
+    }
+  }
+}

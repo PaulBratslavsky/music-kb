@@ -1,0 +1,735 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  /* Product-grade neutral palette. Near-white background, near-black text,
+     zinc-scale borders. One accent color only (blue) — everything else is
+     grayscale + semantic band tints. Modern, sleek, no warmth. */
+  --bg: #fafafa;
+  --bg-subtle: #f4f4f5;
+  --card: #ffffff;
+  --ink: #09090b;
+  --ink-soft: #52525b;
+  --ink-muted: #71717a;
+  --ink-faint: #a1a1aa;
+
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
+
+  /* Single accent — clean royal blue, used sparingly for primary actions. */
+  --accent: #3b5af7;
+  --accent-hover: #2e48d0;
+  --accent-soft: #eef1ff;
+
+  /* Semantic band tints come in two flavors:
+     - pastel (bg + text): used on pills, badges, secondary UI
+     - hero (saturated): used on the big measurement card block — the one
+       thing that's allowed to shout in an otherwise quiet layout. */
+  --band-green-bg: #f0fdf4;
+  --band-green-text: #166534;
+  --band-green-dot: #22c55e;
+  --band-green-hero: #7cb069;
+  --band-green-hero-fg: #ffffff;
+
+  --band-yellow-bg: #fffbeb;
+  --band-yellow-text: #854d0e;
+  --band-yellow-dot: #eab308;
+  --band-yellow-hero: #e6b94a;
+  --band-yellow-hero-fg: #3b1f14;
+
+  --band-red-bg: #fef2f2;
+  --band-red-text: #991b1b;
+  --band-red-dot: #ef4444;
+  --band-red-hero: #c55a42;
+  --band-red-hero-fg: #ffffff;
+
+  /* Backwards-compatible aliases so existing component code keeps working
+     while we migrate references. */
+  --cream: var(--bg);
+  --cream-deep: var(--bg-subtle);
+  --paper: var(--card);
+  --paper-soft: var(--card);
+  --sea-ink: var(--ink);
+  --sea-ink-soft: var(--ink-soft);
+  --lagoon: var(--accent);
+  --lagoon-deep: var(--accent-hover);
+  --palm: var(--accent-hover);
+  --sand: var(--bg-subtle);
+  --foam: var(--card);
+  --surface: var(--card);
+  --surface-strong: var(--card);
+  --bg-base: var(--bg);
+  --header-bg: rgba(250, 250, 250, 0.85);
+  --chip-bg: var(--card);
+  --chip-line: var(--line);
+  --link-bg-hover: var(--bg-subtle);
+  --kicker: var(--ink-muted);
+  --hero-a: transparent;
+  --hero-b: transparent;
+  --inset-glint: transparent;
+  --sage: var(--band-green-dot);
+  --sage-deep: var(--band-green-text);
+  --sage-pale: var(--band-green-bg);
+  --mustard: var(--band-yellow-dot);
+  --mustard-deep: var(--band-yellow-text);
+  --mustard-pale: var(--band-yellow-bg);
+  --coral: var(--band-red-dot);
+  --coral-deep: var(--band-red-text);
+  --coral-pale: var(--band-red-bg);
+  --plum: #7c3aed;
+  --plum-pale: #f3e8ff;
+
+  /* shadcn tokens */
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card-foreground: var(--ink);
+  --popover: var(--card);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--card);
+  --secondary: var(--bg-subtle);
+  --secondary-foreground: var(--ink);
+  --muted: var(--bg-subtle);
+  --muted-foreground: var(--ink-muted);
+  --accent-foreground: var(--card);
+  --destructive: var(--band-red-dot);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--accent);
+  --chart-1: var(--accent);
+  --chart-2: var(--band-green-dot);
+  --chart-3: var(--band-yellow-dot);
+  --chart-4: var(--band-red-dot);
+  --chart-5: var(--ink-muted);
+  --radius: 0.75rem;
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--card);
+  --sidebar-accent: var(--bg-subtle);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--accent);
+}
+
+:root[data-theme="dark"] {
+  --bg: #09090b;
+  --bg-subtle: #18181b;
+  --card: #0f0f12;
+  --ink: #fafafa;
+  --ink-soft: #a1a1aa;
+  --ink-muted: #71717a;
+  --ink-faint: #52525b;
+  --line: #27272a;
+  --line-strong: #3f3f46;
+  --accent-soft: rgba(59, 90, 247, 0.1);
+  --header-bg: rgba(9, 9, 11, 0.85);
+  --band-green-bg: rgba(34, 197, 94, 0.1);
+  --band-green-text: #4ade80;
+  --band-yellow-bg: rgba(234, 179, 8, 0.1);
+  --band-yellow-text: #facc15;
+  --band-red-bg: rgba(239, 68, 68, 0.1);
+  --band-red-text: #f87171;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #09090b;
+    --bg-subtle: #18181b;
+    --card: #0f0f12;
+    --ink: #fafafa;
+    --ink-soft: #a1a1aa;
+    --ink-muted: #71717a;
+    --ink-faint: #52525b;
+    --line: #27272a;
+    --line-strong: #3f3f46;
+    --header-bg: rgba(9, 9, 11, 0.85);
+    --band-green-bg: rgba(34, 197, 94, 0.1);
+    --band-green-text: #4ade80;
+    --band-yellow-bg: rgba(234, 179, 8, 0.1);
+    --band-yellow-text: #facc15;
+    --band-red-bg: rgba(239, 68, 68, 0.1);
+    --band-red-text: #f87171;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  background-color: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  padding-bottom: 5rem;
+}
+
+@media (min-width: 768px) {
+  body {
+    padding-bottom: 0;
+  }
+}
+
+/* Prose-style anchor defaults. Must live in `@layer base` so Tailwind's
+   utility classes (which live in `@layer utilities`, ordered later) win over
+   these defaults. Without the layer wrapper, unlayered CSS always beats
+   layered utilities regardless of specificity, and Button variants like
+   `text-primary-foreground` can't override the anchor color. */
+@layer base {
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
+code {
+  font-size: 0.9em;
+  border: 1px solid var(--line);
+  background: var(--bg-subtle);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+
+.page-wrap {
+  width: min(1120px, calc(100% - 1.5rem));
+  margin-inline: auto;
+}
+
+@media (min-width: 640px) {
+  .page-wrap {
+    width: min(1120px, calc(100% - 2.5rem));
+  }
+}
+
+.display-title {
+  font-family: var(--font-sans);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.98;
+}
+
+.island-shell {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: var(--radius);
+}
+
+.feature-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+
+button,
+.island-shell,
+a {
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease,
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.island-kicker {
+  letter-spacing: 0.01em;
+  text-transform: none;
+  font-weight: 500;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+/* Clean tappable pill — subtle by default, active state is the accent color. */
+.pill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.85rem;
+  border-radius: 999px;
+  font-weight: 500;
+  font-size: 0.78rem;
+  letter-spacing: -0.005em;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pill-chip:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: var(--bg-subtle);
+}
+
+.pill-chip.is-active {
+  background: var(--ink);
+  color: var(--card);
+  border-color: var(--ink);
+}
+
+.pill-chip--sage.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.nav-link:hover,
+.nav-link.is-active {
+  color: var(--ink);
+}
+
+.nav-link::after {
+  display: none;
+}
+
+.rise-in {
+  animation: rise-in 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: var(--radius);
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.5rem;
+  --radius-4xl: 2rem;
+}
+
+.dark {
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card-foreground: var(--ink);
+  --popover: var(--card);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--bg);
+  --secondary: var(--bg-subtle);
+  --secondary-foreground: var(--ink);
+  --muted: var(--bg-subtle);
+  --muted-foreground: var(--ink-muted);
+  --accent-foreground: var(--card);
+  --destructive: var(--band-red-dot);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--accent);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-sans);
+    letter-spacing: -0.025em;
+    font-weight: 700;
+  }
+}
+
+/* Chat markdown — keeps assistant messages readable without the full
+   `prose` treatment (which is too big-headline for a chat bubble). */
+.chat-md > * + * { margin-top: 0.75rem; }
+.chat-md p { line-height: 1.6; }
+.chat-md ul { list-style: disc; padding-left: 1.25rem; }
+.chat-md ol { list-style: decimal; padding-left: 1.25rem; }
+.chat-md li { margin-top: 0.25rem; line-height: 1.6; }
+.chat-md li > p { margin: 0; }
+.chat-md h1, .chat-md h2, .chat-md h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.chat-md h1 { font-size: 1.05rem; }
+.chat-md h2 { font-size: 1rem; }
+.chat-md h3 { font-size: 0.95rem; }
+.chat-md strong { font-weight: 600; color: var(--ink); }
+.chat-md em { font-style: italic; }
+.chat-md code {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.chat-md pre {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.chat-md pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+.chat-md blockquote {
+  border-left: 2px solid var(--line-strong);
+  padding-left: 0.75rem;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.chat-md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.chat-md th, .chat-md td {
+  border: 1px solid var(--line);
+  padding: 0.3rem 0.55rem;
+  text-align: left;
+}
+.chat-md th { background: var(--bg-subtle); font-weight: 600; }
+.chat-md hr { border: 0; border-top: 1px solid var(--line); margin: 1rem 0; }
+
+/* ---------------------------------------------------------------------------
+   Tiptap editor styling — applied ONLY inside the note composer.
+   Specificity 0,2,1 (two classes + element) wins over .chat-md rules
+   (0,1,1) regardless of source order. Tiptap adds `.ProseMirror` to
+   the content root; MarkdownEditor also applies `.chat-md` there.
+
+   Chat bubbles keep their compact .chat-md styling; these overrides
+   only fire inside the editor, giving a document-style surface with
+   proper heading hierarchy, breathing room for lists and code blocks,
+   and visible state changes when the user toggles formatting.
+   ------------------------------------------------------------------------- */
+
+/* Base — larger base size + airy line height for comfortable writing. */
+.chat-md.ProseMirror {
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--ink);
+}
+/* No top-margin on the very first block so the editor doesn't start
+   with a visible gap above the first line. */
+.chat-md.ProseMirror > :first-child { margin-top: 0; }
+
+/* Headings — distinct hierarchy so H1 / H2 / H3 feel meaningfully
+   different from each other and from body. */
+.chat-md.ProseMirror h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin-top: 1.25rem;
+}
+.chat-md.ProseMirror h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  margin-top: 1.25rem;
+}
+.chat-md.ProseMirror h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 1rem;
+}
+
+/* Inline text weights — explicit so Bold and Strong-inside-heading
+   contrast cleanly against body + heading weights. */
+.chat-md.ProseMirror p,
+.chat-md.ProseMirror li { font-weight: 400; }
+.chat-md.ProseMirror strong { font-weight: 700; }
+.chat-md.ProseMirror h1 strong,
+.chat-md.ProseMirror h2 strong,
+.chat-md.ProseMirror h3 strong { font-weight: 800; }
+.chat-md.ProseMirror em { font-style: italic; }
+.chat-md.ProseMirror s,
+.chat-md.ProseMirror del { text-decoration: line-through; opacity: 0.75; }
+
+/* Lists — more breathing room than chat, nested lists indented further. */
+.chat-md.ProseMirror ul,
+.chat-md.ProseMirror ol {
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+}
+.chat-md.ProseMirror li { margin-top: 0.35rem; line-height: 1.6; }
+.chat-md.ProseMirror li > p { margin: 0; }
+.chat-md.ProseMirror li > ul,
+.chat-md.ProseMirror li > ol { margin-top: 0.35rem; }
+
+/* Inline code — slightly bigger than the chat version so it reads
+   comfortably at the editor's larger base size. */
+.chat-md.ProseMirror code {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.08rem 0.35rem;
+  font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Code block — more padding, larger font, more separation from prose. */
+.chat-md.ProseMirror pre {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  margin-top: 1rem;
+}
+.chat-md.ProseMirror pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Blockquote — thicker rule, not italic (editing in italic text is
+   unpleasant), room on both sides of the text. */
+.chat-md.ProseMirror blockquote {
+  border-left: 3px solid var(--line-strong);
+  padding: 0.25rem 0 0.25rem 1rem;
+  color: var(--ink-soft);
+  margin-top: 1rem;
+}
+.chat-md.ProseMirror blockquote p { margin: 0; }
+
+/* Tables — slightly larger font + more cell padding than the chat
+   version; editors often use tables to lay out data. */
+.chat-md.ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin-top: 1rem;
+}
+.chat-md.ProseMirror th,
+.chat-md.ProseMirror td {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.chat-md.ProseMirror th {
+  background: var(--bg-subtle);
+  font-weight: 600;
+}
+
+/* Horizontal rule — more space on either side, so it reads as a
+   meaningful section break instead of a barely-visible line. */
+.chat-md.ProseMirror hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1.5rem 0;
+}
+
+/* Links — clearly visible + clickable feel. Underlined in var(--line)
+   so they aren't too loud, but color-shift to --accent on hover. */
+.chat-md.ProseMirror a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--line-strong);
+  text-decoration-thickness: 1px;
+}
+.chat-md.ProseMirror a:hover {
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+}
+
+/* Tiptap-specific: selected-node highlight (e.g. when an image or
+   block is selected as a single unit). Subtle blue wash. */
+.chat-md.ProseMirror .ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+/* ---------------------------------------------------------------------------
+   .prose-article — long-form reading typography used by the /read route
+   and the Article view on /digest. Tuned for actual article reading
+   (bigger base size, airier line-height, distinct heading hierarchy).
+   ------------------------------------------------------------------------- */
+.prose-article {
+  color: var(--ink);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+.prose-article > * + * { margin-top: 1.25rem; }
+.prose-article h1 {
+  font-size: 2.125rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin-top: 0;
+}
+.prose-article h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin-top: 2.5rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.5rem;
+}
+.prose-article h2:first-of-type,
+.prose-article > :first-child + h2 { border-top: 0; padding-top: 0; margin-top: 2rem; }
+.prose-article h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  margin-top: 1.75rem;
+}
+.prose-article p { line-height: 1.75; }
+.prose-article ul, .prose-article ol {
+  padding-left: 1.5rem;
+  line-height: 1.7;
+}
+.prose-article ul { list-style: disc; }
+.prose-article ol { list-style: decimal; }
+.prose-article li { margin-top: 0.4rem; }
+.prose-article li > p { margin: 0; }
+.prose-article strong { font-weight: 600; color: var(--ink); }
+.prose-article em { font-style: italic; }
+.prose-article a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+.prose-article a:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+.prose-article blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.35rem 0 0.35rem 1.15rem;
+  color: var(--ink-soft);
+  font-style: italic;
+  margin: 1.5rem 0;
+}
+.prose-article blockquote p { line-height: 1.65; }
+.prose-article code {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.9em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.prose-article pre {
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  margin: 1.5rem 0;
+}
+.prose-article pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+.prose-article hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 2.5rem 0;
+}
+.prose-article table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  margin: 1.5rem 0;
+}
+.prose-article th, .prose-article td {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.prose-article th { background: var(--bg-subtle); font-weight: 600; }

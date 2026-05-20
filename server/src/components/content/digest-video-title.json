@@ -1,0 +1,15 @@
+{
+  "collectionName": "components_content_digest_video_titles",
+  "info": {
+    "displayName": "Digest Video Title",
+    "description": "Single verbatim video title string. Used inside shared-theme components to list which source videos cover the theme — a nested repeatable component stands in for a `string[]` field, which Strapi doesn't natively support."
+  },
+  "options": {},
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true,
+      "maxLength": 300
+    }
+  }
+}

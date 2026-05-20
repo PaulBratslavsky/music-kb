@@ -1,0 +1,20 @@
+{
+  "collectionName": "components_content_digest_contradiction_positions",
+  "info": {
+    "displayName": "Digest Contradiction Position",
+    "description": "One video's stance on a contested topic. Nested under a contradiction component (≥2 positions per topic)."
+  },
+  "options": {},
+  "attributes": {
+    "videoTitle": {
+      "type": "string",
+      "required": true,
+      "maxLength": 300
+    },
+    "stance": {
+      "type": "text",
+      "required": true,
+      "maxLength": 400
+    }
+  }
+}

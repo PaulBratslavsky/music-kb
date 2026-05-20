@@ -1,0 +1,41 @@
+{
+  "kind": "collectionType",
+  "collectionName": "notes",
+  "info": {
+    "singularName": "note",
+    "pluralName": "notes",
+    "displayName": "Note",
+    "description": "Freeform markdown note attached to one or more videos. Sources: `chat` (summarized from an in-app conversation), `digest-chat` (summarized from a /digest cross-video conversation), `mcp` (written by an external MCP client like Claude Desktop), `manual` (user-authored scratchpad). Many-to-many with Video so cross-video chat summaries show up under each source video."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "title": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "body": {
+      "type": "richtext",
+      "required": true
+    },
+    "source": {
+      "type": "enumeration",
+      "enum": ["chat", "digest-chat", "mcp", "manual"],
+      "required": true,
+      "default": "manual"
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "Free-form author label — typically the MCP client name (e.g. \"claude-desktop\") or \"chat\"/\"you\" for in-app notes."
+    },
+    "videos": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "api::video.video",
+      "inversedBy": "notes"
+    }
+  }
+}

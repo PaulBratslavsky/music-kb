@@ -1,0 +1,20 @@
+{
+  "collectionName": "components_content_digest_viewing_orders",
+  "info": {
+    "displayName": "Digest Viewing Order",
+    "description": "One entry in the recommended viewing sequence for a digest's source videos. Populated only when order matters (one video is prerequisite to another)."
+  },
+  "options": {},
+  "attributes": {
+    "videoTitle": {
+      "type": "string",
+      "required": true,
+      "maxLength": 300
+    },
+    "why": {
+      "type": "text",
+      "required": true,
+      "maxLength": 300
+    }
+  }
+}

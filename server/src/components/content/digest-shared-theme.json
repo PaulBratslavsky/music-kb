@@ -1,0 +1,25 @@
+{
+  "collectionName": "components_content_digest_shared_themes",
+  "info": {
+    "displayName": "Digest Shared Theme",
+    "description": "A theme that appears across two or more source videos of a digest."
+  },
+  "options": {},
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true,
+      "maxLength": 200
+    },
+    "body": {
+      "type": "text",
+      "required": true,
+      "maxLength": 1500
+    },
+    "videoTitles": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.digest-video-title"
+    }
+  }
+}

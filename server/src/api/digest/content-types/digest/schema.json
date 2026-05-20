@@ -1,0 +1,74 @@
+{
+  "kind": "collectionType",
+  "collectionName": "digests",
+  "info": {
+    "singularName": "digest",
+    "pluralName": "digests",
+    "displayName": "Digest",
+    "description": "Saved cross-video digest — structured synthesis across 2–5 videos. Renders with full interactivity from the decomposed components; `articleMarkdown` is the optional long-form prose variant for reading."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "videoSetKey": {
+      "type": "string",
+      "required": true,
+      "unique": true,
+      "maxLength": 500,
+      "description": "Deterministic identifier for the source-video set — sorted youtubeVideoIds joined with commas. Upsert key so resaving the same /digest URL updates the existing row instead of creating duplicates."
+    },
+    "title": {
+      "type": "string",
+      "required": true,
+      "maxLength": 200
+    },
+    "description": {
+      "type": "text",
+      "maxLength": 400
+    },
+    "overallTheme": {
+      "type": "richtext",
+      "description": "One or two paragraphs describing the shared topic or throughline."
+    },
+    "bottomLine": {
+      "type": "text",
+      "maxLength": 800,
+      "description": "The 'if you read nothing else' TL;DR. 2-4 sentences."
+    },
+    "sharedThemes": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.digest-shared-theme"
+    },
+    "uniqueInsights": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.digest-unique-insight"
+    },
+    "contradictions": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.digest-contradiction"
+    },
+    "viewingOrder": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.digest-viewing-order"
+    },
+    "articleMarkdown": {
+      "type": "richtext"
+    },
+    "videos": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "api::video.video",
+      "inversedBy": "digests"
+    },
+    "model": {
+      "type": "string",
+      "maxLength": 100
+    }
+  }
+}
