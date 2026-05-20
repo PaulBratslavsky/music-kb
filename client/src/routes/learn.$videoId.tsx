@@ -14,6 +14,7 @@ import { ViewTabs } from '#/components/ViewTabs';
 import { ReadablePane } from '#/components/ReadablePane';
 import { NotesPane } from '#/components/NotesPane';
 import { TranscriptPane } from '#/components/TranscriptPane';
+import TheoryCompanion from '#/lib/music/TheoryCompanion';
 import { PlayerProvider, YouTubePlayer } from '#/components/player';
 import { RelatedVideos } from '#/components/RelatedVideos';
 import { GenerationModeSelect } from '#/components/GenerationModeSelect';
@@ -79,7 +80,7 @@ type LoaderData =
 // iframe `start` param so YouTube seeks + autoplays without us needing
 // to wait for the player's postMessage channel to come up.
 const LearnSearchSchema = z.object({
-  view: z.enum(['summary', 'read', 'notes', 'transcript']).optional(),
+  view: z.enum(['summary', 'read', 'notes', 'theory', 'transcript']).optional(),
   t: z.number().int().min(0).max(86400).optional(),
 });
 
@@ -195,7 +196,7 @@ function SummaryView({
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const view = search.view ?? 'summary';
-  const setView = (next: 'summary' | 'read' | 'notes' | 'transcript') => {
+  const setView = (next: 'summary' | 'read' | 'notes' | 'theory' | 'transcript') => {
     // Preserve `t` across view changes — stripping it would mutate the
     // player's start offset and force a reload. User changes tabs after
     // landing at a moment; the video should keep playing uninterrupted.
@@ -234,6 +235,7 @@ function SummaryView({
                   { id: 'summary', label: 'Summary' },
                   { id: 'read', label: 'Read' },
                   { id: 'notes', label: 'Notes' },
+                  { id: 'theory', label: 'Theory' },
                   { id: 'transcript', label: 'Transcript' },
                 ]}
                 onChange={setView}
@@ -248,6 +250,8 @@ function SummaryView({
                 videoYoutubeId={video.youtubeVideoId}
                 refreshKey={notesRefreshKey}
               />
+            ) : view === 'theory' ? (
+              <TheoryCompanion />
             ) : view === 'transcript' ? (
               <TranscriptPane video={video} />
             ) : (
