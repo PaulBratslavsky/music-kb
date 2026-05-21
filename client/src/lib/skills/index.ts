@@ -14,12 +14,20 @@ import { TUTOR_SKILL } from './tutor';
 import { SOCIAL_POST_SKILL } from './social-post';
 import { NOTE_SKILL } from './note';
 import { YOUTUBE_SCRIPT_SKILL } from './youtube-script';
+import { PRACTICE_PLAN_SKILL } from './practice-plan';
+import { CHORD_ANALYSIS_SKILL } from './chord-analysis';
+import { TECHNIQUE_BREAKDOWN_SKILL } from './technique-breakdown';
+import { EAR_TRAINING_SKILL } from './ear-training';
 
 registerSkill(QA_SKILL);
 registerSkill(TUTOR_SKILL);
 registerSkill(SOCIAL_POST_SKILL);
 registerSkill(NOTE_SKILL);
 registerSkill(YOUTUBE_SCRIPT_SKILL);
+registerSkill(PRACTICE_PLAN_SKILL);
+registerSkill(CHORD_ANALYSIS_SKILL);
+registerSkill(TECHNIQUE_BREAKDOWN_SKILL);
+registerSkill(EAR_TRAINING_SKILL);
 
 export type { Skill, SkillContext } from './types';
 export { listAllSkills, listSkills, getSkill } from './registry';

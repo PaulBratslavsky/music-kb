@@ -60,12 +60,13 @@ function transformSlashCommand(input: string): string {
 }
 
 // Fallback prompts for the default Q&A skill (no skillSlug). Skills with
-// `suggestedPrompts` of their own override these.
+// `suggestedPrompts` of their own override these. Tuned for music-tutorial
+// videos — the library is a music KB.
 const DEFAULT_SUGGESTED_PROMPTS = [
-  "What's the main argument?",
-  'Give me the key claims, with timestamps',
-  'What should I do after watching this?',
-  'Summarize the part around 5 minutes in',
+  'What chords or progressions does this lesson cover?',
+  'What key and tonal center is this in?',
+  'What techniques does the player demonstrate, with timestamps?',
+  'Summarize the music-theory concepts in plain language',
 ];
 
 // Issue the chat request and yield typed events from the response stream.
