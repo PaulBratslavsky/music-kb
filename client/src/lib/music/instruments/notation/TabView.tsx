@@ -87,7 +87,7 @@ export function TabView({ notes, pcDisplay, mode }: Props) {
           x={PADDING_X - 2}
           y={yForString(s) + 3}
           fontSize={9}
-          fill="var(--text-dim)"
+          fill="var(--ink-muted)"
           textAnchor="end"
           fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
           fontWeight={600}
@@ -104,7 +104,7 @@ export function TabView({ notes, pcDisplay, mode }: Props) {
           x2={totalWidth - PADDING_X / 2}
           y1={yForString(s)}
           y2={yForString(s)}
-          stroke="var(--text-dim)"
+          stroke="var(--ink-muted)"
           strokeWidth={0.7}
         />
       ))}
@@ -115,7 +115,7 @@ export function TabView({ notes, pcDisplay, mode }: Props) {
         x2={PADDING_X + LEFT_LABEL_W}
         y1={yForString(0) - 2}
         y2={yForString(5) + 2}
-        stroke="var(--text)"
+        stroke="var(--ink)"
         strokeWidth={1.3}
       />
 
@@ -134,13 +134,13 @@ export function TabView({ notes, pcDisplay, mode }: Props) {
               y={cy - 6}
               width={w}
               height={12}
-              fill="var(--panel)"
+              fill="var(--card)"
             />
             <text
               x={cx}
               y={cy + 3.5}
               fontSize={10}
-              fill="var(--text)"
+              fill="var(--ink)"
               textAnchor="middle"
               fontWeight={700}
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
@@ -152,7 +152,7 @@ export function TabView({ notes, pcDisplay, mode }: Props) {
               x={cx}
               y={letterY}
               fontSize={9}
-              fill="var(--text-dim)"
+              fill="var(--ink-muted)"
               textAnchor="middle"
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
               fontWeight={600}

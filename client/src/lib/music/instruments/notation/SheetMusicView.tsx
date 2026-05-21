@@ -81,7 +81,7 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
             x2={x + 7}
             y1={ly}
             y2={ly}
-            stroke="var(--text)"
+            stroke="var(--ink)"
             strokeWidth={1}
           />,
         );
@@ -96,7 +96,7 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
             x2={x + 7}
             y1={ly}
             y2={ly}
-            stroke="var(--text)"
+            stroke="var(--ink)"
             strokeWidth={1}
           />,
         );
@@ -122,7 +122,7 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
           x2={totalWidth - PADDING}
           y1={STAFF_TOP + i * STAFF_LINE_GAP}
           y2={STAFF_TOP + i * STAFF_LINE_GAP}
-          stroke="var(--text)"
+          stroke="var(--ink)"
           strokeWidth={0.8}
         />
       ))}
@@ -132,7 +132,7 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
         x={STAFF_LEFT - 28}
         y={STAFF_BOTTOM + 6}
         fontSize={32}
-        fill="var(--text)"
+        fill="var(--ink)"
         fontFamily="serif"
       >
         𝄞
@@ -144,7 +144,7 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
         x2={STAFF_LEFT}
         y1={STAFF_TOP}
         y2={STAFF_BOTTOM}
-        stroke="var(--text)"
+        stroke="var(--ink)"
         strokeWidth={1}
       />
       <line
@@ -152,7 +152,7 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
         x2={totalWidth - PADDING}
         y1={STAFF_TOP}
         y2={STAFF_BOTTOM}
-        stroke="var(--text)"
+        stroke="var(--ink)"
         strokeWidth={1.3}
       />
 
@@ -171,7 +171,7 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
                 x={x - 11}
                 y={y + 3}
                 fontSize={11}
-                fill="var(--text)"
+                fill="var(--ink)"
                 fontFamily="serif"
                 textAnchor="middle"
               >
@@ -185,7 +185,7 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
               rx={NOTE_RX}
               ry={NOTE_RY}
               fill="none"
-              stroke="var(--text)"
+              stroke="var(--ink)"
               strokeWidth={1.4}
               transform={`rotate(-22 ${x} ${y})`}
             />

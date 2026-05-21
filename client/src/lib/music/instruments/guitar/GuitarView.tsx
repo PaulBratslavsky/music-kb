@@ -194,14 +194,14 @@ export function GuitarView({
               cx={fretboardLeft + (f - 0.5) * FRET_W - (FRET_INLAYS_DOUBLE.has(f) ? 4 : 0)}
               cy={fretboardTop - 14}
               r={3}
-              fill="var(--text-dim)"
+              fill="var(--ink-muted)"
             />
             {FRET_INLAYS_DOUBLE.has(f) && (
               <circle
                 cx={fretboardLeft + (f - 0.5) * FRET_W + 4}
                 cy={fretboardTop - 14}
                 r={3}
-                fill="var(--text-dim)"
+                fill="var(--ink-muted)"
               />
             )}
           </g>
@@ -225,7 +225,7 @@ export function GuitarView({
           x={fretboardLeft - NUT_W - 14}
           y={yForString(s) + 3}
           fontSize={10}
-          fill="var(--text-dim)"
+          fill="var(--ink-muted)"
           textAnchor="end"
           fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
         >
@@ -239,7 +239,7 @@ export function GuitarView({
           x={fretboardLeft + (f - 0.5) * FRET_W}
           y={fretboardTop + fretboardHeight + 16}
           fontSize={9}
-          fill="var(--text-dim)"
+          fill="var(--ink-muted)"
           textAnchor="middle"
           fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
         >

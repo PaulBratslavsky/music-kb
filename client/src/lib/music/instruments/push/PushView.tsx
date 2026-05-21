@@ -92,7 +92,7 @@ export function PushView({
           // Compute fill/label, with game mode taking precedence.
           let fill: string;
           let label: string = '';
-          let textFill: string = 'var(--text-dim)';
+          let textFill: string = 'var(--ink-muted)';
           let labelWeight = 500;
           if (inGame) {
             const k = padKey(pad.row, pad.col);
@@ -112,7 +112,7 @@ export function PushView({
             }
           } else {
             fill = lit ? (root ? 'var(--pad-on-root)' : 'var(--pad-on)') : 'var(--pad)';
-            textFill = lit ? '#0b0d12' : 'var(--text-dim)';
+            textFill = lit ? '#0b0d12' : 'var(--ink-muted)';
             label = lit && pcLabels?.[pad.note.pitchClass]
               ? (pcLabels[pad.note.pitchClass] as string)
               : pad.note.pitchClass;
