@@ -11,6 +11,7 @@ import { PushView } from './instruments/push/PushView';
 import { SelectionBar } from './components/SelectionBar';
 import { GameModePanel } from './components/GameModePanel';
 import { useAppState } from './state/useAppState';
+import type { AppState } from './types';
 import { resolveSelection } from './state/resolve';
 import { getDiatonicChords } from './theory/diatonic';
 import { guitarScaleOrgUrl } from './theory/scales';
@@ -22,8 +23,19 @@ import { SheetMusicView } from './instruments/notation/SheetMusicView';
 import { TabView } from './instruments/notation/TabView';
 import './theory-companion.css';
 
-export default function TheoryCompanion() {
-  const appState = useAppState();
+export interface TheoryCompanionProps {
+  /** Initial visualizer state, typically parsed from the host route's deep-link
+   *  param. When omitted, the visualizer starts at its default (C major chord).
+   *  When the host re-renders with a different value, the visualizer keeps its
+   *  current state — initialState is only read once on mount. */
+  initialState?: AppState;
+}
+
+export default function TheoryCompanion({ initialState }: TheoryCompanionProps = {}) {
+  // syncUrl=false so the visualizer doesn't fight TanStack Router for the URL.
+  // The host route owns the URL via its zod-validated search schema; deep-links
+  // arrive through `initialState` (parsed from the `theory=` param).
+  const appState = useAppState({ syncUrl: false, initialState });
   const resolved = useMemo(
     () => resolveSelection(appState.state, appState.previewedChordDegree),
     [appState.state, appState.previewedChordDegree],

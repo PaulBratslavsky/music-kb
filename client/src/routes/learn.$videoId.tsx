@@ -15,6 +15,7 @@ import { ReadablePane } from '#/components/ReadablePane';
 import { NotesPane } from '#/components/NotesPane';
 import { TranscriptPane } from '#/components/TranscriptPane';
 import TheoryCompanion from '#/lib/music/TheoryCompanion';
+import { parseTheoryParam } from '#/lib/music/deep-link';
 import { PlayerProvider, YouTubePlayer } from '#/components/player';
 import { RelatedVideos } from '#/components/RelatedVideos';
 import { GenerationModeSelect } from '#/components/GenerationModeSelect';
@@ -82,6 +83,11 @@ type LoaderData =
 const LearnSearchSchema = z.object({
   view: z.enum(['summary', 'read', 'notes', 'theory', 'transcript']).optional(),
   t: z.number().int().min(0).max(86400).optional(),
+  // Deep-link shorthand for the Theory tab: chord:C:maj:0:0 / scale:C:major /
+  // note:C. Parsed by parseTheoryParam; invalid input falls back to defaults
+  // silently rather than 404-ing. Length-capped to keep this from being abused
+  // as an arbitrary query buffer.
+  theory: z.string().max(64).optional(),
 });
 
 export const Route = createFileRoute('/learn/$videoId')({
@@ -200,10 +206,13 @@ function SummaryView({
     // Preserve `t` across view changes — stripping it would mutate the
     // player's start offset and force a reload. User changes tabs after
     // landing at a moment; the video should keep playing uninterrupted.
+    // Drop `theory` when leaving the Theory tab; it's specific to that view
+    // and lingering would clutter the URL on Summary/Notes/Transcript.
     void navigate({
       search: {
         view: next === 'summary' ? undefined : next,
         t: search.t,
+        theory: next === 'theory' ? search.theory : undefined,
       },
     });
   };
@@ -251,7 +260,7 @@ function SummaryView({
                 refreshKey={notesRefreshKey}
               />
             ) : view === 'theory' ? (
-              <TheoryCompanion />
+              <TheoryCompanion initialState={parseTheoryParam(search.theory) ?? undefined} />
             ) : view === 'transcript' ? (
               <TranscriptPane video={video} />
             ) : (

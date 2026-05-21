@@ -23,7 +23,7 @@ import { PUSH_BASE_MIDI } from '../instruments/push/layout';
 import { pitchClassFromMidi } from '../theory/notes';
 import { loadBestStreak, saveBestStreak } from './gameModeStorage';
 
-const DEFAULT_STATE: AppState = {
+export const DEFAULT_STATE: AppState = {
   mode: 'chord',
   chord: { root: 'C', quality: 'maj', inversion: 0, voicingIndex: 0 },
   scale: { root: 'C', type: 'major' },
@@ -154,10 +154,23 @@ function pcAtPosition(pos: GuessPosition): PitchClass {
   return pitchClassFromMidi(PUSH_BASE_MIDI + pos.row * 5 + pos.col);
 }
 
-export function useAppState() {
-  const [state, setState] = useState<AppState>(() =>
-    stateFromUrl(typeof window !== 'undefined' ? window.location.search : ''),
-  );
+export interface UseAppStateOptions {
+  /** When true (default), reads initial state from `window.location.search` and
+   *  writes back on every change via `history.replaceState`. Set to false when
+   *  embedding the visualizer inside a host route that owns its own URL state
+   *  (e.g. /learn/$videoId) — the host passes deep-link state via `initialState`
+   *  and the visualizer keeps its working state in component memory only. */
+  syncUrl?: boolean;
+  /** Used as the initial state when `syncUrl` is false. Ignored otherwise. */
+  initialState?: AppState;
+}
+
+export function useAppState(options: UseAppStateOptions = {}) {
+  const { syncUrl = true, initialState } = options;
+  const [state, setState] = useState<AppState>(() => {
+    if (!syncUrl) return initialState ?? DEFAULT_STATE;
+    return stateFromUrl(typeof window !== 'undefined' ? window.location.search : '');
+  });
   const [focusedPitchClass, setFocusedPitchClassRaw] = useState<PitchClass | null>(null);
   const [labelMode, setLabelMode] = useState<'name' | 'degree'>('name');
   const [showNaturals, setShowNaturals] = useState(false);
@@ -187,20 +200,23 @@ export function useAppState() {
     });
   }, []);
 
-  // Push to URL whenever state changes
+  // Push to URL whenever state changes — only when this hook owns the URL.
   useEffect(() => {
+    if (!syncUrl) return;
     const next = urlFromState(state);
     if (window.location.search !== next) {
       window.history.replaceState(null, '', next);
     }
-  }, [state]);
+  }, [state, syncUrl]);
 
-  // Listen for back/forward
+  // Listen for back/forward — only when this hook owns the URL. Inside a
+  // host like /learn/$videoId, the host's router already handles popstate.
   useEffect(() => {
+    if (!syncUrl) return;
     const onPop = () => setState(stateFromUrl(window.location.search));
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  }, [syncUrl]);
 
   const setMode = useCallback((mode: ViewMode) => {
     setState((s) => ({ ...s, mode }));
