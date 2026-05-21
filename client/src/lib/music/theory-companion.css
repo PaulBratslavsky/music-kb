@@ -1,12 +1,23 @@
-:root {
-  --bg: #0f1115;
-  --panel: #181b22;
-  --panel-2: #1f2330;
-  --border: #2a2f3d;
-  --text: #e6e8ee;
-  --text-dim: #9aa3b2;
-  --accent: #4f8cff;
-  --accent-2: #7ab0ff;
+/* Theory companion (instrument-visualizer port).
+ *
+ * The standalone visualizer defined its own dark palette at `:root`, which
+ * — once the CSS file loaded — overrode music-kb's design tokens for the
+ * entire page (broke the Header chrome, leaked into Notes/Summary, etc.).
+ * Everything is now scoped under `.theory-companion`:
+ *
+ * - Abstract tokens (panel/border/text/accent) reference music-kb's
+ *   theme-aware tokens (`--card`, `--line`, `--ink`, etc.), so light/dark
+ *   mode just works. The visualizer's own CSS below still uses these names
+ *   via the rename pass (var(--card) → var(--card), etc.) so we don't
+ *   have two competing sources of truth.
+ * - Instrument-intrinsic colors (root highlight, key colors, fretboard,
+ *   strings, push pads) stay as fixed values — they're part of the
+ *   visual model, not the page theme. A piano key is white in both modes.
+ *
+ * No global `html, body, #root` rules — that was the pollution source.
+ */
+.theory-companion {
+  /* Instrument highlights (intrinsic, theme-independent) */
   --root: #ff7a59;
   --highlight: #4fd6a1;
   --white-key: #f4f5f7;
@@ -19,27 +30,17 @@
   --string: #c9c2b6;
   --focus: #61dafb;
   --natural: #ffd54a;
+  /* Slightly lighter accent for ref links inside panel titles. music-kb
+   * doesn't define this, so we synthesize one off the global --accent. */
+  --accent-2: color-mix(in srgb, var(--accent) 65%, white 35%);
 
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    Roboto, 'Helvetica Neue', Arial, sans-serif;
-  color-scheme: dark;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html, body, #root {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100%;
-}
-
-body {
   font-size: 14px;
   line-height: 1.4;
+  color: var(--ink);
+}
+
+.theory-companion * {
+  box-sizing: border-box;
 }
 
 .app {
@@ -66,24 +67,24 @@ body {
 }
 
 .app-header .tagline {
-  color: var(--text-dim);
+  color: var(--ink-muted);
   font-size: 13px;
 }
 
 .label {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 14px;
-  color: var(--text);
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  color: var(--ink);
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
   padding: 6px 10px;
   border-radius: 6px;
   display: inline-block;
 }
 
 .panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 16px;
 }
@@ -92,7 +93,7 @@ body {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-dim);
+  color: var(--ink-muted);
   margin: 0 0 10px;
 }
 
@@ -127,7 +128,7 @@ body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-dim);
+  color: var(--ink-muted);
 }
 
 .btn-row {
@@ -150,9 +151,9 @@ button.chip.chip-sm {
 }
 
 button.chip {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--ink);
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 13px;
@@ -162,7 +163,7 @@ button.chip {
 }
 
 button.chip:hover {
-  background: #252a37;
+  background: var(--accent-soft);
 }
 
 button.chip.active {
@@ -182,9 +183,9 @@ button.chip.active:hover {
 }
 
 .stepper button {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--ink);
+  border: 1px solid var(--line);
   width: 28px;
   height: 28px;
   border-radius: 6px;
@@ -197,7 +198,7 @@ button.chip.active:hover {
 }
 
 .stepper button:hover {
-  background: #252a37;
+  background: var(--accent-soft);
 }
 
 .stepper .stepper-value {
@@ -274,7 +275,7 @@ button.clear-focus:hover {
 }
 
 .hint {
-  color: var(--text-dim);
+  color: var(--ink-muted);
   font-size: 12px;
   margin-left: auto;
 }
@@ -286,8 +287,8 @@ button.clear-focus:hover {
 }
 
 .diatonic-chip {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 12px;
   cursor: pointer;
@@ -297,12 +298,12 @@ button.clear-focus:hover {
   gap: 2px;
   min-width: 56px;
   font-family: inherit;
-  color: var(--text);
+  color: var(--ink);
   transition: background 0.08s ease, border-color 0.08s ease, transform 0.08s ease;
 }
 
 .diatonic-chip:hover:not(:disabled) {
-  background: #252a37;
+  background: var(--accent-soft);
   border-color: var(--accent);
   transform: translateY(-1px);
 }
@@ -334,7 +335,7 @@ button.clear-focus:hover {
 .diatonic-roman {
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--text-dim);
+  color: var(--ink-muted);
   letter-spacing: 0.05em;
 }
 
@@ -347,10 +348,10 @@ button.clear-focus:hover {
 .app-footer {
   margin-top: 12px;
   padding: 12px 4px;
-  color: var(--text-dim);
+  color: var(--ink-muted);
   font-size: 12px;
   text-align: center;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
 }
 
 .app-footer a {
@@ -387,13 +388,15 @@ button.clear-focus:hover {
 }
 
 .notation-strip {
+  /* Sheet music + TAB read like a printed page (black ink on cream paper),
+     in both light and dark mode. The strip overrides music-kb's tokens
+     just within this subtree so child SVG strokes/labels pick up the
+     "printed page" colors instead of the theme. */
   background: #f4f5f7;
-  /* Override the dark-theme text/border vars so the staff and TAB read like
-     a printed page (black ink on cream background). */
-  --text: #1a1d24;
-  --text-dim: #5a6071;
-  --border: #d3d6dc;
-  --panel: #f4f5f7;
+  --ink: #1a1d24;
+  --ink-muted: #5a6071;
+  --line: #d3d6dc;
+  --card: #f4f5f7;
   border-radius: 6px;
   padding: 6px 8px;
   display: flex;
@@ -414,8 +417,9 @@ button.clear-focus:hover {
   display: block;
 }
 
-/* Game mode */
-:root {
+/* Game mode — intrinsic indicator colors (correct/wrong/pending) that
+   stay constant across themes. Scoped so they don't leak to the page. */
+.theory-companion {
   --game-pending: #6b7280;
   --game-correct: #4fd6a1;
   --game-wrong: #ff6b6b;
@@ -432,24 +436,24 @@ button.clear-focus:hover {
 .game-mode-prompt {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 14px;
-  color: var(--text-dim);
+  color: var(--ink-muted);
 }
 
 .game-mode-prompt strong {
-  color: var(--text);
+  color: var(--ink);
   font-size: 18px;
   margin-left: 4px;
   letter-spacing: 0.04em;
 }
 
 .game-mode-streak {
-  color: var(--text-dim);
+  color: var(--ink-muted);
   font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .game-mode-streak strong {
-  color: var(--text);
+  color: var(--ink);
 }
 
 .game-mode-pending-count {
@@ -465,7 +469,7 @@ button.chip.game-mode-toggle.active {
 }
 
 button.chip.game-mode-toggle.active:hover {
-  background: #6fe0b3;
+  background: color-mix(in srgb, var(--game-correct) 80%, white 20%);
 }
 
 button.chip.game-check {
