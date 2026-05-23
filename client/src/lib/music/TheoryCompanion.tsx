@@ -4,14 +4,14 @@
 // stripped. Everything else (selection bar, play row, diatonic chips,
 // three-instrument grid, sheet music + tab strips) is preserved.
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { PianoView } from './instruments/piano/PianoView';
 import { GuitarView } from './instruments/guitar/GuitarView';
 import { PushView } from './instruments/push/PushView';
 import { SelectionBar } from './components/SelectionBar';
 import { GameModePanel } from './components/GameModePanel';
 import { useAppState } from './state/useAppState';
-import type { AppState } from './types';
+import type { AppState, PitchClass } from './types';
 import { resolveSelection } from './state/resolve';
 import { getDiatonicChords } from './theory/diatonic';
 import { guitarScaleOrgUrl } from './theory/scales';
@@ -29,13 +29,33 @@ export interface TheoryCompanionProps {
    *  When the host re-renders with a different value, the visualizer keeps its
    *  current state — initialState is only read once on mount. */
   initialState?: AppState;
+  /** Fires whenever the user clicks a piano key (toggles focusedPitchClass).
+   *  The host uses this to drive the LoopBuilder's "Use as <PC> major / minor"
+   *  affordance — when null, no piano focus; when set, a key has been picked
+   *  by ear and is awaiting a major/minor choice. */
+  onFocusedPitchClassChange?: (pc: PitchClass | null) => void;
+  /** Fires when a diatonic chord chip is clicked. The host wires this into
+   *  LoopBuilder.appendChord when recordMode is on. The visualizer's own
+   *  behavior (preview + play the chord) is unchanged — this is sidecar. */
+  onDiatonicChordClick?: (chord: { root: PitchClass; quality: string }) => void;
 }
 
-export default function TheoryCompanion({ initialState }: TheoryCompanionProps = {}) {
+export default function TheoryCompanion({
+  initialState,
+  onFocusedPitchClassChange,
+  onDiatonicChordClick,
+}: TheoryCompanionProps = {}) {
   // syncUrl=false so the visualizer doesn't fight TanStack Router for the URL.
   // The host route owns the URL via its zod-validated search schema; deep-links
   // arrive through `initialState` (parsed from the `theory=` param).
   const appState = useAppState({ syncUrl: false, initialState });
+
+  // Forward focused-pitch-class changes to the host. Effect (not inline) so
+  // we observe the React-managed state transitions rather than racing inside
+  // the click handler.
+  useEffect(() => {
+    onFocusedPitchClassChange?.(appState.focusedPitchClass);
+  }, [appState.focusedPitchClass, onFocusedPitchClassChange]);
   const resolved = useMemo(
     () => resolveSelection(appState.state, appState.previewedChordDegree),
     [appState.state, appState.previewedChordDegree],
@@ -163,6 +183,13 @@ export default function TheoryCompanion({ initialState }: TheoryCompanionProps =
                   onClick={() => {
                     appState.togglePreviewedChordDegree(c.degree);
                     playDiatonicChord(c);
+                    // Sidecar: notify the host so LoopBuilder can append the
+                    // chord to its in-progress progression when recordMode is
+                    // on. The visualizer's own behaviour (preview + play) is
+                    // unchanged regardless of whether anyone listens.
+                    if (c.quality) {
+                      onDiatonicChordClick?.({ root: c.root, quality: c.quality });
+                    }
                   }}
                   title={`Play ${c.chordName} and highlight it within the scale`}
                 >

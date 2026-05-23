@@ -18,6 +18,13 @@ import TheoryCompanion from '#/lib/music/TheoryCompanion';
 import { parseTheoryParam } from '#/lib/music/deep-link';
 import { PlayerProvider, YouTubePlayer } from '#/components/player';
 import { LoopControls } from '#/components/LoopControls';
+import {
+  LoopBuilderProvider,
+  useLoopBuilder,
+} from '#/components/LoopBuilderProvider';
+import { LoopBuilder } from '#/components/LoopBuilder';
+import type { AppState } from '#/lib/music/types';
+import type { KeySig } from '#/lib/services/loops';
 import { RelatedVideos } from '#/components/RelatedVideos';
 import { GenerationModeSelect } from '#/components/GenerationModeSelect';
 import {
@@ -200,6 +207,25 @@ function SummaryView({
   video,
   videoId,
 }: Readonly<{ video: StrapiVideo; videoId: string }>) {
+  // Both providers wrap the same subtree — PlayerProvider owns the iframe
+  // ref + loop region, LoopBuilderProvider owns the in-flight musical
+  // discovery (candidate key + ordered progression). The Theory tab's
+  // LoopBuilder reads from the latter; "Set A / Set B" reads from the
+  // former. The actual layout lives in <LearnLayout> so it can use both
+  // hooks without nesting provider→consumer awkwardly in this component.
+  return (
+    <PlayerProvider>
+      <LoopBuilderProvider>
+        <LearnLayout video={video} videoId={videoId} />
+      </LoopBuilderProvider>
+    </PlayerProvider>
+  );
+}
+
+function LearnLayout({
+  video,
+  videoId,
+}: Readonly<{ video: StrapiVideo; videoId: string }>) {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const view = search.view ?? 'summary';
@@ -221,20 +247,37 @@ function SummaryView({
   // needing its own event wiring or a page reload.
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
 
-  return (
-    <PlayerProvider>
-      {/* On lg+ the page itself doesn't scroll — `<main>` is taken out
-          of body flow with `lg:fixed`, anchored from just-below-the-
-          header (`top-16`) to the viewport bottom. Body's height stops
-          at the header, so the whole page can never scroll. Each
-          column scrolls inside its own container with `overscroll-
-          contain` so wheel events don't chain. Mobile (under `lg`)
-          falls back to stacked, page-level scroll via `min-h-`.
+  // LoopBuilder integration ------------------------------------------------
+  const { recordMode, appendChord, setCandidateKey } = useLoopBuilder();
+  // Local mirror of the visualizer's focused pitch class — drives the
+  // LoopBuilder's "Use as <PC> major / minor" buttons.
+  const [lastFocusedPC, setLastFocusedPC] = useState<string | null>(null);
+  // When the user picks a key via "Use as X" we remount TheoryCompanion
+  // with a new initialState so the visualizer flips into scale mode at
+  // the chosen root. The `key` on the component remounts it; the nonce
+  // is monotonically bumped so identical consecutive picks still remount.
+  const [theoryNonce, setTheoryNonce] = useState(0);
+  const [theoryOverrideState, setTheoryOverrideState] =
+    useState<AppState | null>(null);
 
-          Why `fixed` rather than `h-[calc(100vh-...)]`: the latter
-          requires nailing the header's exact pixel height (incl. its
-          `border-b`), and any 1-pixel overflow puts a scrollbar back
-          on the page. `fixed` sidesteps the math entirely. */}
+  const handleUseAsKey = (key: KeySig) => {
+    setCandidateKey(key);
+    setTheoryOverrideState({
+      mode: 'scale',
+      chord: { root: 'C', quality: 'maj', inversion: 0, voicingIndex: 0 },
+      scale: { root: key.root as any, type: key.type as any },
+      singleNote: 'C',
+      scalePosition: 'all',
+      preferFlats: false,
+    });
+    setTheoryNonce((n) => n + 1);
+  };
+
+  // Compose the TheoryCompanion's initial state: override > URL deep-link > default.
+  const theoryInitialState =
+    theoryOverrideState ?? parseTheoryParam(search.theory) ?? undefined;
+
+  return (
       <main className="min-h-[calc(100dvh-4rem)] lg:fixed lg:inset-x-0 lg:bottom-0 lg:top-16 lg:min-h-0 lg:overflow-hidden">
         <div className="grid min-h-[calc(100dvh-4rem)] lg:h-full lg:min-h-0 lg:grid-cols-[6fr_4fr]">
           <div className="min-w-0 bg-[var(--bg-subtle)] px-6 py-10 sm:px-10 sm:py-14 lg:overflow-y-auto lg:overscroll-contain lg:px-14">
@@ -261,7 +304,22 @@ function SummaryView({
                 refreshKey={notesRefreshKey}
               />
             ) : view === 'theory' ? (
-              <TheoryCompanion initialState={parseTheoryParam(search.theory) ?? undefined} />
+              <>
+                <LoopBuilder
+                  lastFocusedPC={lastFocusedPC}
+                  onUseAsKey={handleUseAsKey}
+                />
+                <TheoryCompanion
+                  key={theoryNonce}
+                  initialState={theoryInitialState}
+                  onFocusedPitchClassChange={(pc) =>
+                    setLastFocusedPC(pc as string | null)
+                  }
+                  onDiatonicChordClick={(chord) => {
+                    if (recordMode) appendChord(chord);
+                  }}
+                />
+              </>
             ) : view === 'transcript' ? (
               <TranscriptPane video={video} />
             ) : (
@@ -291,7 +349,6 @@ function SummaryView({
           </aside>
         </div>
       </main>
-    </PlayerProvider>
   );
 }
 
