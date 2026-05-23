@@ -17,6 +17,7 @@ import { TranscriptPane } from '#/components/TranscriptPane';
 import TheoryCompanion from '#/lib/music/TheoryCompanion';
 import { parseTheoryParam } from '#/lib/music/deep-link';
 import { PlayerProvider, YouTubePlayer } from '#/components/player';
+import { LoopControls } from '#/components/LoopControls';
 import { RelatedVideos } from '#/components/RelatedVideos';
 import { GenerationModeSelect } from '#/components/GenerationModeSelect';
 import {
@@ -281,6 +282,7 @@ function SummaryView({
                 />
               </div>
             </div>
+            <LoopControls />
             <VideoChat
               videoId={videoId}
               onNoteCreated={() => setNotesRefreshKey((k) => k + 1)}

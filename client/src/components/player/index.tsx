@@ -13,6 +13,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -39,6 +40,21 @@ export type PlayerControl = {
   // Lets callers (e.g. SectionTimecodeEditor's "use current time"
   // button) suppress UI that depends on a working player.
   isReady: boolean;
+
+  // ---- A/B loop ------------------------------------------------------------
+  // Marked region for play-along discovery. Null = unset on that side.
+  loopStartSec: number | null;
+  loopEndSec: number | null;
+  // When true and both endpoints are set, the player auto-seeks back to
+  // loopStartSec the moment currentSeconds crosses loopEndSec. The seek
+  // happens off the same onTimeUpdate event that drives `currentSeconds`,
+  // so the engine is reactive — no polling.
+  loopActive: boolean;
+  setLoopStart: (seconds: number | null) => void;
+  setLoopEnd: (seconds: number | null) => void;
+  toggleLoopActive: () => void;
+  /** Clears A, B, and turns the loop off. */
+  clearLoop: () => void;
 };
 
 const PlayerContext = createContext<PlayerControl | null>(null);
@@ -83,6 +99,19 @@ export function PlayerProvider({ children }: Readonly<{ children: ReactNode }>) 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
+  // Loop state. Two-stage to allow either endpoint to be set without the
+  // other (player UI can show "Set A" filled, "Set B" empty).
+  const [loopStartSec, setLoopStartSec] = useState<number | null>(null);
+  const [loopEndSec, setLoopEndSec] = useState<number | null>(null);
+  const [loopActive, setLoopActive] = useState(false);
+  // Suppresses re-firing the loop seek inside the same timeupdate burst.
+  // Without it, the seek-then-onTimeUpdate cycle can briefly see
+  // `currentSeconds >= loopEndSec` again before the player applies the
+  // new currentTime, causing a thrash. 250ms is enough for the iframe
+  // to acknowledge the seek; anything shorter than the natural loop
+  // length is invisible to the user.
+  const lastLoopSeekAtRef = useRef(0);
+
   const seekTo = useCallback((seconds: number) => {
     const player = playerRef.current;
     if (!player) return;
@@ -115,9 +144,68 @@ export function PlayerProvider({ children }: Readonly<{ children: ReactNode }>) 
   const notifyPlay = useCallback(() => setIsPlaying(true), []);
   const notifyPause = useCallback(() => setIsPlaying(false), []);
 
+  // Loop engine. Reactive off currentSeconds — every player timeupdate (~4Hz)
+  // we check whether we've crossed loopEndSec; if so, seek back to loopStartSec.
+  // Deactivated automatically if either endpoint is null.
+  useEffect(() => {
+    if (!loopActive) return;
+    if (loopStartSec == null || loopEndSec == null) return;
+    if (loopEndSec <= loopStartSec) return;
+    if (currentSeconds < loopEndSec) return;
+    if (Date.now() - lastLoopSeekAtRef.current < 250) return;
+    lastLoopSeekAtRef.current = Date.now();
+    seekTo(loopStartSec);
+  }, [loopActive, loopStartSec, loopEndSec, currentSeconds, seekTo]);
+
+  const setLoopStart = useCallback((seconds: number | null) => {
+    setLoopStartSec(seconds == null ? null : Math.max(0, Math.floor(seconds)));
+  }, []);
+
+  const setLoopEnd = useCallback((seconds: number | null) => {
+    setLoopEndSec(seconds == null ? null : Math.max(0, Math.floor(seconds)));
+  }, []);
+
+  const toggleLoopActive = useCallback(() => {
+    setLoopActive((prev) => !prev);
+  }, []);
+
+  const clearLoop = useCallback(() => {
+    setLoopStartSec(null);
+    setLoopEndSec(null);
+    setLoopActive(false);
+  }, []);
+
   const control = useMemo<PlayerControl>(
-    () => ({ seekTo, play, pause, currentSeconds, isPlaying, isReady }),
-    [seekTo, play, pause, currentSeconds, isPlaying, isReady],
+    () => ({
+      seekTo,
+      play,
+      pause,
+      currentSeconds,
+      isPlaying,
+      isReady,
+      loopStartSec,
+      loopEndSec,
+      loopActive,
+      setLoopStart,
+      setLoopEnd,
+      toggleLoopActive,
+      clearLoop,
+    }),
+    [
+      seekTo,
+      play,
+      pause,
+      currentSeconds,
+      isPlaying,
+      isReady,
+      loopStartSec,
+      loopEndSec,
+      loopActive,
+      setLoopStart,
+      setLoopEnd,
+      toggleLoopActive,
+      clearLoop,
+    ],
   );
 
   const internals = useMemo<PlayerInternals>(
