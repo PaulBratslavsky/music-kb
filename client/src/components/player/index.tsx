@@ -145,16 +145,18 @@ export function PlayerProvider({ children }: Readonly<{ children: ReactNode }>) 
   const notifyPause = useCallback(() => setIsPlaying(false), []);
 
   // Loop engine. Reactive off currentSeconds — every player timeupdate (~4Hz)
-  // we check whether we've crossed loopEndSec; if so, seek back to loopStartSec.
-  // Deactivated automatically if either endpoint is null.
+  // we check whether we've crossed loopEndSec; if so, seek back to start.
+  // An unset start is treated as 0 — "loop from the beginning" is the
+  // natural read of typing only an end value (matches LoopControls UX).
   useEffect(() => {
     if (!loopActive) return;
-    if (loopStartSec == null || loopEndSec == null) return;
-    if (loopEndSec <= loopStartSec) return;
+    if (loopEndSec == null) return;
+    const effectiveStart = loopStartSec ?? 0;
+    if (loopEndSec <= effectiveStart) return;
     if (currentSeconds < loopEndSec) return;
     if (Date.now() - lastLoopSeekAtRef.current < 250) return;
     lastLoopSeekAtRef.current = Date.now();
-    seekTo(loopStartSec);
+    seekTo(effectiveStart);
   }, [loopActive, loopStartSec, loopEndSec, currentSeconds, seekTo]);
 
   const setLoopStart = useCallback((seconds: number | null) => {

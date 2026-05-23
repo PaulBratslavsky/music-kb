@@ -105,7 +105,7 @@ function TimestampInput({
           (e.target as HTMLInputElement).blur();
         }
       }}
-      className={`w-14 rounded border bg-[var(--bg-subtle)] px-1.5 py-0.5 text-center font-mono text-xs text-[var(--ink)] focus:outline-none focus:ring-1 ${
+      className={`w-14 rounded border bg-[var(--bg-subtle)] px-1.5 py-0.5 text-center font-mono text-xs text-[var(--ink)] placeholder:text-[var(--ink-faint)] placeholder:italic focus:outline-none focus:ring-1 ${
         bad
           ? 'border-destructive ring-destructive'
           : 'border-[var(--line)] focus:border-[var(--accent)] focus:ring-[var(--accent)]'
@@ -127,8 +127,11 @@ export function LoopControls() {
     clearLoop,
   } = usePlayerControl();
 
-  const hasValidRegion =
-    loopStartSec != null && loopEndSec != null && loopEndSec > loopStartSec;
+  // An unset start treats as 0 — "loop from the beginning to <end>" is a
+  // natural read of typing only an end value, and avoids the placeholder
+  // "0:00" / real "0:00" ambiguity that traps users at first try.
+  const effectiveStart = loopStartSec ?? 0;
+  const hasValidRegion = loopEndSec != null && loopEndSec > effectiveStart;
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-[var(--line)] bg-[var(--card)] px-4 py-3 text-sm sm:px-6">
