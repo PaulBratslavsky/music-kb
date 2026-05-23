@@ -500,6 +500,69 @@ export interface ApiDigestDigest extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiLoopLoop extends Struct.CollectionTypeSchema {
+  collectionName: 'loops';
+  info: {
+    description: "A user-marked A/B loop region on a Video, with the discovered key signature and chord progression. Created during play-along discovery on the Theory tab: pick a key by ear, then tap diatonic chord chips against the loop to capture the progression. `key` and `progression` are stored as JSON so the visualizer's ScaleSelection / ChordSelection shapes can round-trip without flattening. `melody` is reserved for v3.";
+    displayName: 'Loop';
+    pluralName: 'loops';
+    singularName: 'loop';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    bpm: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 400;
+          min: 20;
+        },
+        number
+      >;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    endSec: Schema.Attribute.Integer &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    key: Schema.Attribute.JSON;
+    label: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 120;
+        minLength: 1;
+      }>;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<'oneToMany', 'api::loop.loop'> &
+      Schema.Attribute.Private;
+    melody: Schema.Attribute.JSON;
+    notes: Schema.Attribute.Text &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 2000;
+      }>;
+    progression: Schema.Attribute.JSON;
+    publishedAt: Schema.Attribute.DateTime;
+    startSec: Schema.Attribute.Integer &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    video: Schema.Attribute.Relation<'manyToOne', 'api::video.video'>;
+  };
+}
+
 export interface ApiNoteNote extends Struct.CollectionTypeSchema {
   collectionName: 'notes';
   info: {
@@ -678,6 +741,7 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<'oneToMany', 'api::video.video'> &
       Schema.Attribute.Private;
+    loops: Schema.Attribute.Relation<'oneToMany', 'api::loop.loop'>;
     notes: Schema.Attribute.Relation<'manyToMany', 'api::note.note'>;
     passageEmbeddings: Schema.Attribute.JSON;
     publishedAt: Schema.Attribute.DateTime;
@@ -1278,6 +1342,7 @@ declare module '@strapi/strapi' {
       'admin::transfer-token-permission': AdminTransferTokenPermission;
       'admin::user': AdminUser;
       'api::digest.digest': ApiDigestDigest;
+      'api::loop.loop': ApiLoopLoop;
       'api::note.note': ApiNoteNote;
       'api::tag.tag': ApiTagTag;
       'api::transcript.transcript': ApiTranscriptTranscript;

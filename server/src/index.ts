@@ -144,6 +144,14 @@ export default {
       'api::digest.digest.create',
       'api::digest.digest.update',
       'api::digest.digest.delete',
+      // Loop is a saved play-along discovery: A/B video region + key +
+      // ordered chord progression. Created from the Theory tab's
+      // "Find chords" panel; reopened via the right-column loops list.
+      'api::loop.loop.find',
+      'api::loop.loop.findOne',
+      'api::loop.loop.create',
+      'api::loop.loop.update',
+      'api::loop.loop.delete',
     ];
 
     try {

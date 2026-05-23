@@ -62,6 +62,12 @@
       "target": "api::note.note",
       "mappedBy": "videos"
     },
+    "loops": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::loop.loop",
+      "mappedBy": "video"
+    },
     "summaryStatus": {
       "type": "enumeration",
       "enum": ["pending", "generated", "failed"],

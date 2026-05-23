@@ -1,0 +1,61 @@
+{
+  "kind": "collectionType",
+  "collectionName": "loops",
+  "info": {
+    "singularName": "loop",
+    "pluralName": "loops",
+    "displayName": "Loop",
+    "description": "A user-marked A/B loop region on a Video, with the discovered key signature and chord progression. Created during play-along discovery on the Theory tab: pick a key by ear, then tap diatonic chord chips against the loop to capture the progression. `key` and `progression` are stored as JSON so the visualizer's ScaleSelection / ChordSelection shapes can round-trip without flattening. `melody` is reserved for v3."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "video": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::video.video",
+      "inversedBy": "loops"
+    },
+    "label": {
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "startSec": {
+      "type": "integer",
+      "required": true,
+      "min": 0
+    },
+    "endSec": {
+      "type": "integer",
+      "required": true,
+      "min": 0
+    },
+    "key": {
+      "type": "json",
+      "description": "ScaleSelection-shaped: { root: PitchClass, type: ScaleType }. Optional — null until the user picks a key."
+    },
+    "progression": {
+      "type": "json",
+      "description": "Ordered list of chord entries discovered against the loop. Each entry: { root: PitchClass, quality: ChordQuality, durationBeats: number | null }. v1 leaves durationBeats null (chords are an unordered-in-time sequence); v2 fills it in for synced playback."
+    },
+    "melody": {
+      "type": "json",
+      "description": "Reserved for v3. Null in v1/v2."
+    },
+    "bpm": {
+      "type": "integer",
+      "min": 20,
+      "max": 400,
+      "description": "Optional tempo. Filled in if the user knows or estimates it. Used by v2 progression playback to convert beats → seconds."
+    },
+    "notes": {
+      "type": "text",
+      "maxLength": 2000,
+      "description": "Free-form plain-text notes about this loop (what the section is, what the user is trying to play, etc.)."
+    }
+  }
+}
