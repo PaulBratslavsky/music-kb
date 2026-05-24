@@ -18,8 +18,15 @@
 //        While Record is on, diatonic-chord-chip clicks inside the
 //        visualizer append to the progression.
 
+import { useState } from 'react';
 import { useLoopBuilder } from './LoopBuilderProvider';
 import type { KeySig } from '#/lib/services/loops';
+
+export type SaveLoopPayload = {
+  label: string;
+  bpm: number | null;
+  notes: string | null;
+};
 
 // 12-tone chromatic; flat names mirror the visualizer's notes.ts so a
 // chord chip "Db" round-trips visibly. Index 0 = C.
@@ -49,9 +56,18 @@ function relativeMinor(majorRoot: string): string {
 export function LoopBuilder({
   lastFocusedPC,
   onUseAsKey,
+  onSave,
+  saveBlockedReason,
 }: {
   lastFocusedPC: string | null;
   onUseAsKey: (key: KeySig) => void;
+  /** Persist the current draft + supplied form fields. The host bundles
+   *  the player's loop region and the video relation; this prop just
+   *  receives the user-typed label/bpm/notes. */
+  onSave: (payload: SaveLoopPayload) => Promise<{ ok: boolean; error?: string }>;
+  /** When non-null, the Save button is disabled and the reason is shown
+   *  as a tooltip (e.g. "Set an A/B loop on the player first"). */
+  saveBlockedReason: string | null;
 }) {
   const {
     candidateKey,
@@ -61,6 +77,51 @@ export function LoopBuilder({
     clearDraft,
     toggleRecordMode,
   } = useLoopBuilder();
+
+  // Inline save form. Hidden until the user clicks "Save loop"; controlled
+  // form state lives here (not in LoopBuilderProvider) because it's purely
+  // UI ephemera — once saved, the values live on the persisted Loop row.
+  const [showForm, setShowForm] = useState(false);
+  const [label, setLabel] = useState('');
+  const [bpm, setBpm] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const resetForm = () => {
+    setShowForm(false);
+    setLabel('');
+    setBpm('');
+    setNotes('');
+    setSaveError(null);
+  };
+
+  const handleSubmit = async () => {
+    const trimmedLabel = label.trim();
+    if (!trimmedLabel) {
+      setSaveError('Label is required');
+      return;
+    }
+    const bpmNum = bpm.trim() ? Number(bpm.trim()) : null;
+    if (bpmNum != null && (!Number.isFinite(bpmNum) || bpmNum < 20 || bpmNum > 400)) {
+      setSaveError('BPM must be between 20 and 400');
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    const res = await onSave({
+      label: trimmedLabel,
+      bpm: bpmNum,
+      notes: notes.trim() || null,
+    });
+    setSaving(false);
+    if (res.ok) {
+      resetForm();
+      clearDraft();
+    } else {
+      setSaveError(res.error ?? 'Save failed');
+    }
+  };
 
   // ---- State 3: key picked → progression builder --------------------------
   if (candidateKey) {
@@ -136,7 +197,88 @@ export function LoopBuilder({
           )}
         </div>
 
-        {/* Phase E mounts the Save button here. */}
+        {!showForm ? (
+          <div className="mt-4 flex items-center justify-end">
+            <button
+              type="button"
+              disabled={saveBlockedReason != null}
+              onClick={() => setShowForm(true)}
+              title={saveBlockedReason ?? 'Save this loop with the current key + progression'}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Save loop
+            </button>
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSubmit();
+            }}
+            className="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)] p-4 sm:grid-cols-[2fr_1fr]"
+          >
+            <label className="block text-xs sm:col-span-2">
+              <span className="text-[var(--ink-muted)]">Label *</span>
+              <input
+                type="text"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder='e.g. "intro hook", "chorus", "verse vamp"'
+                disabled={saving}
+                maxLength={120}
+                autoFocus
+                className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-sm text-[var(--ink)] placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)] focus:outline-none"
+              />
+            </label>
+            <label className="block text-xs">
+              <span className="text-[var(--ink-muted)]">BPM (optional)</span>
+              <input
+                type="number"
+                value={bpm}
+                onChange={(e) => setBpm(e.target.value)}
+                placeholder="e.g. 96"
+                min={20}
+                max={400}
+                disabled={saving}
+                className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-sm text-[var(--ink)] placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)] focus:outline-none"
+              />
+            </label>
+            <label className="block text-xs sm:col-span-2">
+              <span className="text-[var(--ink-muted)]">Notes (optional)</span>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="what section is this, what are you trying to nail…"
+                rows={2}
+                maxLength={2000}
+                disabled={saving}
+                className="mt-1 w-full resize-none rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-sm text-[var(--ink)] placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)] focus:outline-none"
+              />
+            </label>
+            {saveError && (
+              <div className="rounded border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive sm:col-span-2">
+                {saveError}
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2 sm:col-span-2">
+              <button
+                type="button"
+                onClick={resetForm}
+                disabled={saving}
+                className="text-xs text-[var(--ink-muted)] underline-offset-2 hover:text-[var(--ink)] hover:underline disabled:opacity-50"
+              >
+                cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving || !label.trim()}
+                className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     );
   }

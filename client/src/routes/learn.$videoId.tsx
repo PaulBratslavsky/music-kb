@@ -23,8 +23,14 @@ import {
   useLoopBuilder,
 } from '#/components/LoopBuilderProvider';
 import { LoopBuilder } from '#/components/LoopBuilder';
+import { SavedLoopsList } from '#/components/SavedLoopsList';
+import { usePlayerControl } from '#/components/player';
 import type { AppState } from '#/lib/music/types';
 import type { KeySig } from '#/lib/services/loops';
+import {
+  saveLoop as saveLoopServerFn,
+  getLoop as getLoopServerFn,
+} from '#/data/server-functions/loops';
 import { RelatedVideos } from '#/components/RelatedVideos';
 import { GenerationModeSelect } from '#/components/GenerationModeSelect';
 import {
@@ -96,6 +102,10 @@ const LearnSearchSchema = z.object({
   // silently rather than 404-ing. Length-capped to keep this from being abused
   // as an arbitrary query buffer.
   theory: z.string().max(64).optional(),
+  // Documents the saved Loop being reopened. When present, the page
+  // fetches the row and hydrates: player loop region, LoopBuilder draft,
+  // and TheoryCompanion initialState. Bookmarkable.
+  loopId: z.string().max(64).optional(),
 });
 
 export const Route = createFileRoute('/learn/$videoId')({
@@ -240,15 +250,34 @@ function LearnLayout({
         view: next === 'summary' ? undefined : next,
         t: search.t,
         theory: next === 'theory' ? search.theory : undefined,
+        loopId: next === 'theory' ? search.loopId : undefined,
       },
     });
   };
   // Bumped when VideoChat saves a note, so NotesPane refetches without
   // needing its own event wiring or a page reload.
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
+  // Bumped when a loop saves, so SavedLoopsList refetches.
+  const [loopsRefreshKey, setLoopsRefreshKey] = useState(0);
 
   // LoopBuilder integration ------------------------------------------------
-  const { recordMode, appendChord, setCandidateKey } = useLoopBuilder();
+  const {
+    recordMode,
+    appendChord,
+    setCandidateKey,
+    candidateKey,
+    progression,
+    hydrateFromSaved,
+  } = useLoopBuilder();
+  const {
+    loopStartSec,
+    loopEndSec,
+    setLoopStart,
+    setLoopEnd,
+    toggleLoopActive,
+    loopActive,
+    seekTo,
+  } = usePlayerControl();
   // Local mirror of the visualizer's focused pitch class — drives the
   // LoopBuilder's "Use as <PC> major / minor" buttons.
   const [lastFocusedPC, setLastFocusedPC] = useState<string | null>(null);
@@ -276,6 +305,88 @@ function LearnLayout({
   // Compose the TheoryCompanion's initial state: override > URL deep-link > default.
   const theoryInitialState =
     theoryOverrideState ?? parseTheoryParam(search.theory) ?? undefined;
+
+  // ---- Save flow --------------------------------------------------------
+  // Compute a human-readable reason why the Save button might be disabled.
+  // Falls through to null when ready to save.
+  const saveBlockedReason = (() => {
+    const effectiveStart = loopStartSec ?? 0;
+    const effectiveEnd = loopEndSec;
+    if (effectiveEnd == null || effectiveEnd <= effectiveStart) {
+      return 'Set an A/B loop on the player first';
+    }
+    if (!candidateKey) return 'Pick a key first';
+    if (progression.length === 0) return 'Add at least one chord to the progression';
+    return null;
+  })();
+
+  const handleSaveLoop = async (payload: {
+    label: string;
+    bpm: number | null;
+    notes: string | null;
+  }) => {
+    const effectiveStart = loopStartSec ?? 0;
+    if (loopEndSec == null) return { ok: false, error: 'Loop end not set' };
+    const res = await saveLoopServerFn({
+      data: {
+        videoDocumentId: video.documentId,
+        label: payload.label,
+        startSec: effectiveStart,
+        endSec: loopEndSec,
+        key: candidateKey,
+        progression,
+        bpm: payload.bpm,
+        notes: payload.notes,
+      },
+    });
+    if (res.status === 'error') {
+      return { ok: false as const, error: res.error };
+    }
+    setLoopsRefreshKey((k) => k + 1);
+    return { ok: true as const };
+  };
+
+  // ---- Reload flow (?loopId=) -------------------------------------------
+  // When the URL carries a loopId, fetch the saved Loop and hydrate:
+  //   • player: loopStart/End, seek to start, activate
+  //   • LoopBuilder: key + progression
+  //   • TheoryCompanion: scale mode at the saved root
+  // Effect keyed on loopId so revisiting the same URL doesn't refire.
+  const loopId = search.loopId;
+  useEffect(() => {
+    if (!loopId) return;
+    let cancelled = false;
+    void getLoopServerFn({ data: { documentId: loopId } }).then((res) => {
+      if (cancelled) return;
+      if (res.status === 'error' || !res.loop) return;
+      const loop = res.loop;
+      setLoopStart(loop.startSec);
+      setLoopEnd(loop.endSec);
+      seekTo(loop.startSec);
+      if (!loopActive) toggleLoopActive();
+      hydrateFromSaved({
+        candidateKey: loop.key,
+        progression: Array.isArray(loop.progression) ? loop.progression : [],
+      });
+      if (loop.key) {
+        setTheoryOverrideState({
+          mode: 'scale',
+          chord: { root: 'C', quality: 'maj', inversion: 0, voicingIndex: 0 },
+          scale: { root: loop.key.root as any, type: loop.key.type as any },
+          singleNote: 'C',
+          scalePosition: 'all',
+          preferFlats: false,
+        });
+        setTheoryNonce((n) => n + 1);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally only depends on loopId — the player/loopBuilder
+    // setters are stable references from their providers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loopId]);
 
   return (
       <main className="min-h-[calc(100dvh-4rem)] lg:fixed lg:inset-x-0 lg:bottom-0 lg:top-16 lg:min-h-0 lg:overflow-hidden">
@@ -308,6 +419,8 @@ function LearnLayout({
                 <LoopBuilder
                   lastFocusedPC={lastFocusedPC}
                   onUseAsKey={handleUseAsKey}
+                  onSave={handleSaveLoop}
+                  saveBlockedReason={saveBlockedReason}
                 />
                 <TheoryCompanion
                   key={theoryNonce}
@@ -341,6 +454,10 @@ function LearnLayout({
               </div>
             </div>
             <LoopControls />
+            <SavedLoopsList
+              videoDocumentId={video.documentId}
+              refreshKey={loopsRefreshKey}
+            />
             <VideoChat
               videoId={videoId}
               onNoteCreated={() => setNotesRefreshKey((k) => k + 1)}
