@@ -15,6 +15,7 @@ import { Route as NewPostRouteImport } from './routes/new-post'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as DigestsRouteImport } from './routes/digests'
 import { Route as DigestRouteImport } from './routes/digest'
+import { Route as BuilderRouteImport } from './routes/builder'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VideoDocumentIdRouteImport } from './routes/video.$documentId'
@@ -52,6 +53,11 @@ const DigestsRoute = DigestsRouteImport.update({
 const DigestRoute = DigestRouteImport.update({
   id: '/digest',
   path: '/digest',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuilderRoute = BuilderRouteImport.update({
+  id: '/builder',
+  path: '/builder',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -98,6 +104,7 @@ const ApiNotesComposeRoute = ApiNotesComposeRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/builder': typeof BuilderRoute
   '/digest': typeof DigestRoute
   '/digests': typeof DigestsRoute
   '/feed': typeof FeedRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/builder': typeof BuilderRoute
   '/digest': typeof DigestRoute
   '/digests': typeof DigestsRoute
   '/feed': typeof FeedRoute
@@ -131,6 +139,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/builder': typeof BuilderRoute
   '/digest': typeof DigestRoute
   '/digests': typeof DigestsRoute
   '/feed': typeof FeedRoute
@@ -149,6 +158,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/builder'
     | '/digest'
     | '/digests'
     | '/feed'
@@ -165,6 +175,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/builder'
     | '/digest'
     | '/digests'
     | '/feed'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/builder'
     | '/digest'
     | '/digests'
     | '/feed'
@@ -198,6 +210,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  BuilderRoute: typeof BuilderRoute
   DigestRoute: typeof DigestRoute
   DigestsRoute: typeof DigestsRoute
   FeedRoute: typeof FeedRoute
@@ -254,6 +267,13 @@ declare module '@tanstack/react-router' {
       path: '/digest'
       fullPath: '/digest'
       preLoaderRoute: typeof DigestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/builder': {
+      id: '/builder'
+      path: '/builder'
+      fullPath: '/builder'
+      preLoaderRoute: typeof BuilderRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -318,6 +338,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  BuilderRoute: BuilderRoute,
   DigestRoute: DigestRoute,
   DigestsRoute: DigestsRoute,
   FeedRoute: FeedRoute,
