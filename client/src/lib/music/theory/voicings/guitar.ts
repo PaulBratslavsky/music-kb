@@ -13,6 +13,20 @@ import { getChordPitchClasses } from '../chords';
 export type GuitarVoicing = {
   notes: Note[];
   shapeName: string | null;
+  /**
+   * (music-kb fork) Exact (string, fret) positions of the voicing, encoded as
+   * `${string}-${fret}` keys to match GuitarView's `shapePositions` filter.
+   * Without this, the GuitarView highlights every fretboard position whose
+   * MIDI matches the voicing's notes — but the same MIDI can sit at multiple
+   * (string, fret) pairs (E4 = string-1 fret-0 = string-2 fret-5 = …), so the
+   * "Open Em" voicing visually scattered 18+ markers across the neck. The
+   * positions set pins highlights to the actual fingering.
+   *
+   * null = no specific positions (the pitch-class-fallback path, when the
+   * quality has no shape definition); GuitarView falls back to "every
+   * position" matching, which is appropriate for that case.
+   */
+  positions: Set<string> | null;
 };
 
 /** Lowest fret (>=0) on `stringIdx` whose note has the given pitch class. */
@@ -29,9 +43,13 @@ function lowestFretForPC(stringIdx: number, pc: PitchClass): number {
  * or fret < 0), shifts the offending position by 12 frets to bring it in range; if
  * still off, drops it. Returns null if no notes survive.
  */
-function realizeShape(shape: GuitarShape, root: PitchClass): Note[] | null {
+function realizeShape(
+  shape: GuitarShape,
+  root: PitchClass,
+): { notes: Note[]; positions: Set<string> } | null {
   const rootFret = lowestFretForPC(shape.rootString, root);
   const notes: Note[] = [];
+  const positions = new Set<string>();
   for (let s = 0; s < shape.frets.length; s++) {
     const offset = shape.frets[s];
     if (offset == null) continue;
@@ -41,22 +59,28 @@ function realizeShape(shape: GuitarShape, root: PitchClass): Note[] | null {
     if (fret < 0 || fret > FRET_COUNT) continue;
     const midi = STANDARD_TUNING_MIDI[s] + fret;
     notes.push(noteFromMidi(midi));
+    positions.add(`${s}-${fret}`);
   }
-  return notes.length > 0 ? notes : null;
+  return notes.length > 0 ? { notes, positions } : null;
 }
 
 /**
  * Realize an open-position shape: its frets are absolute (0 = open string),
  * so we just add each played string's fret to that string's open MIDI.
  */
-function realizeOpenShape(shape: OpenChordShape): Note[] {
+function realizeOpenShape(shape: OpenChordShape): {
+  notes: Note[];
+  positions: Set<string>;
+} {
   const notes: Note[] = [];
+  const positions = new Set<string>();
   for (let s = 0; s < shape.frets.length; s++) {
     const fret = shape.frets[s];
     if (fret == null) continue;
     notes.push(noteFromMidi(STANDARD_TUNING_MIDI[s] + fret));
+    positions.add(`${s}-${fret}`);
   }
-  return notes;
+  return { notes, positions };
 }
 
 /** Open-position shape for this exact root+quality, or null if there isn't one. */
@@ -83,15 +107,26 @@ export function guitarVoicing(sel: ChordSelection): GuitarVoicing {
   const voicings: GuitarVoicing[] = [];
 
   const open = openShapeFor(sel);
-  if (open) voicings.push({ notes: realizeOpenShape(open), shapeName: open.name });
+  if (open) {
+    const { notes, positions } = realizeOpenShape(open);
+    voicings.push({ notes, shapeName: open.name, positions });
+  }
 
   for (const shape of GUITAR_SHAPES[sel.quality] ?? []) {
     const realized = realizeShape(shape, sel.root);
-    if (realized) voicings.push({ notes: realized, shapeName: shape.name });
+    if (realized)
+      voicings.push({
+        notes: realized.notes,
+        shapeName: shape.name,
+        positions: realized.positions,
+      });
   }
 
   if (voicings.length === 0) {
-    return { notes: pitchClassFallback(pcs), shapeName: null };
+    // No shape data → fall back to pitch-class flood (positions: null). The
+    // resolve.ts caller sees positions == null and leaves guitarShapePositions
+    // null too, which GuitarView's inShape treats as "anywhere goes."
+    return { notes: pitchClassFallback(pcs), shapeName: null, positions: null };
   }
 
   const v = ((sel.voicingIndex % voicings.length) + voicings.length) % voicings.length;

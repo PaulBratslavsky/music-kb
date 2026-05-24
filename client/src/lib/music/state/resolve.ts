@@ -94,7 +94,7 @@ export function resolveSelection(
   const pcDegrees = degreesForSelection(state.mode, state.chord, state.scale, state.singleNote);
   if (state.mode === 'chord') {
     const piano = pianoVoicing(state.chord);
-    const { notes: guitar, shapeName } = guitarVoicing(state.chord);
+    const { notes: guitar, shapeName, positions } = guitarVoicing(state.chord);
     const push = pushVoicing(state.chord);
 
     const pcs = getChordPitchClasses(state.chord.root, state.chord.quality);
@@ -117,7 +117,11 @@ export function resolveSelection(
       pcDisplay: buildDisplayMap(
         getChordNoteNames(state.chord.root, state.chord.quality, state.preferFlats),
       ),
-      guitarShapePositions: null,
+      // (music-kb fork) Pin chord highlights to the exact voicing's (string,fret)
+      // tuples — without this, the same MIDI gets lit at every fretboard position
+      // it can be played on, scattering 18+ markers across the neck for a 6-note
+      // open chord. See voicings/guitar.ts:GuitarVoicing.positions.
+      guitarShapePositions: positions,
       previewedChordPCs: null,
       previewedChordRoot: null,
     };
