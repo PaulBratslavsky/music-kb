@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { BackendErrorPanel } from '#/components/BackendErrorPanel';
 import { Button } from '#/components/ui/button';
@@ -302,6 +302,29 @@ function LearnLayout({
     setTheoryNonce((n) => n + 1);
   };
 
+  // When the user changes the visualizer scale via SelectionBar (instead of
+  // through the "Use as X" two-button flow), mirror that into the
+  // LoopBuilder's candidateKey. Same outcome as clicking "Use as X" without
+  // the explicit commitment step — feels natural once a key is being
+  // explored. The callback is wrapped in useCallback so TheoryCompanion's
+  // effect doesn't refire on every parent render.
+  const handleScaleChange = useCallback(
+    (scale: { root: string; type: string } | null) => {
+      if (!scale) return; // don't clear when user leaves scale mode
+      // Skip if it already matches — prevents an idempotent setState→render
+      // loop driven by new object references.
+      if (
+        candidateKey &&
+        candidateKey.root === scale.root &&
+        candidateKey.type === scale.type
+      ) {
+        return;
+      }
+      setCandidateKey({ root: scale.root, type: scale.type });
+    },
+    [candidateKey, setCandidateKey],
+  );
+
   // Compose the TheoryCompanion's initial state: override > URL deep-link > default.
   const theoryInitialState =
     theoryOverrideState ?? parseTheoryParam(search.theory) ?? undefined;
@@ -431,6 +454,7 @@ function LearnLayout({
                   onDiatonicChordClick={(chord) => {
                     if (recordMode) appendChord(chord);
                   }}
+                  onScaleChange={handleScaleChange}
                 />
               </>
             ) : view === 'transcript' ? (

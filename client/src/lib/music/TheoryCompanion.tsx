@@ -11,7 +11,7 @@ import { PushView } from './instruments/push/PushView';
 import { SelectionBar } from './components/SelectionBar';
 import { GameModePanel } from './components/GameModePanel';
 import { useAppState } from './state/useAppState';
-import type { AppState, PitchClass } from './types';
+import type { AppState, PitchClass, ScaleSelection } from './types';
 import { resolveSelection } from './state/resolve';
 import { getDiatonicChords } from './theory/diatonic';
 import { guitarScaleOrgUrl } from './theory/scales';
@@ -38,12 +38,18 @@ export interface TheoryCompanionProps {
    *  LoopBuilder.appendChord when recordMode is on. The visualizer's own
    *  behavior (preview + play the chord) is unchanged — this is sidecar. */
   onDiatonicChordClick?: (chord: { root: PitchClass; quality: string }) => void;
+  /** Fires when the visualizer is in scale mode and the scale changes
+   *  (root or type). Lets the host treat any SelectionBar scale change
+   *  as picking a key — equivalent to clicking "Use as X major" but
+   *  without the explicit two-button step. Null when mode is not scale. */
+  onScaleChange?: (scale: ScaleSelection | null) => void;
 }
 
 export default function TheoryCompanion({
   initialState,
   onFocusedPitchClassChange,
   onDiatonicChordClick,
+  onScaleChange,
 }: TheoryCompanionProps = {}) {
   // syncUrl=false so the visualizer doesn't fight TanStack Router for the URL.
   // The host route owns the URL via its zod-validated search schema; deep-links
@@ -56,6 +62,19 @@ export default function TheoryCompanion({
   useEffect(() => {
     onFocusedPitchClassChange?.(appState.focusedPitchClass);
   }, [appState.focusedPitchClass, onFocusedPitchClassChange]);
+
+  // Forward scale-mode changes — root and type tracked as primitives so a
+  // re-render with the same scale doesn't refire. Null when mode is not
+  // scale (chord/note/all) — host decides whether to clear its candidateKey.
+  const scaleRoot = appState.state.mode === 'scale' ? appState.state.scale.root : null;
+  const scaleType = appState.state.mode === 'scale' ? appState.state.scale.type : null;
+  useEffect(() => {
+    if (scaleRoot && scaleType) {
+      onScaleChange?.({ root: scaleRoot, type: scaleType });
+    } else {
+      onScaleChange?.(null);
+    }
+  }, [scaleRoot, scaleType, onScaleChange]);
   const resolved = useMemo(
     () => resolveSelection(appState.state, appState.previewedChordDegree),
     [appState.state, appState.previewedChordDegree],
