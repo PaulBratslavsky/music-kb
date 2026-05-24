@@ -30,6 +30,10 @@ export const DEFAULT_STATE: AppState = {
   singleNote: 'C',
   scalePosition: 'all',
   preferFlats: false,
+  // music-kb fork: triad-level chord display by default, since that matches
+  // what the LoopBuilder saves to the progression on chip-click. See
+  // ../types.ts AppState.chordDepth for the rationale.
+  chordDepth: 'triad',
 };
 
 function parseScalePosition(s: string | null): ScalePosition {
@@ -239,43 +243,58 @@ export function useAppState(options: UseAppStateOptions = {}) {
   /**
    * Pick a root from the SelectionBar, carrying the chosen spelling. `preferFlats`
    * records whether the user clicked the flat-named button (e.g. "Bb" vs "A#") so
-   * the whole key is spelled with the right accidentals. Sets the root on
-   * whichever selection the current mode is editing.
+   * the whole key is spelled with the right accidentals.
+   *
+   * (music-kb fork) The root is linked across all three modes — chord.root,
+   * scale.root, and singleNote all update together. The upstream visualizer
+   * keeps them independent, which is great for theory exploration but a
+   * footgun in the loop-discovery flow ("I set C# in scale mode, why does
+   * chord mode show C?"). Single concept of "root" wins for us.
    */
   const pickRoot = useCallback((pc: PitchClass, preferFlats: boolean) => {
-    setState((s) => {
-      if (s.mode === 'chord') {
-        return { ...s, preferFlats, chord: { ...s.chord, root: pc, inversion: 0 } };
-      }
-      if (s.mode === 'scale') {
-        return { ...s, preferFlats, scale: { ...s.scale, root: pc } };
-      }
-      return { ...s, preferFlats, singleNote: pc };
-    });
+    setState((s) => ({
+      ...s,
+      preferFlats,
+      chord: { ...s.chord, root: pc, inversion: 0 },
+      scale: { ...s.scale, root: pc },
+      singleNote: pc,
+    }));
     if (state.mode === 'scale') setPreviewedChordDegreeRaw(null);
   }, [state.mode]);
 
-  /** Switch to chord mode with a specific root + quality (used by the diatonic-chord chips). */
+  /** Switch to chord mode with a specific root + quality (used by the diatonic-chord chips).
+   *  (music-kb fork) Also mirrors the root into scale + singleNote so the linked-root
+   *  invariant holds across mode switches. */
   const selectChord = useCallback((root: PitchClass, quality: ChordQuality) => {
     setState((s) => ({
       ...s,
       mode: 'chord',
       chord: { root, quality, inversion: 0, voicingIndex: 0 },
+      scale: { ...s.scale, root },
+      singleNote: root,
     }));
   }, []);
 
-  /** Switch to scale mode with a specific root + type (used by the containing-scale chips). */
+  /** Switch to scale mode with a specific root + type (used by the containing-scale chips).
+   *  (music-kb fork) Also mirrors the root into chord + singleNote. */
   const selectScale = useCallback((root: PitchClass, type: ScaleType) => {
     setState((s) => ({
       ...s,
       mode: 'scale',
       scale: { root, type },
+      chord: { ...s.chord, root },
+      singleNote: root,
     }));
     setPreviewedChordDegreeRaw(null);
   }, []);
 
   const setScalePosition = useCallback((pos: ScalePosition) => {
     setState((s) => ({ ...s, scalePosition: pos }));
+  }, []);
+
+  /** (music-kb fork) Switch the diatonic-chord-chip display between triad and seventh. */
+  const setChordDepth = useCallback((depth: 'triad' | 'seventh') => {
+    setState((s) => ({ ...s, chordDepth: depth }));
   }, []);
 
   /** Click-to-focus: clicking the same PC clears the focus. */
@@ -447,6 +466,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
     selectChord,
     selectScale,
     setScalePosition,
+    setChordDepth,
     focusedPitchClass,
     toggleFocusedPitchClass,
     clearFocusedPitchClass,

@@ -40,10 +40,14 @@ export function parseTheoryParam(raw: string | undefined): AppState | null {
     if (!isPitchClass(root) || !isChordQuality(quality)) return null;
     const inversion = inv != null && /^\d+$/.test(inv) ? Number(inv) : 0;
     const voicingIndex = voicing != null && /^\d+$/.test(voicing) ? Number(voicing) : 0;
+    // (music-kb fork) Link the root across all three fields so switching
+    // mode preserves it (see useAppState pickRoot for the same rule).
     return {
       ...DEFAULT_STATE,
       mode: 'chord',
       chord: { root, quality, inversion, voicingIndex },
+      scale: { ...DEFAULT_STATE.scale, root },
+      singleNote: root,
     };
   }
 
@@ -54,6 +58,8 @@ export function parseTheoryParam(raw: string | undefined): AppState | null {
       ...DEFAULT_STATE,
       mode: 'scale',
       scale: { root, type },
+      chord: { ...DEFAULT_STATE.chord, root },
+      singleNote: root,
     };
   }
 
@@ -64,6 +70,8 @@ export function parseTheoryParam(raw: string | undefined): AppState | null {
       ...DEFAULT_STATE,
       mode: 'note',
       singleNote: root,
+      chord: { ...DEFAULT_STATE.chord, root },
+      scale: { ...DEFAULT_STATE.scale, root },
     };
   }
 

@@ -86,6 +86,13 @@ export type AppState = {
    * regardless (D major is always F#/C#).
    */
   preferFlats: boolean;
+  /**
+   * (music-kb fork) Controls how diatonic chord chips display in scale mode:
+   * 'triad' (C, Cm, Co, C+) or 'seventh' (Cmaj7, Cm7, C7, m7b5). Default is
+   * 'triad' to match the simpler triad-level data that gets saved to the
+   * Loop's progression on click.
+   */
+  chordDepth: 'triad' | 'seventh';
 };
 
 export type PianoKey = {

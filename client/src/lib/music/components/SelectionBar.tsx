@@ -55,6 +55,7 @@ export function SelectionBar({
   setScale,
   pickRoot,
   setScalePosition,
+  setChordDepth,
   labelMode,
   setLabelMode,
   showNaturals,
@@ -186,6 +187,28 @@ export function SelectionBar({
                   {SCALE_TYPE_LABELS[t]}
                 </button>
               ))}
+            </div>
+          </div>
+          {/* (music-kb fork) Toggle the diatonic-chord-chip display between
+              triads (C, Cm, C°) and seventh chords (Cmaj7, Cm7, m7b5). Default
+              triad — matches what gets saved to the loop's progression. */}
+          <div className="selection-group">
+            <span className="group-label">Chord depth</span>
+            <div className="btn-row">
+              <button
+                className={`chip${state.chordDepth === 'triad' ? ' active' : ''}`}
+                onClick={() => setChordDepth('triad')}
+                title="Display triads: C, Cm, C°, C+"
+              >
+                Triad
+              </button>
+              <button
+                className={`chip${state.chordDepth === 'seventh' ? ' active' : ''}`}
+                onClick={() => setChordDepth('seventh')}
+                title="Display seventh chords: Cmaj7, Cm7, C7, m7b5"
+              >
+                7th
+              </button>
             </div>
           </div>
           {/* '2-oct' works for every scale (incl. modes); numbered boxes only

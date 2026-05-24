@@ -23,6 +23,38 @@ import { SheetMusicView } from './instruments/notation/SheetMusicView';
 import { TabView } from './instruments/notation/TabView';
 import './theory-companion.css';
 
+// Display a diatonic chord chip as either a triad ("C", "Dm", "B°") or its
+// full seventh form ("Cmaj7", "Dm7", "Bm7b5") based on user preference.
+// The chord's `quality` field (root + simple quality) is always saved to the
+// LoopBuilder progression on click — only the chip rendering changes.
+function chipDisplay(
+  c: DiatonicChord,
+  depth: 'triad' | 'seventh',
+): { name: string; roman: string } {
+  if (depth === 'seventh') {
+    return { name: c.chordName, roman: c.roman };
+  }
+  // Map the visualizer's 7th-chord suffix to a triad-quality suffix.
+  const suffixMap: Record<string, string> = {
+    maj7: '',
+    m7: 'm',
+    '7': '',
+    m7b5: '°',
+    mMaj7: 'm',
+    dim7: '°',
+    maj: '',
+    m: 'm',
+    dim: '°',
+    aug: '+',
+  };
+  const triadSuffix = suffixMap[c.qualitySuffix] ?? c.qualitySuffix;
+  const romanPrefix = c.roman.replace(/(?:maj7|m7b5|m7|dim7|7|ø)$/i, '');
+  return {
+    name: c.rootDisplay + triadSuffix,
+    roman: romanPrefix + (triadSuffix === '°' || triadSuffix === '+' ? triadSuffix : ''),
+  };
+}
+
 export interface TheoryCompanionProps {
   /** Initial visualizer state, typically parsed from the host route's deep-link
    *  param. When omitted, the visualizer starts at its default (C major chord).
@@ -194,6 +226,7 @@ export default function TheoryCompanion({
           <div className="diatonic-row">
             {diatonicChords.map((c) => {
               const active = appState.previewedChordDegree === c.degree;
+              const display = chipDisplay(c, appState.state.chordDepth);
               return (
                 <button
                   key={c.degree}
@@ -212,8 +245,8 @@ export default function TheoryCompanion({
                   }}
                   title={`Play ${c.chordName} and highlight it within the scale`}
                 >
-                  <span className="diatonic-roman">{c.roman}</span>
-                  <span className="diatonic-name">{c.chordName}</span>
+                  <span className="diatonic-roman">{display.roman}</span>
+                  <span className="diatonic-name">{display.name}</span>
                 </button>
               );
             })}

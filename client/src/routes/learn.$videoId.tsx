@@ -293,11 +293,14 @@ function LearnLayout({
     setCandidateKey(key);
     setTheoryOverrideState({
       mode: 'scale',
-      chord: { root: 'C', quality: 'maj', inversion: 0, voicingIndex: 0 },
+      // (music-kb fork) Link the root across all three fields so switching
+      // mode preserves it. See useAppState pickRoot for the same rule.
+      chord: { root: key.root as any, quality: 'maj', inversion: 0, voicingIndex: 0 },
       scale: { root: key.root as any, type: key.type as any },
-      singleNote: 'C',
+      singleNote: key.root as any,
       scalePosition: 'all',
       preferFlats: false,
+      chordDepth: 'triad',
     });
     setTheoryNonce((n) => n + 1);
   };
@@ -392,13 +395,17 @@ function LearnLayout({
         progression: Array.isArray(loop.progression) ? loop.progression : [],
       });
       if (loop.key) {
+        const root = loop.key.root;
         setTheoryOverrideState({
           mode: 'scale',
-          chord: { root: 'C', quality: 'maj', inversion: 0, voicingIndex: 0 },
-          scale: { root: loop.key.root as any, type: loop.key.type as any },
-          singleNote: 'C',
+          // (music-kb fork) Link the root across all three fields so switching
+          // modes preserves the saved-loop's key.
+          chord: { root: root as any, quality: 'maj', inversion: 0, voicingIndex: 0 },
+          scale: { root: root as any, type: loop.key.type as any },
+          singleNote: root as any,
           scalePosition: 'all',
           preferFlats: false,
+          chordDepth: 'triad',
         });
         setTheoryNonce((n) => n + 1);
       }
