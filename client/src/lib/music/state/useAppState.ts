@@ -255,7 +255,11 @@ export function useAppState(options: UseAppStateOptions = {}) {
     setState((s) => ({
       ...s,
       preferFlats,
-      chord: { ...s.chord, root: pc, inversion: 0 },
+      // Reset voicingIndex when the root changes — different roots have
+      // different open-shape availability (Dm has an Open Dm, F doesn't),
+      // so carrying the previous index over silently lands the user on a
+      // barre form when an open shape would be the natural default.
+      chord: { ...s.chord, root: pc, inversion: 0, voicingIndex: 0 },
       scale: { ...s.scale, root: pc },
       singleNote: pc,
     }));

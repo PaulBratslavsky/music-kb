@@ -144,7 +144,16 @@ export function SelectionBar({
                   key={q}
                   className={`chip${state.chord.quality === q ? ' active' : ''}`}
                   onClick={() =>
-                    setChord((c) => ({ ...c, quality: q as ChordQuality, inversion: 0 }))
+                    setChord((c) => ({
+                      ...c,
+                      quality: q as ChordQuality,
+                      inversion: 0,
+                      // Reset voicingIndex on quality change too — the new
+                      // quality has its own voicing list (might be shorter,
+                      // might lack an open shape), so starting from 0 lands
+                      // on the canonical fingering instead of a stale barre.
+                      voicingIndex: 0,
+                    }))
                   }
                 >
                   {QUALITY_DISPLAY[q]}
