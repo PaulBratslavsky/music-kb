@@ -12,6 +12,12 @@
 // (string pairs + CAGED octaves) concrete.
 
 import { useState } from 'react';
+import { pcSemitoneFromCircleIdx } from '#/lib/music/chord-substitutions';
+import {
+  majorDisplay,
+  type CircleDirection,
+  type Enharmonic,
+} from '#/lib/music/circle-of-fifths';
 
 // Internal string indexing: 0 = high e, 5 = low E (matches StringPairs.tsx).
 // The primary pairs Ricky teaches are (top, bottom) string indices:
@@ -38,10 +44,14 @@ type ShapeCell = {
 
 type Shape = {
   id: string;
-  name: string;
-  /** Default anchor fret for the lowest pair (E-A). The shape is rendered
-   *  three times, once per pair; later pairs reuse the same anchor. */
-  anchorFret: number;
+  /** Function returning the display name given the current tonic (e.g.
+   *  "C5 power chord", "G minor pentatonic"). Built lazily so the label
+   *  re-pivots as the user clicks new keys on the Circle above. */
+  name: (tonicSpelling: string) => string;
+  /** Whether this shape is musically "major" or "minor" — picks the right
+   *  fret offset from the tonic. Power chords are neutral (use major
+   *  anchoring); pentatonics anchor minor; triads anchor major. */
+  rootFretOnLowE: 'major' | 'minor';
   /** Cells, expressed as (pairString, fretOffset). */
   cells: ShapeCell[];
   /** One-line description for the picker. */
@@ -51,8 +61,8 @@ type Shape = {
 const SHAPES: Shape[] = [
   {
     id: 'power',
-    name: 'G5 power chord',
-    anchorFret: 3,
+    name: (t) => `${t}5 power chord`,
+    rootFretOnLowE: 'major',
     blurb: 'Root + 5th on adjacent strings. Slides cleanly across pairs.',
     cells: [
       { pairString: 0, fretOffset: 0, label: 'R', root: true },
@@ -61,8 +71,8 @@ const SHAPES: Shape[] = [
   },
   {
     id: 'pentatonic',
-    name: 'Minor pentatonic "rectangle + leg"',
-    anchorFret: 3,
+    name: (t) => `${t} minor pentatonic`,
+    rootFretOnLowE: 'major',
     blurb: 'b7 → R → b3 → 4 → 5 — the starry-night fragment.',
     cells: [
       { pairString: 0, fretOffset: 0, label: 'b7' },
@@ -74,8 +84,8 @@ const SHAPES: Shape[] = [
   },
   {
     id: 'triad',
-    name: 'A major triad',
-    anchorFret: 5,
+    name: (t) => `${t} major triad`,
+    rootFretOnLowE: 'major',
     blurb: 'R → 3 → 5 on adjacent strings.',
     cells: [
       { pairString: 0, fretOffset: 0, label: 'R', root: true },
@@ -84,6 +94,13 @@ const SHAPES: Shape[] = [
     ],
   },
 ];
+
+/** Fret on the low E string for a given pitch-class semitone (0=C..11=B).
+ *  E is semitone 4, so fret = (semitone - 4) mod 12. Always returns a
+ *  value in [0, 11] so the resulting shape sits in the playable region. */
+function fretOnLowE(semitone: number): number {
+  return ((semitone - 4) % 12 + 12) % 12;
+}
 
 // Pair color matches StringPairs.tsx — viewer reads "this is the green
 // lane" everywhere on /theory.
@@ -125,9 +142,23 @@ const xForFret = (fret: number) =>
   fret === 0 ? PADDING_X - 18 : PADDING_X + (fret - 0.5) * FRET_W;
 const yForString = (idx: number) => PADDING_Y + idx * STRING_GAP;
 
-export function PatternMirror() {
+export function PatternMirror({
+  tonicCircleIdx = 0,
+  enharmonic = 'standard',
+  direction = 'fourths',
+}: {
+  /** Circle-of-fifths index for the current tonic (0=C, 1=G in fifths /
+   *  1=F in fourths, etc.). Falls back to C when omitted so the demo
+   *  works standalone too. */
+  tonicCircleIdx?: number;
+  enharmonic?: Enharmonic;
+  direction?: CircleDirection;
+} = {}) {
   const [shapeId, setShapeId] = useState<string>(SHAPES[0].id);
   const shape = SHAPES.find((s) => s.id === shapeId) ?? SHAPES[0];
+  const tonicSemi = pcSemitoneFromCircleIdx(tonicCircleIdx);
+  const tonicSpelling = majorDisplay(tonicCircleIdx, enharmonic, direction);
+  const anchorFret = fretOnLowE(tonicSemi);
 
   // For each pair, realize the shape's cells onto specific (string, fret)
   // positions, applying the +1 kink correction when needed.
@@ -149,7 +180,7 @@ export function PatternMirror() {
       // fretOffset listed in the shape (designed for a P4 pair) needs to
       // shift +1 to land on the same note.
       const kinkShift = pair.crossesKink && cell.pairString === 1 ? 1 : 0;
-      const fret = shape.anchorFret + cell.fretOffset + kinkShift;
+      const fret = anchorFret + cell.fretOffset + kinkShift;
       if (fret < 0 || fret > FRET_COUNT) continue;
       placements.push({
         pairColor: pair.color,
@@ -184,7 +215,7 @@ export function PatternMirror() {
                 : 'border-[var(--line)] bg-[var(--bg-subtle)] text-[var(--ink)] hover:border-[var(--line-strong)]'
             }`}
           >
-            {s.name}
+            {s.name(tonicSpelling)}
           </button>
         ))}
       </div>
@@ -194,7 +225,7 @@ export function PatternMirror() {
         viewBox={`0 0 ${TOTAL_W} ${TOTAL_H + 30}`}
         width="100%"
         role="img"
-        aria-label={`${shape.name} mirrored across three string pairs`}
+        aria-label={`${shape.name(tonicSpelling)} mirrored across three string pairs`}
         className="rounded-lg bg-[var(--bg-subtle)]"
       >
         {/* Pair background lanes — colored bands behind each pair so the

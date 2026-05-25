@@ -155,7 +155,10 @@ function TheoryPage() {
             <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">
               Pattern mirror — one idea, three voices
             </h3>
-            <PatternMirror />
+            <PatternMirror
+              tonicCircleIdx={tonicIdx}
+              direction={guitarCircleDir}
+            />
           </div>
         </div>
       </section>
