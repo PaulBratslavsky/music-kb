@@ -12,12 +12,14 @@ type Props = {
   onPlayNote?: (midi: number) => void;
   pcLabels?: Partial<Record<PitchClass, string>>;
   shapePositions?: Set<string> | null;
-  /** When true and shapePositions is non-null, draw a tight polygon outline
-   *  that hugs the union of the cells in shapePositions — useful for chord
-   *  diagrams and CAGED box illustrations where the bbox alone reads as a
-   *  loose rectangle. Default false (no outline) so the standard live views
-   *  stay clean. */
-  showShapeOutline?: boolean;
+  /** (music-kb fork) One or more position-sets to draw as tight polygon
+   *  outlines on top of the fretboard. Each set produces one outline that
+   *  hugs the union of its cells, offset OUTWARD past the dot edges so the
+   *  line sits clearly outside the markers. Used by /builder's "All
+   *  positions" scale view to visualize how each CAGED shape tiles across
+   *  the neck. Pass an empty array (or omit) to suppress outlines entirely
+   *  — the single-shape view doesn't need them. */
+  shapeOutlines?: Set<string>[];
   showNaturals?: boolean;
   emphasizedPitchClasses?: Set<PitchClass> | null;
   gameMode?: GameModeState;
@@ -52,7 +54,7 @@ export function GuitarView({
   onPlayNote,
   pcLabels,
   shapePositions,
-  showShapeOutline = false,
+  shapeOutlines,
   showNaturals = false,
   emphasizedPitchClasses,
   gameMode,
@@ -123,30 +125,46 @@ export function GuitarView({
   const inShape = (string: number, fret: number) =>
     !shapePositions || shapePositions.has(`${string}-${fret}`);
 
-  // (music-kb fork) Compute an SVG path that traces the union perimeter of
-  // the cells in `shapePositions`. For each cell, the edges facing an EMPTY
-  // neighbor are boundary edges; we emit each as a tiny `M..L..` segment.
-  // Adjacent segments share endpoints so the result reads as one continuous
-  // outline at typical stroke widths, without needing graph-traversal
-  // chaining (which gets fiddly at concave corners where 4 cells meet).
-  const shapeOutlineD = (() => {
-    if (!showShapeOutline || !shapePositions || shapePositions.size === 0) return '';
-    const parts: string[] = [];
-    for (const key of shapePositions) {
-      const [s, f] = key.split('-').map(Number);
-      // Cells touch edge-to-edge; use the full half-width/half-gap so the
-      // polygon hugs the shape without leaving gaps between adjacent cells.
-      const left = xForFret(f) - FRET_W / 2;
-      const right = xForFret(f) + FRET_W / 2;
-      const top = yForString(s) - STRING_GAP / 2;
-      const bottom = yForString(s) + STRING_GAP / 2;
-      if (!shapePositions.has(`${s - 1}-${f}`)) parts.push(`M ${left} ${top} L ${right} ${top}`);
-      if (!shapePositions.has(`${s + 1}-${f}`)) parts.push(`M ${left} ${bottom} L ${right} ${bottom}`);
-      if (!shapePositions.has(`${s}-${f - 1}`)) parts.push(`M ${left} ${top} L ${left} ${bottom}`);
-      if (!shapePositions.has(`${s}-${f + 1}`)) parts.push(`M ${right} ${top} L ${right} ${bottom}`);
+  // (music-kb fork) For each shape in `shapeOutlines`, compute the bounding
+  // rectangle of its cells and draw a single outlined rect around it,
+  // offset OUTWARD past the cell edges so the line sits clearly outside
+  // the dot markers (not cutting through them) and adjacent shapes'
+  // outlines don't collide with each other's notes.
+  //
+  // Tight per-cell polygons looked busy when 5 CAGED shapes were stacked
+  // on the same neck — the irregular boundaries crossed each other in
+  // ways that read as visual noise. A single bbox rectangle per shape is
+  // clean: 4 sides, one per shape, and the viewer can mentally tile them
+  // even when they overlap.
+  const OUTLINE_PAD = 10;
+  const outlineRects: { x: number; y: number; width: number; height: number }[] = [];
+  if (shapeOutlines) {
+    for (const positions of shapeOutlines) {
+      if (positions.size === 0) continue;
+      let minS = Infinity;
+      let maxS = -Infinity;
+      let minF = Infinity;
+      let maxF = -Infinity;
+      for (const key of positions) {
+        const [s, f] = key.split('-').map(Number);
+        if (s < minS) minS = s;
+        if (s > maxS) maxS = s;
+        if (f < minF) minF = f;
+        if (f > maxF) maxF = f;
+      }
+      if (!Number.isFinite(minS)) continue;
+      const left = xForFret(minF) - FRET_W / 2 - OUTLINE_PAD;
+      const right = xForFret(maxF) + FRET_W / 2 + OUTLINE_PAD;
+      const top = yForString(minS) - STRING_GAP / 2 - OUTLINE_PAD;
+      const bottom = yForString(maxS) + STRING_GAP / 2 + OUTLINE_PAD;
+      outlineRects.push({
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      });
     }
-    return parts.join(' ');
-  })();
+  }
 
   return (
     <svg
@@ -317,20 +335,27 @@ export function GuitarView({
           }),
         )}
 
-      {/* (music-kb fork) shape-union outline. Rendered before highlight
-          circles so the markers sit on top of the line, not under. */}
-      {shapeOutlineD && (
-        <path
-          d={shapeOutlineD}
+      {/* (music-kb fork) bounding-rect outlines, one rect per shape in
+          `shapeOutlines`. Pushed outward past the dot markers so the
+          line sits clearly outside the highlight circles. Rounded
+          corners read cleaner than sharp 90° joins when multiple
+          outlines overlap. */}
+      {outlineRects.map((r, i) => (
+        <rect
+          key={`outline-${i}`}
+          x={r.x}
+          y={r.y}
+          width={r.width}
+          height={r.height}
+          rx={6}
+          ry={6}
           fill="none"
           stroke="var(--accent)"
-          strokeWidth={3}
-          strokeLinejoin="round"
-          strokeLinecap="round"
+          strokeWidth={2.5}
           pointerEvents="none"
           opacity={0.85}
         />
-      )}
+      ))}
 
       {/* focus rings: every position whose PC matches focusedPitchClass */}
       {!inGame && focusedPitchClass &&

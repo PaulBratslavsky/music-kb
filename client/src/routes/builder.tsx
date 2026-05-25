@@ -17,7 +17,8 @@ import { GuitarView } from '#/lib/music/instruments/guitar/GuitarView';
 import { synth } from '#/lib/music/audio/synth';
 import { Button } from '#/components/ui/button';
 import { exportFretboardPng } from '#/lib/music/png-export';
-import { availablePositions } from '#/lib/music/theory/positions';
+import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positions';
+import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
 import type { ScalePosition } from '#/lib/music/types';
 import '#/lib/music/theory-companion.css';
@@ -80,12 +81,23 @@ function BuilderPage() {
   // 15-fret neck. Default on — chord diagrams and CAGED boxes both look
   // better tight for video graphics; uncheck for a full-neck reference.
   const [cropToShape, setCropToShape] = useState(true);
-  // Tight-polygon outline that hugs the active scale shape's positions.
-  // Scale mode only — chord diagrams conventionally show just the dots
-  // without an outline, so the toggle stays hidden in chord mode and the
-  // outline never renders for chord voicings even if it were on.
+  // Multi-shape outlines: in scale mode with Guitar shape = "All", overlay
+  // a tight polygon outline around each available CAGED shape so the
+  // viewer can see how the boxes tile across the full neck. Single-shape
+  // views don't need this — the filtered notes ARE the shape. Chord mode
+  // doesn't either — chord diagrams traditionally show just the dots.
   const [showShapeOutline, setShowShapeOutline] = useState(true);
-  const outlineApplies = appState.state.mode === 'scale';
+  const outlineApplies =
+    appState.state.mode === 'scale' && appState.state.scalePosition === 'all';
+  const shapeOutlines = useMemo(() => {
+    if (!showShapeOutline || !outlineApplies) return [];
+    const sel = appState.state.scale;
+    const scalePcs = getScalePitchClasses(sel);
+    return availablePositions(sel.type)
+      .map((pos) => realizeCagedShape(pos, sel.root, scalePcs, sel.type))
+      .filter((cells) => cells.length > 0)
+      .map((cells) => new Set(cells.map((p) => `${p.string}-${p.fret}`)));
+  }, [showShapeOutline, outlineApplies, appState.state.scale]);
 
   // Bulk export: iterate every available CAGED-style position for the current
   // scale and export each one as its own PNG. Only meaningful in scale mode
@@ -228,7 +240,7 @@ function BuilderPage() {
           onPlayNote={(midi) => synth.playNote(midi)}
           pcLabels={pcLabels}
           shapePositions={resolved.guitarShapePositions}
-          showShapeOutline={showShapeOutline && outlineApplies}
+          shapeOutlines={shapeOutlines}
           showNaturals={appState.showNaturals}
           emphasizedPitchClasses={resolved.previewedChordPCs}
           gameMode={appState.gameMode.guitar}
