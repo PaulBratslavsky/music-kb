@@ -18,6 +18,7 @@ import { synth } from '#/lib/music/audio/synth';
 import { Button } from '#/components/ui/button';
 import { exportFretboardPng } from '#/lib/music/png-export';
 import { availablePositions } from '#/lib/music/theory/positions';
+import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
 import type { ScalePosition } from '#/lib/music/types';
 import '#/lib/music/theory-companion.css';
 
@@ -51,6 +52,27 @@ function BuilderPage() {
       filename: buildFilename(appState.state),
     });
   };
+
+  // Voicing nav (chord mode only). The total count comes from
+  // guitarVoicingCount; the active shape name is what guitarVoicing actually
+  // selected — same code path the GuitarView uses, so the label always
+  // matches the displayed shape (no off-by-one when an open shape is missing
+  // for a particular root and the picker silently skips it).
+  const voicingTotal =
+    appState.state.mode === 'chord' ? guitarVoicingCount(appState.state.chord) : 0;
+  const currentShapeName =
+    appState.state.mode === 'chord' ? guitarVoicing(appState.state.chord).shapeName : null;
+  const stepVoicing = (delta: 1 | -1) => {
+    if (appState.state.mode !== 'chord' || voicingTotal === 0) return;
+    appState.setChord((c) => ({
+      ...c,
+      voicingIndex: ((c.voicingIndex + delta) % voicingTotal + voicingTotal) % voicingTotal,
+    }));
+  };
+  const activeVoicingIndex =
+    voicingTotal === 0
+      ? 0
+      : ((appState.state.chord.voicingIndex % voicingTotal) + voicingTotal) % voicingTotal;
 
   // Bulk export: iterate every available CAGED-style position for the current
   // scale and export each one as its own PNG. Only meaningful in scale mode
@@ -108,6 +130,35 @@ function BuilderPage() {
       <div className="panel">
         <SelectionBar {...appState} />
       </div>
+
+      {appState.state.mode === 'chord' && voicingTotal > 1 && (
+        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-3">
+          <button
+            type="button"
+            onClick={() => stepVoicing(-1)}
+            className="inline-flex items-center justify-center rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-3 py-1.5 text-sm font-medium text-[var(--ink)] transition hover:border-[var(--line-strong)]"
+            aria-label="Previous voicing"
+          >
+            ‹ Prev
+          </button>
+          <div className="flex-1 text-center">
+            <div className="text-sm font-semibold text-[var(--ink)]">
+              {currentShapeName ?? 'No named shape'}
+            </div>
+            <div className="text-xs text-[var(--ink-muted)]">
+              Voicing {activeVoicingIndex + 1} of {voicingTotal}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => stepVoicing(1)}
+            className="inline-flex items-center justify-center rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-3 py-1.5 text-sm font-medium text-[var(--ink)] transition hover:border-[var(--line-strong)]"
+            aria-label="Next voicing"
+          >
+            Next ›
+          </button>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-sm text-[var(--ink-soft)]">{resolved.label}</span>
