@@ -18,6 +18,11 @@ import {
   keySignatureLabel,
 } from '#/lib/music/circle-of-fifths';
 
+// Component supports two modes:
+//   - Uncontrolled: omit `tonicIdx` + `onTonicChange`, internal state.
+//   - Controlled: provide both, parent owns state (used by /theory to
+//     share the tonic with the Chord Substitutions panel below).
+
 const VIEW = 440;
 const CENTER = VIEW / 2;
 const OUTER_R = 200;
@@ -76,10 +81,19 @@ function segCenter(segIdx: number, ring: Ring): { x: number; y: number } {
 
 export function CircleOfFifths({
   initialTonicIdx = 0,
+  tonicIdx: tonicIdxProp,
+  onTonicChange,
 }: {
   initialTonicIdx?: number;
+  tonicIdx?: number;
+  onTonicChange?: (next: number) => void;
 } = {}) {
-  const [tonicIdx, setTonicIdx] = useState(initialTonicIdx);
+  const [internalTonicIdx, setInternalTonicIdx] = useState(initialTonicIdx);
+  const tonicIdx = tonicIdxProp ?? internalTonicIdx;
+  const setTonicIdx = (next: number) => {
+    if (onTonicChange) onTonicChange(next);
+    else setInternalTonicIdx(next);
+  };
   const positions = diatonicPositions(tonicIdx);
 
   // Build a quick lookup: (ring, idx) → numeral label, or null.
