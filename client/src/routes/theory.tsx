@@ -13,6 +13,7 @@ import {
   CIRCLE_MAJORS,
   CIRCLE_MAJOR_DISPLAY,
   CIRCLE_MINOR_DISPLAY,
+  type CircleDirection,
 } from '#/lib/music/circle-of-fifths';
 
 export const Route = createFileRoute('/theory')({
@@ -25,6 +26,11 @@ function TheoryPage() {
   // clicking a wedge on the wheel re-pivots both the diatonic family
   // shown on the circle and the substitution suggestions below.
   const [tonicIdx, setTonicIdx] = useState(0);
+  // The embedded Circle in the Guitar Tuning section gets its own
+  // direction state, defaulted to 'fourths' (the entire point of that
+  // section). User can still toggle it back to fifths from the embedded
+  // header for side-by-side comparison.
+  const [guitarCircleDir, setGuitarCircleDir] = useState<CircleDirection>('fourths');
 
   return (
     <main className="page-wrap mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-12">
@@ -117,10 +123,28 @@ function TheoryPage() {
           Why patterns repeat on the fretboard — and why one spot always
           throws you off. The guitar is tuned in 4ths except for one step
           (G→B is a 3rd), so the strings cluster into three pairs that
-          mirror each other. Switch the Circle above to{' '}
-          <em>Fourths</em> and the wheel will reorder to match this layout.
+          mirror each other. Everything below — the Circle of Fourths,
+          the string-pair lanes, and the pattern mirror — is self-contained
+          so you don't have to scroll back up.
         </p>
         <div className="mt-6 grid grid-cols-1 gap-6">
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+            <h3 className="mb-1 text-sm font-semibold text-[var(--ink)]">
+              Circle of fourths (guitar-friendly view)
+            </h3>
+            <p className="mb-4 text-xs text-[var(--ink-muted)]">
+              Same tonic as the wheel at the top of this page, but rendered
+              with clockwise = up a 4th instead of up a 5th. Now V sits to
+              the left of the tonic and IV to the right — matching how
+              shapes shift across the four-tuned string pairs below.
+            </p>
+            <CircleOfFifths
+              tonicIdx={tonicIdx}
+              onTonicChange={setTonicIdx}
+              direction={guitarCircleDir}
+              onDirectionChange={setGuitarCircleDir}
+            />
+          </div>
           <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
             <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">
               String pairs
