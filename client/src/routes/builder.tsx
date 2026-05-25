@@ -80,6 +80,10 @@ function BuilderPage() {
   // 15-fret neck. Default on — chord diagrams and CAGED boxes both look
   // better tight for video graphics; uncheck for a full-neck reference.
   const [cropToShape, setCropToShape] = useState(true);
+  // Tight-polygon outline that hugs the active shape's positions. Default on
+  // so chord and scale shapes read at a glance; uncheck for a clean unmarked
+  // fretboard or when comparing two adjacent shapes side-by-side.
+  const [showShapeOutline, setShowShapeOutline] = useState(true);
 
   // Bulk export: iterate every available CAGED-style position for the current
   // scale and export each one as its own PNG. Only meaningful in scale mode
@@ -174,6 +178,15 @@ function BuilderPage() {
           <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
             <input
               type="checkbox"
+              checked={showShapeOutline}
+              onChange={(e) => setShowShapeOutline(e.target.checked)}
+              className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+            />
+            Outline shape
+          </label>
+          <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
+            <input
+              type="checkbox"
               checked={cropToShape}
               onChange={(e) => setCropToShape(e.target.checked)}
               className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
@@ -211,6 +224,7 @@ function BuilderPage() {
           onPlayNote={(midi) => synth.playNote(midi)}
           pcLabels={pcLabels}
           shapePositions={resolved.guitarShapePositions}
+          showShapeOutline={showShapeOutline}
           showNaturals={appState.showNaturals}
           emphasizedPitchClasses={resolved.previewedChordPCs}
           gameMode={appState.gameMode.guitar}

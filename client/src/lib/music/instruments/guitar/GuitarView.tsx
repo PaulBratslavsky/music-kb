@@ -12,6 +12,12 @@ type Props = {
   onPlayNote?: (midi: number) => void;
   pcLabels?: Partial<Record<PitchClass, string>>;
   shapePositions?: Set<string> | null;
+  /** When true and shapePositions is non-null, draw a tight polygon outline
+   *  that hugs the union of the cells in shapePositions — useful for chord
+   *  diagrams and CAGED box illustrations where the bbox alone reads as a
+   *  loose rectangle. Default false (no outline) so the standard live views
+   *  stay clean. */
+  showShapeOutline?: boolean;
   showNaturals?: boolean;
   emphasizedPitchClasses?: Set<PitchClass> | null;
   gameMode?: GameModeState;
@@ -46,6 +52,7 @@ export function GuitarView({
   onPlayNote,
   pcLabels,
   shapePositions,
+  showShapeOutline = false,
   showNaturals = false,
   emphasizedPitchClasses,
   gameMode,
@@ -115,6 +122,31 @@ export function GuitarView({
   // to the exact (string, fret) positions in the shape.
   const inShape = (string: number, fret: number) =>
     !shapePositions || shapePositions.has(`${string}-${fret}`);
+
+  // (music-kb fork) Compute an SVG path that traces the union perimeter of
+  // the cells in `shapePositions`. For each cell, the edges facing an EMPTY
+  // neighbor are boundary edges; we emit each as a tiny `M..L..` segment.
+  // Adjacent segments share endpoints so the result reads as one continuous
+  // outline at typical stroke widths, without needing graph-traversal
+  // chaining (which gets fiddly at concave corners where 4 cells meet).
+  const shapeOutlineD = (() => {
+    if (!showShapeOutline || !shapePositions || shapePositions.size === 0) return '';
+    const parts: string[] = [];
+    for (const key of shapePositions) {
+      const [s, f] = key.split('-').map(Number);
+      // Cells touch edge-to-edge; use the full half-width/half-gap so the
+      // polygon hugs the shape without leaving gaps between adjacent cells.
+      const left = xForFret(f) - FRET_W / 2;
+      const right = xForFret(f) + FRET_W / 2;
+      const top = yForString(s) - STRING_GAP / 2;
+      const bottom = yForString(s) + STRING_GAP / 2;
+      if (!shapePositions.has(`${s - 1}-${f}`)) parts.push(`M ${left} ${top} L ${right} ${top}`);
+      if (!shapePositions.has(`${s + 1}-${f}`)) parts.push(`M ${left} ${bottom} L ${right} ${bottom}`);
+      if (!shapePositions.has(`${s}-${f - 1}`)) parts.push(`M ${left} ${top} L ${left} ${bottom}`);
+      if (!shapePositions.has(`${s}-${f + 1}`)) parts.push(`M ${right} ${top} L ${right} ${bottom}`);
+    }
+    return parts.join(' ');
+  })();
 
   return (
     <svg
@@ -284,6 +316,21 @@ export function GuitarView({
             );
           }),
         )}
+
+      {/* (music-kb fork) shape-union outline. Rendered before highlight
+          circles so the markers sit on top of the line, not under. */}
+      {shapeOutlineD && (
+        <path
+          d={shapeOutlineD}
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth={3}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          pointerEvents="none"
+          opacity={0.85}
+        />
+      )}
 
       {/* focus rings: every position whose PC matches focusedPitchClass */}
       {!inGame && focusedPitchClass &&
