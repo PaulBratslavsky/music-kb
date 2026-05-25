@@ -80,10 +80,12 @@ function BuilderPage() {
   // 15-fret neck. Default on — chord diagrams and CAGED boxes both look
   // better tight for video graphics; uncheck for a full-neck reference.
   const [cropToShape, setCropToShape] = useState(true);
-  // Tight-polygon outline that hugs the active shape's positions. Default on
-  // so chord and scale shapes read at a glance; uncheck for a clean unmarked
-  // fretboard or when comparing two adjacent shapes side-by-side.
+  // Tight-polygon outline that hugs the active scale shape's positions.
+  // Scale mode only — chord diagrams conventionally show just the dots
+  // without an outline, so the toggle stays hidden in chord mode and the
+  // outline never renders for chord voicings even if it were on.
   const [showShapeOutline, setShowShapeOutline] = useState(true);
+  const outlineApplies = appState.state.mode === 'scale';
 
   // Bulk export: iterate every available CAGED-style position for the current
   // scale and export each one as its own PNG. Only meaningful in scale mode
@@ -175,15 +177,17 @@ function BuilderPage() {
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-sm text-[var(--ink-soft)]">{resolved.label}</span>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
-            <input
-              type="checkbox"
-              checked={showShapeOutline}
-              onChange={(e) => setShowShapeOutline(e.target.checked)}
-              className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
-            />
-            Outline shape
-          </label>
+          {outlineApplies && (
+            <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
+              <input
+                type="checkbox"
+                checked={showShapeOutline}
+                onChange={(e) => setShowShapeOutline(e.target.checked)}
+                className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+              />
+              Outline shape
+            </label>
+          )}
           <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
             <input
               type="checkbox"
@@ -224,7 +228,7 @@ function BuilderPage() {
           onPlayNote={(midi) => synth.playNote(midi)}
           pcLabels={pcLabels}
           shapePositions={resolved.guitarShapePositions}
-          showShapeOutline={showShapeOutline}
+          showShapeOutline={showShapeOutline && outlineApplies}
           showNaturals={appState.showNaturals}
           emphasizedPitchClasses={resolved.previewedChordPCs}
           gameMode={appState.gameMode.guitar}
