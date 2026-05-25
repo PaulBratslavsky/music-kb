@@ -69,23 +69,53 @@ export const CIRCLE_MINOR_DISPLAY_FLAT = [
 
 export type Enharmonic = 'standard' | 'sharps' | 'flats';
 
-export function majorDisplay(idx: number, mode: Enharmonic = 'standard'): string {
-  const arr =
+/** Direction the wheel proceeds when read clockwise.
+ *  - 'fifths' (default): each step CW is a perfect fifth up (C → G → D → ...).
+ *    The Roman-numeral V sits at +1, IV at -1 — the standard layout.
+ *  - 'fourths': mirror image; each step CW is a perfect fourth up
+ *    (C → F → B♭ → ...). V is at -1, IV at +1. More guitar-friendly:
+ *    matches how the strings are tuned (E-A-D-G is three fourths in a row). */
+export type CircleDirection = 'fifths' | 'fourths';
+
+// In fourths direction the array is the fifths array reversed, except C stays
+// at index 0. fourths[i] === fifths[(12 - i) % 12].
+function fourthsView<T>(arr: readonly T[]): T[] {
+  return arr.map((_, i) => arr[(12 - i) % 12]);
+}
+
+export function majorDisplay(
+  idx: number,
+  mode: Enharmonic = 'standard',
+  direction: CircleDirection = 'fifths',
+): string {
+  const base =
     mode === 'sharps'
       ? CIRCLE_MAJOR_DISPLAY_SHARP
       : mode === 'flats'
         ? CIRCLE_MAJOR_DISPLAY_FLAT
         : CIRCLE_MAJOR_DISPLAY;
+  const arr = direction === 'fourths' ? fourthsView(base) : base;
   return arr[idx];
 }
 
-export function minorDisplay(idx: number, mode: Enharmonic = 'standard'): string {
-  const arr =
+export function minorDisplay(
+  idx: number,
+  mode: Enharmonic = 'standard',
+  direction: CircleDirection = 'fifths',
+): string {
+  const base =
     mode === 'sharps'
       ? CIRCLE_MINOR_DISPLAY_SHARP
       : mode === 'flats'
         ? CIRCLE_MINOR_DISPLAY_FLAT
         : CIRCLE_MINOR_DISPLAY;
+  const arr = direction === 'fourths' ? fourthsView(base) : base;
+  return arr[idx];
+}
+
+/** Pitch class (used by deep-link builders) at a given wheel index. */
+export function majorKeyAt(idx: number, direction: CircleDirection = 'fifths'): string {
+  const arr = direction === 'fourths' ? fourthsView(CIRCLE_MAJORS) : CIRCLE_MAJORS;
   return arr[idx];
 }
 
@@ -95,30 +125,40 @@ export type KeyMode = 'major' | 'minor';
  *  In major mode the tonic sits on the outer ring; in minor mode it
  *  sits on the inner ring. The same 6 wedges light up either way (a
  *  major key and its relative minor share their diatonic chord set);
- *  only the Roman-numeral labels + which wedge is "I/i" change. */
-export function diatonicPositions(tonicIdx: number, mode: KeyMode = 'major') {
+ *  only the Roman-numeral labels + which wedge is "I/i" change.
+ *
+ *  In fourths direction the wheel is mirrored, so what was +1 (V in
+ *  fifths) becomes IV, and what was -1 (IV) becomes V. The wedges still
+ *  cluster the same way — only the labels flip on the two adjacent
+ *  outer wedges (and on iii/ii on the inner ring). */
+export function diatonicPositions(
+  tonicIdx: number,
+  mode: KeyMode = 'major',
+  direction: CircleDirection = 'fifths',
+) {
   const mod = (n: number) => ((n % 12) + 12) % 12;
+  // The +1/-1 wedges encode V/IV; in fourths direction the assignment swaps.
+  const upFifth = direction === 'fifths' ? mod(tonicIdx + 1) : mod(tonicIdx - 1);
+  const upFourth = direction === 'fifths' ? mod(tonicIdx - 1) : mod(tonicIdx + 1);
   if (mode === 'minor') {
-    // Minor-key diatonic functions (natural minor):
-    //   i = inner[T], iv = inner[T-1], v = inner[T+1],
-    //   III = outer[T], VI = outer[T-1], VII = outer[T+1],
-    //   ii° = outer[T+5] (the same wedge as major's vii°)
+    // Natural minor: iv on the up-fourth wedge, v on the up-fifth wedge
+    // (relative to fifths direction; swaps in fourths direction).
     return {
       i: { idx: tonicIdx, ring: 'inner' as const, numeral: 'i' },
-      iv: { idx: mod(tonicIdx - 1), ring: 'inner' as const, numeral: 'iv' },
-      v: { idx: mod(tonicIdx + 1), ring: 'inner' as const, numeral: 'v' },
+      iv: { idx: upFourth, ring: 'inner' as const, numeral: 'iv' },
+      v: { idx: upFifth, ring: 'inner' as const, numeral: 'v' },
       III: { idx: tonicIdx, ring: 'outer' as const, numeral: 'III' },
-      VI: { idx: mod(tonicIdx - 1), ring: 'outer' as const, numeral: 'VI' },
-      VII: { idx: mod(tonicIdx + 1), ring: 'outer' as const, numeral: 'VII' },
+      VI: { idx: upFourth, ring: 'outer' as const, numeral: 'VI' },
+      VII: { idx: upFifth, ring: 'outer' as const, numeral: 'VII' },
       iiDim: { idx: mod(tonicIdx + 5), ring: 'outer' as const, numeral: 'ii°' },
     };
   }
   return {
     I: { idx: tonicIdx, ring: 'outer' as const, numeral: 'I' },
-    IV: { idx: mod(tonicIdx - 1), ring: 'outer' as const, numeral: 'IV' },
-    V: { idx: mod(tonicIdx + 1), ring: 'outer' as const, numeral: 'V' },
-    ii: { idx: mod(tonicIdx - 1), ring: 'inner' as const, numeral: 'ii' },
-    iii: { idx: mod(tonicIdx + 1), ring: 'inner' as const, numeral: 'iii' },
+    IV: { idx: upFourth, ring: 'outer' as const, numeral: 'IV' },
+    V: { idx: upFifth, ring: 'outer' as const, numeral: 'V' },
+    ii: { idx: upFourth, ring: 'inner' as const, numeral: 'ii' },
+    iii: { idx: upFifth, ring: 'inner' as const, numeral: 'iii' },
     vi: { idx: tonicIdx, ring: 'inner' as const, numeral: 'vi' },
     viiDim: { idx: mod(tonicIdx + 5), ring: 'outer' as const, numeral: 'vii°' },
   };

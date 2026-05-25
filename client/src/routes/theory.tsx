@@ -7,6 +7,8 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
 import { ChordSubstitutions } from '#/components/ChordSubstitutions';
 import { IntervalCalculator } from '#/components/IntervalCalculator';
+import { StringPairs } from '#/components/StringPairs';
+import { PatternMirror } from '#/components/PatternMirror';
 import {
   CIRCLE_MAJORS,
   CIRCLE_MAJOR_DISPLAY,
@@ -104,6 +106,33 @@ function TheoryPage() {
         </p>
         <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
           <IntervalCalculator />
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-base font-semibold text-[var(--ink)]">
+          Guitar tuning theory
+        </h2>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Why patterns repeat on the fretboard — and why one spot always
+          throws you off. The guitar is tuned in 4ths except for one step
+          (G→B is a 3rd), so the strings cluster into three pairs that
+          mirror each other. Switch the Circle above to{' '}
+          <em>Fourths</em> and the wheel will reorder to match this layout.
+        </p>
+        <div className="mt-6 grid grid-cols-1 gap-6">
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">
+              String pairs
+            </h3>
+            <StringPairs />
+          </div>
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">
+              Pattern mirror — one idea, three voices
+            </h3>
+            <PatternMirror />
+          </div>
         </div>
       </section>
     </main>

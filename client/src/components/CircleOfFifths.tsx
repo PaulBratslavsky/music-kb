@@ -16,6 +16,7 @@ import {
   keySignatureLabel,
   majorDisplay,
   minorDisplay,
+  type CircleDirection,
   type Enharmonic,
   type KeyMode,
 } from '#/lib/music/circle-of-fifths';
@@ -89,6 +90,8 @@ export function CircleOfFifths({
   onEnharmonicChange,
   keyMode: keyModeProp,
   onKeyModeChange,
+  direction: directionProp,
+  onDirectionChange,
 }: {
   initialTonicIdx?: number;
   tonicIdx?: number;
@@ -104,6 +107,12 @@ export function CircleOfFifths({
    *  which wedge is the tonic + the Roman numerals change. */
   keyMode?: KeyMode;
   onKeyModeChange?: (next: KeyMode) => void;
+  /** 'fifths' (default) is the standard CW = up-a-fifth layout.
+   *  'fourths' flips to CW = up-a-fourth — the more guitar-friendly
+   *  direction since the strings are tuned in fourths. V and IV swap
+   *  positions on the wheel. */
+  direction?: CircleDirection;
+  onDirectionChange?: (next: CircleDirection) => void;
 } = {}) {
   const [internalTonicIdx, setInternalTonicIdx] = useState(initialTonicIdx);
   const tonicIdx = tonicIdxProp ?? internalTonicIdx;
@@ -123,7 +132,13 @@ export function CircleOfFifths({
     if (onKeyModeChange) onKeyModeChange(next);
     else setInternalKeyMode(next);
   };
-  const positions = diatonicPositions(tonicIdx, keyMode);
+  const [internalDirection, setInternalDirection] = useState<CircleDirection>('fifths');
+  const direction = directionProp ?? internalDirection;
+  const setDirection = (next: CircleDirection) => {
+    if (onDirectionChange) onDirectionChange(next);
+    else setInternalDirection(next);
+  };
+  const positions = diatonicPositions(tonicIdx, keyMode, direction);
 
   // Build a quick lookup: (ring, idx) → numeral label, or null.
   const numeralMap = new Map<string, string>();
@@ -148,13 +163,13 @@ export function CircleOfFifths({
         <div className="text-2xl font-semibold text-[var(--ink)]">
           {keyMode === 'minor' ? (
             <>
-              {minorDisplay(tonicIdx, enharmonic)} minor /{' '}
-              {majorDisplay(tonicIdx, enharmonic)} major
+              {minorDisplay(tonicIdx, enharmonic, direction)} minor /{' '}
+              {majorDisplay(tonicIdx, enharmonic, direction)} major
             </>
           ) : (
             <>
-              {majorDisplay(tonicIdx, enharmonic)} major /{' '}
-              {minorDisplay(tonicIdx, enharmonic)} minor
+              {majorDisplay(tonicIdx, enharmonic, direction)} major /{' '}
+              {minorDisplay(tonicIdx, enharmonic, direction)} minor
             </>
           )}
         </div>
@@ -184,6 +199,34 @@ export function CircleOfFifths({
               title={opt.title}
               className={`rounded-full px-3 py-1 font-medium transition ${
                 keyMode === opt.mode
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div
+          className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-xs"
+          role="radiogroup"
+          aria-label="Direction"
+        >
+          {(
+            [
+              { mode: 'fifths' as const, label: 'Fifths', title: 'Clockwise = up a 5th (C→G→D…). Standard printed-circle layout.' },
+              { mode: 'fourths' as const, label: 'Fourths', title: 'Clockwise = up a 4th (C→F→B♭…). Mirror image — more guitar-friendly since the strings are tuned in fourths.' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.mode}
+              type="button"
+              role="radio"
+              aria-checked={direction === opt.mode}
+              onClick={() => setDirection(opt.mode)}
+              title={opt.title}
+              className={`rounded-full px-3 py-1 font-medium transition ${
+                direction === opt.mode
                   ? 'bg-[var(--accent)] text-white'
                   : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
               }`}
@@ -272,7 +315,7 @@ export function CircleOfFifths({
                 dominantBaseline="middle"
                 pointerEvents="none"
               >
-                {majorDisplay(i, enharmonic)}
+                {majorDisplay(i, enharmonic, direction)}
               </text>
               {numeral && (
                 <text
@@ -332,7 +375,7 @@ export function CircleOfFifths({
                 dominantBaseline="middle"
                 pointerEvents="none"
               >
-                {minorDisplay(i, enharmonic)}
+                {minorDisplay(i, enharmonic, direction)}
               </text>
               {numeral && (
                 <text
