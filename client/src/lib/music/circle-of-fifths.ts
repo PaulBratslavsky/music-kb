@@ -89,9 +89,30 @@ export function minorDisplay(idx: number, mode: Enharmonic = 'standard'): string
   return arr[idx];
 }
 
-/** Diatonic chord positions for the major-key tonic at the given circle index. */
-export function diatonicPositions(tonicIdx: number) {
+export type KeyMode = 'major' | 'minor';
+
+/** Diatonic chord positions for the tonic at the given circle index.
+ *  In major mode the tonic sits on the outer ring; in minor mode it
+ *  sits on the inner ring. The same 6 wedges light up either way (a
+ *  major key and its relative minor share their diatonic chord set);
+ *  only the Roman-numeral labels + which wedge is "I/i" change. */
+export function diatonicPositions(tonicIdx: number, mode: KeyMode = 'major') {
   const mod = (n: number) => ((n % 12) + 12) % 12;
+  if (mode === 'minor') {
+    // Minor-key diatonic functions (natural minor):
+    //   i = inner[T], iv = inner[T-1], v = inner[T+1],
+    //   III = outer[T], VI = outer[T-1], VII = outer[T+1],
+    //   ii° = outer[T+5] (the same wedge as major's vii°)
+    return {
+      i: { idx: tonicIdx, ring: 'inner' as const, numeral: 'i' },
+      iv: { idx: mod(tonicIdx - 1), ring: 'inner' as const, numeral: 'iv' },
+      v: { idx: mod(tonicIdx + 1), ring: 'inner' as const, numeral: 'v' },
+      III: { idx: tonicIdx, ring: 'outer' as const, numeral: 'III' },
+      VI: { idx: mod(tonicIdx - 1), ring: 'outer' as const, numeral: 'VI' },
+      VII: { idx: mod(tonicIdx + 1), ring: 'outer' as const, numeral: 'VII' },
+      iiDim: { idx: mod(tonicIdx + 5), ring: 'outer' as const, numeral: 'ii°' },
+    };
+  }
   return {
     I: { idx: tonicIdx, ring: 'outer' as const, numeral: 'I' },
     IV: { idx: mod(tonicIdx - 1), ring: 'outer' as const, numeral: 'IV' },

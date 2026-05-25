@@ -17,6 +17,7 @@ import {
   majorDisplay,
   minorDisplay,
   type Enharmonic,
+  type KeyMode,
 } from '#/lib/music/circle-of-fifths';
 
 // Component supports two modes:
@@ -86,6 +87,8 @@ export function CircleOfFifths({
   onTonicChange,
   enharmonic: enharmonicProp,
   onEnharmonicChange,
+  keyMode: keyModeProp,
+  onKeyModeChange,
 }: {
   initialTonicIdx?: number;
   tonicIdx?: number;
@@ -95,6 +98,12 @@ export function CircleOfFifths({
    *  sharps; 'flats' shows them all as flats. */
   enharmonic?: Enharmonic;
   onEnharmonicChange?: (next: Enharmonic) => void;
+  /** 'major' (default) puts the tonic on the outer ring; 'minor' puts it
+   *  on the inner ring so the user can treat any minor key (e.g. C♯m) as
+   *  the I-equivalent (i). The same six wedges light up either way — only
+   *  which wedge is the tonic + the Roman numerals change. */
+  keyMode?: KeyMode;
+  onKeyModeChange?: (next: KeyMode) => void;
 } = {}) {
   const [internalTonicIdx, setInternalTonicIdx] = useState(initialTonicIdx);
   const tonicIdx = tonicIdxProp ?? internalTonicIdx;
@@ -108,18 +117,27 @@ export function CircleOfFifths({
     if (onEnharmonicChange) onEnharmonicChange(next);
     else setInternalEnharmonic(next);
   };
-  const positions = diatonicPositions(tonicIdx);
+  const [internalKeyMode, setInternalKeyMode] = useState<KeyMode>('major');
+  const keyMode = keyModeProp ?? internalKeyMode;
+  const setKeyMode = (next: KeyMode) => {
+    if (onKeyModeChange) onKeyModeChange(next);
+    else setInternalKeyMode(next);
+  };
+  const positions = diatonicPositions(tonicIdx, keyMode);
 
   // Build a quick lookup: (ring, idx) → numeral label, or null.
   const numeralMap = new Map<string, string>();
   for (const p of Object.values(positions)) {
     numeralMap.set(`${p.ring}-${p.idx}`, p.numeral);
   }
-  // Distinguish the tonic itself from the other diatonic positions.
+  // Tonic ring depends on mode: major → outer, minor → inner. The other
+  // ring at the same idx is the parallel relative key (shown a notch less
+  // bright but still highlighted).
+  const tonicRing: Ring = keyMode === 'minor' ? 'inner' : 'outer';
   const tonicKey = (ring: Ring, idx: number) =>
-    ring === 'outer' && idx === tonicIdx;
+    ring === tonicRing && idx === tonicIdx;
   const relativeMinorKey = (ring: Ring, idx: number) =>
-    ring === 'inner' && idx === tonicIdx;
+    ring !== tonicRing && idx === tonicIdx;
   // Any diatonic position (the cluster + vii°).
   const isDiatonic = (ring: Ring, idx: number) =>
     numeralMap.has(`${ring}-${idx}`);
@@ -128,14 +146,52 @@ export function CircleOfFifths({
     <div className="flex flex-col items-center gap-4">
       <div className="text-center">
         <div className="text-2xl font-semibold text-[var(--ink)]">
-          {majorDisplay(tonicIdx, enharmonic)} major /{' '}
-          {minorDisplay(tonicIdx, enharmonic)} minor
+          {keyMode === 'minor' ? (
+            <>
+              {minorDisplay(tonicIdx, enharmonic)} minor /{' '}
+              {majorDisplay(tonicIdx, enharmonic)} major
+            </>
+          ) : (
+            <>
+              {majorDisplay(tonicIdx, enharmonic)} major /{' '}
+              {minorDisplay(tonicIdx, enharmonic)} minor
+            </>
+          )}
         </div>
         <div className="mt-1 text-sm text-[var(--ink-muted)]">
           {keySignatureLabel(tonicIdx)}
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <div
+          className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-xs"
+          role="radiogroup"
+          aria-label="Key mode"
+        >
+          {(
+            [
+              { mode: 'major' as const, label: 'Major', title: 'Tonic sits on the outer ring (Iiv-V family).' },
+              { mode: 'minor' as const, label: 'Minor', title: 'Tonic sits on the inner ring — click any minor key to set it as i.' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.mode}
+              type="button"
+              role="radio"
+              aria-checked={keyMode === opt.mode}
+              onClick={() => setKeyMode(opt.mode)}
+              title={opt.title}
+              className={`rounded-full px-3 py-1 font-medium transition ${
+                keyMode === opt.mode
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       <div
         className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-xs"
         role="radiogroup"
@@ -165,6 +221,7 @@ export function CircleOfFifths({
           </button>
         ))}
       </div>
+      </div>
 
       <svg
         viewBox={`0 0 ${VIEW} ${VIEW}`}
@@ -188,7 +245,15 @@ export function CircleOfFifths({
           return (
             <g
               key={`outer-${i}`}
-              onClick={() => setTonicIdx(i)}
+              onClick={() => {
+                // Clicking the outer (majors) ring sets the major key. If
+                // the user was in minor mode, switch to major so the
+                // clicked wedge becomes the I they expected — not "this
+                // major's relative minor", which is musically right but
+                // not what users mean when they click "C# major".
+                setTonicIdx(i);
+                if (keyMode !== 'major') setKeyMode('major');
+              }}
               style={{ cursor: 'pointer' }}
             >
               <path
@@ -238,13 +303,17 @@ export function CircleOfFifths({
           const text = isRelMin ? COLOR_TONIC_TEXT : COLOR_TEXT;
           const numeral = numeralMap.get(`inner-${i}`);
           const center = segCenter(i, 'inner');
-          // Inner-ring click: jump to the parallel-major tonic so the
-          // wheel re-pivots around the major key whose relative minor
-          // this is. (Click Am → tonic becomes C major.)
           return (
             <g
               key={`inner-${i}`}
-              onClick={() => setTonicIdx(i)}
+              onClick={() => {
+                // Clicking the inner (minors) ring sets the minor key
+                // directly — clicking C#m makes C#m the i, not "the
+                // major key whose relative minor is C#m." Auto-switches
+                // out of major mode if needed.
+                setTonicIdx(i);
+                if (keyMode !== 'minor') setKeyMode('minor');
+              }}
               style={{ cursor: 'pointer' }}
             >
               <path
