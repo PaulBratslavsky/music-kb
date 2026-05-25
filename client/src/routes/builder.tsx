@@ -50,6 +50,7 @@ function BuilderPage() {
       svg,
       themeRoot: root,
       filename: buildFilename(appState.state),
+      cropToShape,
     });
   };
 
@@ -73,6 +74,12 @@ function BuilderPage() {
     voicingTotal === 0
       ? 0
       : ((appState.state.chord.voicingIndex % voicingTotal) + voicingTotal) % voicingTotal;
+
+  // Crop-to-shape toggle. When on, the exported SVG's viewBox tightens to the
+  // chord/scale-shape bbox + a fret of padding instead of dumping the full
+  // 15-fret neck. Default on — chord diagrams and CAGED boxes both look
+  // better tight for video graphics; uncheck for a full-neck reference.
+  const [cropToShape, setCropToShape] = useState(true);
 
   // Bulk export: iterate every available CAGED-style position for the current
   // scale and export each one as its own PNG. Only meaningful in scale mode
@@ -106,6 +113,7 @@ function BuilderPage() {
           filename: `${slug(appState.state.scale.root)}-${slug(
             appState.state.scale.type,
           )}-shape${pos}.png`,
+          cropToShape,
         });
       }
     } finally {
@@ -162,7 +170,16 @@ function BuilderPage() {
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-sm text-[var(--ink-soft)]">{resolved.label}</span>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
+            <input
+              type="checkbox"
+              checked={cropToShape}
+              onChange={(e) => setCropToShape(e.target.checked)}
+              className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+            />
+            Crop to shape
+          </label>
           {positions.length > 0 && (
             <Button
               type="button"
