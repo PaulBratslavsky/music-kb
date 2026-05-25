@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TheoryRouteImport } from './routes/theory'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as NewPostRouteImport } from './routes/new-post'
@@ -25,6 +26,11 @@ import { Route as ApiChatRouteImport } from './routes/api.chat'
 import { Route as ApiAskRouteImport } from './routes/api.ask'
 import { Route as ApiNotesComposeRouteImport } from './routes/api.notes.compose'
 
+const TheoryRoute = TheoryRouteImport.update({
+  id: '/theory',
+  path: '/theory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -111,6 +117,7 @@ export interface FileRoutesByFullPath {
   '/new-post': typeof NewPostRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
+  '/theory': typeof TheoryRoute
   '/api/ask': typeof ApiAskRoute
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
@@ -128,6 +135,7 @@ export interface FileRoutesByTo {
   '/new-post': typeof NewPostRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
+  '/theory': typeof TheoryRoute
   '/api/ask': typeof ApiAskRoute
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
@@ -146,6 +154,7 @@ export interface FileRoutesById {
   '/new-post': typeof NewPostRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
+  '/theory': typeof TheoryRoute
   '/api/ask': typeof ApiAskRoute
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
@@ -165,6 +174,7 @@ export interface FileRouteTypes {
     | '/new-post'
     | '/search'
     | '/settings'
+    | '/theory'
     | '/api/ask'
     | '/api/chat'
     | '/api/digest-chat'
@@ -182,6 +192,7 @@ export interface FileRouteTypes {
     | '/new-post'
     | '/search'
     | '/settings'
+    | '/theory'
     | '/api/ask'
     | '/api/chat'
     | '/api/digest-chat'
@@ -199,6 +210,7 @@ export interface FileRouteTypes {
     | '/new-post'
     | '/search'
     | '/settings'
+    | '/theory'
     | '/api/ask'
     | '/api/chat'
     | '/api/digest-chat'
@@ -217,6 +229,7 @@ export interface RootRouteChildren {
   NewPostRoute: typeof NewPostRoute
   SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
+  TheoryRoute: typeof TheoryRoute
   ApiAskRoute: typeof ApiAskRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiDigestChatRoute: typeof ApiDigestChatRoute
@@ -227,6 +240,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/theory': {
+      id: '/theory'
+      path: '/theory'
+      fullPath: '/theory'
+      preLoaderRoute: typeof TheoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -345,6 +365,7 @@ const rootRouteChildren: RootRouteChildren = {
   NewPostRoute: NewPostRoute,
   SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
+  TheoryRoute: TheoryRoute,
   ApiAskRoute: ApiAskRoute,
   ApiChatRoute: ApiChatRoute,
   ApiDigestChatRoute: ApiDigestChatRoute,

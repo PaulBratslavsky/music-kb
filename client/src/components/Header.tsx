@@ -61,6 +61,13 @@ export default function Header() {
             Builder
           </Link>
           <Link
+            to="/theory"
+            className="nav-link text-sm"
+            activeProps={{ className: 'nav-link is-active text-sm' }}
+          >
+            Theory
+          </Link>
+          <Link
             to="/about"
             className="nav-link text-sm"
             activeProps={{ className: 'nav-link is-active text-sm' }}
