@@ -33,7 +33,7 @@ function TheoryPage() {
   const [guitarCircleDir, setGuitarCircleDir] = useState<CircleDirection>('fourths');
 
   return (
-    <main className="page-wrap mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-12">
+    <main className="page-wrap mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-8 sm:py-12">
       <header className="mb-8">
         <h1 className="display-title text-3xl text-[var(--ink)] sm:text-4xl">
           Music theory
@@ -127,8 +127,10 @@ function TheoryPage() {
           the string-pair lanes, and the pattern mirror — is self-contained
           so you don't have to scroll back up.
         </p>
-        <div className="mt-6 grid grid-cols-1 gap-6">
-          <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,520px)_1fr] lg:items-start">
+          {/* Left column: Circle of fourths. Sticky on lg+ so it stays in
+              view while the user scrolls the (taller) right column. */}
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6 lg:sticky lg:top-6">
             <h3 className="mb-1 text-sm font-semibold text-[var(--ink)]">
               Circle of fourths (guitar-friendly view)
             </h3>
@@ -136,7 +138,7 @@ function TheoryPage() {
               Same tonic as the wheel at the top of this page, but rendered
               with clockwise = up a 4th instead of up a 5th. Now V sits to
               the left of the tonic and IV to the right — matching how
-              shapes shift across the four-tuned string pairs below.
+              shapes shift across the four-tuned string pairs to the right.
             </p>
             <CircleOfFifths
               tonicIdx={tonicIdx}
@@ -145,20 +147,25 @@ function TheoryPage() {
               onDirectionChange={setGuitarCircleDir}
             />
           </div>
-          <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
-            <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">
-              String pairs
-            </h3>
-            <StringPairs />
-          </div>
-          <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
-            <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">
-              Pattern mirror — one idea, three voices
-            </h3>
-            <PatternMirror
-              tonicCircleIdx={tonicIdx}
-              direction={guitarCircleDir}
-            />
+          {/* Right column: String Pairs + Pattern Mirror. They sit together
+              so when the user clicks a wedge on the Circle (left), the
+              shape on the fretboard (right) updates without scrolling. */}
+          <div className="flex flex-col gap-6">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+              <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">
+                String pairs
+              </h3>
+              <StringPairs />
+            </div>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+              <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">
+                Pattern mirror — one idea, three voices
+              </h3>
+              <PatternMirror
+                tonicCircleIdx={tonicIdx}
+                direction={guitarCircleDir}
+              />
+            </div>
           </div>
         </div>
       </section>
