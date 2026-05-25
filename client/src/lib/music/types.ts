@@ -12,6 +12,8 @@ export type Note = {
 };
 
 export type ChordQuality =
+  // Power chord (root + 5th only, no 3rd)
+  | '5'
   // Triads
   | 'maj' | 'min' | 'dim' | 'aug' | 'sus2' | 'sus4'
   // Sixths
@@ -28,6 +30,7 @@ export type ChordQuality =
   | '7b5' | '7#5' | '7b9' | '7#9' | 'alt';
 
 export const CHORD_QUALITIES: ChordQuality[] = [
+  '5',
   'maj', 'min', 'dim', 'aug', 'sus2', 'sus4',
   '6', 'm6',
   'maj7', 'min7', 'dom7', 'm7b5', 'dim7', 'mMaj7', '7sus4',

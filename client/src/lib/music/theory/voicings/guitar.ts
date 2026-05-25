@@ -27,6 +27,16 @@ export type GuitarVoicing = {
    * position" matching, which is appropriate for that case.
    */
   positions: Set<string> | null;
+  /**
+   * (music-kb fork) Resolved barre — the absolute fret + string range the
+   * index finger should bar. Set only when the realized voicing's shape
+   * carries a `barre` annotation AND the resolved barre fret is > 0
+   * (no need to render a bar at the nut). Drives the thick translucent
+   * bar overlay in GuitarView.
+   *
+   * null for open chords, two-finger power chords, and quality fallbacks.
+   */
+  barre: { fret: number; fromString: number; toString: number } | null;
 };
 
 /** Lowest fret (>=0) on `stringIdx` whose note has the given pitch class. */
@@ -46,7 +56,11 @@ function lowestFretForPC(stringIdx: number, pc: PitchClass): number {
 function realizeShape(
   shape: GuitarShape,
   root: PitchClass,
-): { notes: Note[]; positions: Set<string> } | null {
+): {
+  notes: Note[];
+  positions: Set<string>;
+  barre: { fret: number; fromString: number; toString: number } | null;
+} | null {
   const rootFret = lowestFretForPC(shape.rootString, root);
   const notes: Note[] = [];
   const positions = new Set<string>();
@@ -61,7 +75,21 @@ function realizeShape(
     notes.push(noteFromMidi(midi));
     positions.add(`${s}-${fret}`);
   }
-  return notes.length > 0 ? { notes, positions } : null;
+  if (notes.length === 0) return null;
+  // Resolve the barre. We skip it when the barre would land at fret 0
+  // (the nut already covers open strings — drawing a bar there is noise).
+  let barre: { fret: number; fromString: number; toString: number } | null = null;
+  if (shape.barre) {
+    const barreFret = rootFret + shape.barre.offsetFromRoot;
+    if (barreFret > 0 && barreFret <= FRET_COUNT) {
+      barre = {
+        fret: barreFret,
+        fromString: shape.barre.fromString,
+        toString: shape.barre.toString,
+      };
+    }
+  }
+  return { notes, positions, barre };
 }
 
 /**
@@ -109,7 +137,9 @@ export function guitarVoicing(sel: ChordSelection): GuitarVoicing {
   const open = openShapeFor(sel);
   if (open) {
     const { notes, positions } = realizeOpenShape(open);
-    voicings.push({ notes, shapeName: open.name, positions });
+    // Open shapes don't barre — they're played with discrete finger
+    // placement on individual strings.
+    voicings.push({ notes, shapeName: open.name, positions, barre: null });
   }
 
   for (const shape of GUITAR_SHAPES[sel.quality] ?? []) {
@@ -119,6 +149,7 @@ export function guitarVoicing(sel: ChordSelection): GuitarVoicing {
         notes: realized.notes,
         shapeName: shape.name,
         positions: realized.positions,
+        barre: realized.barre,
       });
   }
 
@@ -126,7 +157,12 @@ export function guitarVoicing(sel: ChordSelection): GuitarVoicing {
     // No shape data → fall back to pitch-class flood (positions: null). The
     // resolve.ts caller sees positions == null and leaves guitarShapePositions
     // null too, which GuitarView's inShape treats as "anywhere goes."
-    return { notes: pitchClassFallback(pcs), shapeName: null, positions: null };
+    return {
+      notes: pitchClassFallback(pcs),
+      shapeName: null,
+      positions: null,
+      barre: null,
+    };
   }
 
   const v = ((sel.voicingIndex % voicings.length) + voicings.length) % voicings.length;
@@ -141,4 +177,31 @@ export function guitarVoicingCount(sel: ChordSelection): number {
 
 export function guitarHasShape(quality: ChordSelection['quality']): boolean {
   return (GUITAR_SHAPES[quality] ?? []).length > 0;
+}
+
+/**
+ * (music-kb fork) First voicing index whose shape is annotated as a barre.
+ * Returns -1 when the quality has no barre voicings (e.g. dim, aug, sus2,
+ * sus4, or power chord '5'). Used by the "Barre chord" quick-start chip to
+ * jump straight to the first barre form without making the user step
+ * through Voicing manually.
+ *
+ * Order matches `guitarVoicing`: index 0 is the open shape (if any) for
+ * this exact root+quality; movable shapes from GUITAR_SHAPES follow.
+ */
+export function firstBarreVoicingIndex(sel: ChordSelection): number {
+  const hasOpen = openShapeFor(sel) != null;
+  const shapes = GUITAR_SHAPES[sel.quality] ?? [];
+  const base = hasOpen ? 1 : 0;
+  for (let i = 0; i < shapes.length; i++) {
+    if (shapes[i].barre) return base + i;
+  }
+  return -1;
+}
+
+/** Shape name of the voicing currently selected by `voicingIndex`, or null
+ *  when no shape is defined for this quality. Used to render the active
+ *  shape name next to the Voicing stepper in the SelectionBar. */
+export function currentGuitarShapeName(sel: ChordSelection): string | null {
+  return guitarVoicing(sel).shapeName;
 }

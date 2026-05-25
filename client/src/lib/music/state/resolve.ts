@@ -79,6 +79,13 @@ export type ResolvedExtras = ResolvedSelection & {
    */
   guitarShapePositions: Set<string> | null;
   /**
+   * (music-kb fork) Resolved barre for the current chord-mode voicing.
+   * null in scale/note/all modes, and null for chord voicings without a
+   * barre (open chords, two-finger power chord, etc.). See
+   * voicings/guitar.ts:GuitarVoicing.barre.
+   */
+  guitarBarre: { fret: number; fromString: number; toString: number } | null;
+  /**
    * Pitch classes that belong to the previewed diatonic chord (scale mode only).
    * When set, views render scale notes that aren't in this set as dimmed, and
    * the chord's root takes over from the scale's root for color emphasis.
@@ -94,7 +101,7 @@ export function resolveSelection(
   const pcDegrees = degreesForSelection(state.mode, state.chord, state.scale, state.singleNote);
   if (state.mode === 'chord') {
     const piano = pianoVoicing(state.chord);
-    const { notes: guitar, shapeName, positions } = guitarVoicing(state.chord);
+    const { notes: guitar, shapeName, positions, barre } = guitarVoicing(state.chord);
     const push = pushVoicing(state.chord);
 
     const pcs = getChordPitchClasses(state.chord.root, state.chord.quality);
@@ -122,6 +129,7 @@ export function resolveSelection(
       // it can be played on, scattering 18+ markers across the neck for a 6-note
       // open chord. See voicings/guitar.ts:GuitarVoicing.positions.
       guitarShapePositions: positions,
+      guitarBarre: barre,
       previewedChordPCs: null,
       previewedChordRoot: null,
     };
@@ -187,6 +195,7 @@ export function resolveSelection(
       pcDegrees,
       pcDisplay,
       guitarShapePositions: shapePositions,
+      guitarBarre: null,
       previewedChordPCs,
       previewedChordRoot,
     };
@@ -206,6 +215,7 @@ export function resolveSelection(
       pcDegrees,
       pcDisplay: noteName === pc ? {} : { [pc]: noteName },
       guitarShapePositions: null,
+      guitarBarre: null,
       previewedChordPCs: null,
       previewedChordRoot: null,
     };
@@ -223,6 +233,7 @@ export function resolveSelection(
     pcDegrees: {},
     pcDisplay: {},
     guitarShapePositions: null,
+    guitarBarre: null,
     previewedChordPCs: null,
     previewedChordRoot: null,
   };

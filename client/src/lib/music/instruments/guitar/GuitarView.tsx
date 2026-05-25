@@ -24,6 +24,11 @@ type Props = {
    *  legacy mechanism — the shape-coloring path via `cellColors` is cleaner
    *  for distinguishing CAGED shapes that overlap. */
   shapeOutlines?: Set<string>[];
+  /** (music-kb fork) Absolute barre fret + string range to render as a
+   *  thick translucent bar across the fretboard. Drives the "this is a
+   *  barre chord" visual for E-shape / A-shape barre voicings. null when
+   *  the voicing isn't a barre. See voicings/guitar.ts:GuitarVoicing.barre. */
+  barre?: { fret: number; fromString: number; toString: number } | null;
   showNaturals?: boolean;
   emphasizedPitchClasses?: Set<PitchClass> | null;
   gameMode?: GameModeState;
@@ -60,6 +65,7 @@ export function GuitarView({
   shapePositions,
   cellColors,
   shapeOutlines,
+  barre,
   showNaturals = false,
   emphasizedPitchClasses,
   gameMode,
@@ -337,6 +343,34 @@ export function GuitarView({
             );
           }),
         )}
+
+      {/* (music-kb fork) Barre indicator — a thick translucent bar across
+          the fretboard at the barre fret, spanning the strings the index
+          finger covers. Rendered before the note markers so the dots
+          stack on top. */}
+      {barre && (() => {
+        const { fret, fromString, toString } = barre;
+        const minS = Math.min(fromString, toString);
+        const maxS = Math.max(fromString, toString);
+        const x = xForFret(fret) - 11;
+        const y = yForString(minS) - 11;
+        const height = yForString(maxS) - yForString(minS) + 22;
+        return (
+          <rect
+            x={x}
+            y={y}
+            width={22}
+            height={height}
+            rx={11}
+            ry={11}
+            fill="var(--accent)"
+            opacity={0.25}
+            stroke="var(--accent)"
+            strokeWidth={1.5}
+            pointerEvents="none"
+          />
+        );
+      })()}
 
       {/* (music-kb fork) bounding-rect outlines, one rect per shape in
           `shapeOutlines`. Kept as a legacy mechanism — the cellColors

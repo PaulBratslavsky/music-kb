@@ -19,6 +19,24 @@ export type GuitarShape = {
   name: string;
   rootString: number; // 0 = high E, 5 = low E
   frets: (number | null)[]; // length 6, indexed [highE..lowE]
+  /**
+   * Optional barre annotation. When present, the GuitarView renders a
+   * thick bar across the indicated strings at fret = rootFret + offsetFromRoot.
+   *
+   * - `offsetFromRoot`: 0 = barre lives at the root fret (the typical case
+   *   for E-shape and A-shape barres — the index finger barres at the root).
+   * - `fromString`, `toString`: inclusive string-index range the barre
+   *   covers (0 = high E, 5 = low E). E-shape barres span 0..5;
+   *   A-shape barres span 0..4 (low E is muted).
+   *
+   * The barre is omitted from rendering when the resolved root fret is 0
+   * (no need to barre at the nut — the open strings already cover it).
+   */
+  barre?: {
+    offsetFromRoot: number;
+    fromString: number;
+    toString: number;
+  };
 };
 
 /**
@@ -31,7 +49,38 @@ export type GuitarShape = {
  * low-E string (E-shape barre) or A string (A-shape barre). These are the
  * "movable barre chord" shapes most guitarists know — they cover all 12 roots.
  */
+// E-shape barre: index finger barres all 6 strings at the root fret.
+const BARRE_E: GuitarShape['barre'] = { offsetFromRoot: 0, fromString: 0, toString: 5 };
+// A-shape barre: index finger barres top 5 strings at the root fret;
+// low E is muted by the thumb-over technique.
+const BARRE_A: GuitarShape['barre'] = { offsetFromRoot: 0, fromString: 0, toString: 4 };
+
 export const GUITAR_SHAPES: Partial<Record<ChordQuality, GuitarShape[]>> = {
+  // Power chord (root + 5th + octave). The rock/punk/metal staple — also
+  // ambiguous (no 3rd means it works in major and minor contexts). Three
+  // movable shapes, one per low-string root:
+  //   • E-string root: lowE(0), A(2 = 5th), D(2 = octave) — frets [_,_,_,2,2,0]
+  //   • A-string root: A(0), D(2 = 5th), G(2 = octave)   — frets [_,_,2,2,0,_]
+  //   • D-string root: D(0), G(2 = 5th), B(3 = octave + kink offset) —
+  //                    the +1 fret shift on the B string compensates for
+  //                    the G→B major-3rd kink in standard tuning.
+  '5': [
+    {
+      name: 'E-string power chord',
+      rootString: 5,
+      frets: [null, null, null, 2, 2, 0],
+    },
+    {
+      name: 'A-string power chord',
+      rootString: 4,
+      frets: [null, null, 2, 2, 0, null],
+    },
+    {
+      name: 'D-string power chord',
+      rootString: 3,
+      frets: [null, 3, 2, 0, null, null],
+    },
+  ],
   // Major
   maj: [
     // E-shape barre: root on low E. Frets [highE,B,G,D,A,E]
@@ -39,12 +88,14 @@ export const GUITAR_SHAPES: Partial<Record<ChordQuality, GuitarShape[]>> = {
       name: 'E-shape barre',
       rootString: 5,
       frets: [0, 0, 1, 2, 2, 0],
+      barre: BARRE_E,
     },
     // A-shape barre: root on A. Open A-shape positions: x 0 2 2 2 0 → relative to root on A
     {
       name: 'A-shape barre',
       rootString: 4,
       frets: [0, 2, 2, 2, 0, null],
+      barre: BARRE_A,
     },
   ],
   // Minor
@@ -54,12 +105,14 @@ export const GUITAR_SHAPES: Partial<Record<ChordQuality, GuitarShape[]>> = {
       name: 'Em-shape barre',
       rootString: 5,
       frets: [0, 0, 0, 2, 2, 0],
+      barre: BARRE_E,
     },
     // Am-shape barre: root on A. Am open: x 0 2 2 1 0
     {
       name: 'Am-shape barre',
       rootString: 4,
       frets: [0, 1, 2, 2, 0, null],
+      barre: BARRE_A,
     },
   ],
   // Dominant 7
@@ -69,12 +122,14 @@ export const GUITAR_SHAPES: Partial<Record<ChordQuality, GuitarShape[]>> = {
       name: 'E7-shape barre',
       rootString: 5,
       frets: [0, 0, 1, 0, 2, 0],
+      barre: BARRE_E,
     },
     // A7-shape barre: root on A. A7 open: x 0 2 0 2 0 → relative
     {
       name: 'A7-shape barre',
       rootString: 4,
       frets: [0, 2, 0, 2, 0, null],
+      barre: BARRE_A,
     },
   ],
   // Major 7
@@ -84,12 +139,14 @@ export const GUITAR_SHAPES: Partial<Record<ChordQuality, GuitarShape[]>> = {
       name: 'Emaj7-shape barre',
       rootString: 5,
       frets: [0, 0, 1, 1, 2, 0],
+      barre: BARRE_E,
     },
     // Amaj7-shape: x 0 2 1 2 0 → high→low: 0,2,1,2,0,null
     {
       name: 'Amaj7-shape barre',
       rootString: 4,
       frets: [0, 2, 1, 2, 0, null],
+      barre: BARRE_A,
     },
   ],
   // Minor 7
@@ -99,12 +156,58 @@ export const GUITAR_SHAPES: Partial<Record<ChordQuality, GuitarShape[]>> = {
       name: 'Em7-shape barre',
       rootString: 5,
       frets: [0, 0, 0, 0, 2, 0],
+      barre: BARRE_E,
     },
     // Am7-shape: x 0 2 0 1 0 → high→low: 0,1,0,2,0,null
     {
       name: 'Am7-shape barre',
       rootString: 4,
       frets: [0, 1, 0, 2, 0, null],
+      barre: BARRE_A,
+    },
+  ],
+  // Major 6: root, 3, 5, 6. E6 open = 0 2 2 1 2 0 (high→low) — barre form
+  // moves the same shape up the neck.
+  '6': [
+    {
+      name: 'E-shape 6 barre',
+      rootString: 5,
+      frets: [0, 2, 1, 2, 2, 0],
+      barre: BARRE_E,
+    },
+    {
+      name: 'A-shape 6 barre',
+      rootString: 4,
+      frets: [2, 2, 2, 2, 0, null],
+      barre: BARRE_A,
+    },
+  ],
+  // Minor 6: root, b3, 5, 6. Em6 open = 0 2 0 2 2 0; Am6 open = x 2 1 2 2 0.
+  m6: [
+    {
+      name: 'Em6-shape barre',
+      rootString: 5,
+      frets: [0, 2, 0, 2, 2, 0],
+      barre: BARRE_E,
+    },
+    {
+      name: 'Am6-shape barre',
+      rootString: 4,
+      frets: [2, 1, 2, 2, 0, null],
+      barre: BARRE_A,
+    },
+  ],
+  // Half-diminished (m7b5). The E-string barre form is awkward; the A-string
+  // form is the practical one and lives on top 5 strings:
+  // Bm7b5 = x 2 3 2 3 x → high→low [null,3,2,3,2,null] → relative to root on
+  // A fret 2: [null,1,0,1,0,null]. We barre 0..4 here too; the high-E string
+  // is muted by the fingering, not the bar.
+  m7b5: [
+    {
+      name: 'A-shape m7♭5 barre',
+      rootString: 4,
+      frets: [null, 1, 0, 1, 0, null],
+      barre: BARRE_A,
     },
   ],
   // Diminished triad on D-string root. Intervals: 1, b3, b5 → uses top 4 strings.

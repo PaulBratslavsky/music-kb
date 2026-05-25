@@ -3,6 +3,8 @@ import type { ChordQuality, ChordSelection, Note, PitchClass } from '../types';
 import { midiFromPitchOctave, noteFromMidi, pitchClassFromName, spelledRoot } from './notes';
 
 const QUALITY_TO_TONAL_SUFFIX: Record<ChordQuality, string> = {
+  // Power chord (root + 5th — tonal returns [root, fifth] for "C5")
+  '5': '5',
   // Triads
   maj: 'M',
   min: 'm',

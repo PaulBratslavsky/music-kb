@@ -324,6 +324,7 @@ function BuilderPage() {
           onPlayNote={(midi) => synth.playNote(midi)}
           pcLabels={pcLabels}
           shapePositions={resolved.guitarShapePositions}
+          barre={resolved.guitarBarre}
           cellColors={cellColors}
           showNaturals={appState.showNaturals}
           emphasizedPitchClasses={resolved.previewedChordPCs}

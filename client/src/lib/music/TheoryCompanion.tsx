@@ -21,6 +21,7 @@ import { midiFromNote, notesAscending } from './theory/notes';
 import type { DiatonicChord } from './theory/diatonic';
 import { SheetMusicView } from './instruments/notation/SheetMusicView';
 import { TabView } from './instruments/notation/TabView';
+import { firstBarreVoicingIndex } from './theory/voicings/guitar';
 import './theory-companion.css';
 
 // Display a diatonic chord chip as either a triad ("C", "Dm", "B°") or its
@@ -164,8 +165,61 @@ export default function TheoryCompanion({
     }
   };
 
+  // Quick-start chips wired above SelectionBar. They short-circuit the
+  // mode → quality → voicing dance for the two most common
+  // "show me a specific kind of chord" requests.
+  //
+  //   • Power chord: switch to chord mode + force quality to '5'. The
+  //     visualizer-resolved voicing is three-note (root + 5th + octave).
+  //     Piano and Push will show the two pitch classes; the guitar shape
+  //     adds the doubled-root octave.
+  //
+  //   • Barre chord: switch to chord mode (keeping whatever quality the
+  //     user has, defaulting to 'maj' when current quality has no barre
+  //     forms — e.g. '5', dim, sus2). Then jump voicingIndex to the
+  //     first shape whose `barre` annotation is set. Skips the open
+  //     voicing when one exists.
+  const showPowerChord = () => {
+    appState.selectChord(appState.state.chord.root, '5');
+  };
+  const showBarreChord = () => {
+    const currentSel = appState.state.chord;
+    let target = currentSel;
+    if (firstBarreVoicingIndex(currentSel) === -1) {
+      // Current quality has no barre forms — fall back to maj barre.
+      target = { ...currentSel, quality: 'maj' };
+      appState.selectChord(currentSel.root, 'maj');
+    } else if (appState.state.mode !== 'chord') {
+      // Need chord mode active before voicingIndex matters.
+      appState.selectChord(currentSel.root, currentSel.quality);
+    }
+    const idx = firstBarreVoicingIndex(target);
+    if (idx >= 0) {
+      appState.setChord((c) => ({ ...c, voicingIndex: idx, inversion: 0 }));
+    }
+  };
+
   return (
     <div className="app theory-companion">
+      <div className="panel quick-start-row">
+        <span className="quick-start-label">Quick start:</span>
+        <button
+          type="button"
+          className="chip"
+          onClick={showPowerChord}
+          title="Switch to chord mode and pick the power chord quality (root + 5th)"
+        >
+          Power chord
+        </button>
+        <button
+          type="button"
+          className="chip"
+          onClick={showBarreChord}
+          title="Switch to chord mode and jump to the first barre voicing"
+        >
+          Barre chord
+        </button>
+      </div>
       <SelectionBar {...appState} />
 
       <div className="panel label-row">
@@ -332,6 +386,7 @@ export default function TheoryCompanion({
             onPlayNote={(midi) => synth.playNote(midi)}
             pcLabels={pcLabels}
             shapePositions={resolved.guitarShapePositions}
+            barre={resolved.guitarBarre}
             showNaturals={appState.showNaturals}
             emphasizedPitchClasses={resolved.previewedChordPCs}
             gameMode={appState.gameMode.guitar}

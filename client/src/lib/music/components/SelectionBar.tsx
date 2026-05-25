@@ -12,9 +12,11 @@ import { SCALE_TYPE_LABELS } from '../theory/scales';
 import { availablePositions } from '../theory/positions';
 import { useAppState } from '../state/useAppState';
 import { chordInversionCount, chordVoicingCount } from '../state/resolve';
+import { currentGuitarShapeName } from '../theory/voicings/guitar';
 import { FLAT_NAMES } from '../theory/notes';
 
 const QUALITY_DISPLAY: Record<ChordQuality, string> = {
+  '5': '5',
   maj: 'maj',
   min: 'm',
   dim: 'dim',
@@ -178,6 +180,36 @@ export function SelectionBar({
               max={Math.max(0, chordVoicingCount(state.chord) - 1)}
               onChange={(n) => setChord((c) => ({ ...c, voicingIndex: n }))}
             />
+            {/* Shape-name badge: surfaces the active voicing's identity
+                ("Open C", "E-shape barre", "A-string power chord") so the
+                user can tell at a glance whether they're on an open shape,
+                a barre, or a power chord — without reading the long label
+                below the SelectionBar. Empty when the quality has no
+                named shape (the pitch-class-flood fallback). */}
+            {(() => {
+              const name = currentGuitarShapeName(state.chord);
+              if (!name) return null;
+              const isBarre = name.toLowerCase().includes('barre');
+              const isPower = name.toLowerCase().includes('power');
+              const badgeColor = isBarre || isPower
+                ? 'var(--accent)'
+                : 'var(--ink-muted)';
+              return (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    border: `1px solid ${badgeColor}`,
+                    color: badgeColor,
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  {name}
+                </span>
+              );
+            })()}
           </div>
         </>
       )}

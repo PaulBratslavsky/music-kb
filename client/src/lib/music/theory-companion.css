@@ -218,6 +218,24 @@ button.chip.active:hover {
   flex-wrap: wrap;
 }
 
+/* Quick-start row sits above the SelectionBar — one-click shortcuts to
+   the two specific chord types ("Power chord", "Barre chord") that
+   are buried deeper in the mode → quality → voicing dance. */
+.quick-start-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+}
+
+.quick-start-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  margin-right: 4px;
+}
+
 button.play-chip {
   background: var(--accent);
   border: 1px solid var(--accent);
