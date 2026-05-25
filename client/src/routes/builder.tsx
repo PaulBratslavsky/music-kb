@@ -81,23 +81,81 @@ function BuilderPage() {
   // 15-fret neck. Default on — chord diagrams and CAGED boxes both look
   // better tight for video graphics; uncheck for a full-neck reference.
   const [cropToShape, setCropToShape] = useState(true);
-  // Multi-shape outlines: in scale mode with Guitar shape = "All", overlay
-  // a tight polygon outline around each available CAGED shape so the
-  // viewer can see how the boxes tile across the full neck. Single-shape
-  // views don't need this — the filtered notes ARE the shape. Chord mode
-  // doesn't either — chord diagrams traditionally show just the dots.
-  const [showShapeOutline, setShowShapeOutline] = useState(true);
-  const outlineApplies =
+  // Shape-coloring on the All-positions view: in scale mode with Guitar
+  // shape = "All", color each note by which CAGED shape it belongs to
+  // (Shape 1 = blue, Shape 2 = green, etc.). Notes shared between
+  // overlapping shapes take the color of the LOWEST-numbered shape — a
+  // deterministic tie-break that keeps adjacent shapes visually distinct
+  // along the neck. The orange root color always wins regardless of
+  // shape; the user's mental model of "the root pattern across the neck"
+  // is more important than which shape claims a particular root note.
+  //
+  // This replaces the earlier outline approach. Outlines (polygon or
+  // bbox) either disconnect at gaps in 3NPS shapes or pile into visual
+  // noise when 5 of them overlap on one neck; coloring sidesteps both.
+  const colorByShape =
     appState.state.mode === 'scale' && appState.state.scalePosition === 'all';
-  const shapeOutlines = useMemo(() => {
-    if (!showShapeOutline || !outlineApplies) return [];
+  const SHAPE_PALETTE = ['#4f8cff', '#22c55e', '#eab308', '#ec4899', '#06b6d4'];
+  const cellColors = useMemo(() => {
+    if (!colorByShape) return null;
     const sel = appState.state.scale;
     const scalePcs = getScalePitchClasses(sel);
-    return availablePositions(sel.type)
-      .map((pos) => realizeCagedShape(pos, sel.root, scalePcs, sel.type))
-      .filter((cells) => cells.length > 0)
-      .map((cells) => new Set(cells.map((p) => `${p.string}-${p.fret}`)));
-  }, [showShapeOutline, outlineApplies, appState.state.scale]);
+    const positions = availablePositions(sel.type);
+
+    // Step 1: realize each shape's cells, remembering which shapes contain
+    // each cell + each shape's fret-center. CAGED shapes overlap (Shape 2
+    // and Shape 3 both have notes at the seam between their fret ranges)
+    // so a single cell can belong to multiple shapes. We need a tie-break.
+    const shapeCenters: Record<number, number> = {};
+    const cellsByShape: Record<number, string[]> = {};
+    positions.forEach((pos) => {
+      const cells = realizeCagedShape(pos, sel.root, scalePcs, sel.type);
+      if (cells.length === 0) return;
+      let sumF = 0;
+      const keys: string[] = [];
+      for (const c of cells) {
+        sumF += c.fret;
+        keys.push(`${c.string}-${c.fret}`);
+      }
+      shapeCenters[pos] = sumF / cells.length;
+      cellsByShape[pos] = keys;
+    });
+
+    // Step 2: index cells → list of shapes that contain them.
+    const cellShapes = new Map<string, number[]>();
+    for (const [posStr, keys] of Object.entries(cellsByShape)) {
+      const pos = Number(posStr);
+      for (const key of keys) {
+        const arr = cellShapes.get(key) ?? [];
+        arr.push(pos);
+        cellShapes.set(key, arr);
+      }
+    }
+
+    // Step 3: assign each cell to the shape whose fret-center is closest
+    // to the cell's fret. This makes "the C-shape region" actually look
+    // C-shape-colored — overlap cells go to whichever shape's centroid is
+    // nearest. Far more intuitive than first-wins which always favored
+    // the lowest-numbered shape regardless of where the cell sits.
+    const map = new Map<string, string>();
+    for (const [key, shapes] of cellShapes) {
+      const fret = Number(key.split('-')[1]);
+      let bestShape = shapes[0];
+      let bestDist = Math.abs(fret - (shapeCenters[bestShape] ?? 0));
+      for (let i = 1; i < shapes.length; i++) {
+        const d = Math.abs(fret - (shapeCenters[shapes[i]] ?? 0));
+        if (d < bestDist) {
+          bestDist = d;
+          bestShape = shapes[i];
+        }
+      }
+      const paletteIdx = positions.indexOf(bestShape);
+      if (paletteIdx >= 0) {
+        map.set(key, SHAPE_PALETTE[paletteIdx % SHAPE_PALETTE.length]);
+      }
+    }
+    return map;
+  }, [colorByShape, appState.state.scale]);
 
   // Bulk export: iterate every available CAGED-style position for the current
   // scale and export each one as its own PNG. Only meaningful in scale mode
@@ -189,16 +247,23 @@ function BuilderPage() {
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-sm text-[var(--ink-soft)]">{resolved.label}</span>
         <div className="flex flex-wrap items-center gap-3">
-          {outlineApplies && (
-            <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
-              <input
-                type="checkbox"
-                checked={showShapeOutline}
-                onChange={(e) => setShowShapeOutline(e.target.checked)}
-                className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
-              />
-              Outline shape
-            </label>
+          {colorByShape && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--card)] px-2.5 py-1 text-xs text-[var(--ink-muted)]"
+              title="Each CAGED shape's notes are colored differently so you can see how the shapes tile across the neck. Root tones stay orange."
+            >
+              <span className="inline-flex gap-0.5">
+                {SHAPE_PALETTE.map((c, i) => (
+                  <span
+                    key={i}
+                    className="inline-block h-2.5 w-2.5 rounded-full"
+                    style={{ background: c }}
+                    aria-label={`Shape ${i + 1}`}
+                  />
+                ))}
+              </span>
+              <span>Shapes 1–5</span>
+            </span>
           )}
           <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
             <input
@@ -240,7 +305,7 @@ function BuilderPage() {
           onPlayNote={(midi) => synth.playNote(midi)}
           pcLabels={pcLabels}
           shapePositions={resolved.guitarShapePositions}
-          shapeOutlines={shapeOutlines}
+          cellColors={cellColors}
           showNaturals={appState.showNaturals}
           emphasizedPitchClasses={resolved.previewedChordPCs}
           gameMode={appState.gameMode.guitar}

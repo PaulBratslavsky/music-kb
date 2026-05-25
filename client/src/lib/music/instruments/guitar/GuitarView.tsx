@@ -12,13 +12,17 @@ type Props = {
   onPlayNote?: (midi: number) => void;
   pcLabels?: Partial<Record<PitchClass, string>>;
   shapePositions?: Set<string> | null;
-  /** (music-kb fork) One or more position-sets to draw as tight polygon
-   *  outlines on top of the fretboard. Each set produces one outline that
-   *  hugs the union of its cells, offset OUTWARD past the dot edges so the
-   *  line sits clearly outside the markers. Used by /builder's "All
-   *  positions" scale view to visualize how each CAGED shape tiles across
-   *  the neck. Pass an empty array (or omit) to suppress outlines entirely
-   *  — the single-shape view doesn't need them. */
+  /** (music-kb fork) Per-cell color override map. Keys are `${string}-${fret}`,
+   *  values are CSS colors. When the highlight at that position renders, the
+   *  override replaces the default `--highlight` fill — used by /builder's
+   *  "All positions" scale view to color each note by which CAGED shape it
+   *  belongs to, giving a clear visual separation between shapes without an
+   *  outline. Root notes always keep `--root` regardless of this map. */
+  cellColors?: Map<string, string> | null;
+  /** (music-kb fork) Bounding-rect outlines, one rect per shape. Drawn on
+   *  top of the fretboard, offset outward past the dot markers. Kept as a
+   *  legacy mechanism — the shape-coloring path via `cellColors` is cleaner
+   *  for distinguishing CAGED shapes that overlap. */
   shapeOutlines?: Set<string>[];
   showNaturals?: boolean;
   emphasizedPitchClasses?: Set<PitchClass> | null;
@@ -54,6 +58,7 @@ export function GuitarView({
   onPlayNote,
   pcLabels,
   shapePositions,
+  cellColors,
   shapeOutlines,
   showNaturals = false,
   emphasizedPitchClasses,
@@ -125,51 +130,42 @@ export function GuitarView({
   const inShape = (string: number, fret: number) =>
     !shapePositions || shapePositions.has(`${string}-${fret}`);
 
-  // (music-kb fork) For each shape in `shapeOutlines`, build an SVG path
-  // that traces the union perimeter of its cells, offset OUTWARD past the
-  // dot markers so the line sits clearly outside the highlight circles
-  // (matches the "shape with fingerings" diagram style on standard chord
-  // sites: an irregular polygon that hugs the actual fingering with
-  // indentations following the cell pattern).
-  //
-  // For each cell, the edges facing an EMPTY neighbor are boundary edges;
-  // each is emitted as an `M..L..` segment with both ends extended by the
-  // pad so adjacent boundary segments overlap and stroke-linejoin knits
-  // them into a continuous polygon.
-  const OUTLINE_PAD = 8;
-  const outlinePaths: string[] = [];
+  // (music-kb fork) For each shape in `shapeOutlines`, draw a single
+  // rounded-rectangle outline covering its bounding box on the fretboard,
+  // pushed OUTLINE_PAD outside the dot markers. This is the industry-
+  // standard approach (matches fretboard.js's `highlightAreas`) and
+  // handles CAGED 3-notes-per-string shapes cleanly — those shapes have
+  // intentional gaps in their cell layout (e.g. cells at frets 7,8,10
+  // skipping 9), which a tight per-cell polygon would render as two
+  // disconnected outlines. A single bbox keeps the shape visually
+  // unified.
+  const OUTLINE_PAD = 10;
+  const outlineRects: { x: number; y: number; width: number; height: number }[] = [];
   if (shapeOutlines) {
     for (const positions of shapeOutlines) {
       if (positions.size === 0) continue;
-      const parts: string[] = [];
+      let minS = Infinity;
+      let maxS = -Infinity;
+      let minF = Infinity;
+      let maxF = -Infinity;
       for (const key of positions) {
         const [s, f] = key.split('-').map(Number);
-        const left = xForFret(f) - FRET_W / 2;
-        const right = xForFret(f) + FRET_W / 2;
-        const top = yForString(s) - STRING_GAP / 2;
-        const bottom = yForString(s) + STRING_GAP / 2;
-        if (!positions.has(`${s - 1}-${f}`)) {
-          parts.push(
-            `M ${left - OUTLINE_PAD} ${top - OUTLINE_PAD} L ${right + OUTLINE_PAD} ${top - OUTLINE_PAD}`,
-          );
-        }
-        if (!positions.has(`${s + 1}-${f}`)) {
-          parts.push(
-            `M ${left - OUTLINE_PAD} ${bottom + OUTLINE_PAD} L ${right + OUTLINE_PAD} ${bottom + OUTLINE_PAD}`,
-          );
-        }
-        if (!positions.has(`${s}-${f - 1}`)) {
-          parts.push(
-            `M ${left - OUTLINE_PAD} ${top - OUTLINE_PAD} L ${left - OUTLINE_PAD} ${bottom + OUTLINE_PAD}`,
-          );
-        }
-        if (!positions.has(`${s}-${f + 1}`)) {
-          parts.push(
-            `M ${right + OUTLINE_PAD} ${top - OUTLINE_PAD} L ${right + OUTLINE_PAD} ${bottom + OUTLINE_PAD}`,
-          );
-        }
+        if (s < minS) minS = s;
+        if (s > maxS) maxS = s;
+        if (f < minF) minF = f;
+        if (f > maxF) maxF = f;
       }
-      outlinePaths.push(parts.join(' '));
+      if (!Number.isFinite(minS)) continue;
+      const left = xForFret(minF) - FRET_W / 2 - OUTLINE_PAD;
+      const right = xForFret(maxF) + FRET_W / 2 + OUTLINE_PAD;
+      const top = yForString(minS) - STRING_GAP / 2 - OUTLINE_PAD;
+      const bottom = yForString(maxS) + STRING_GAP / 2 + OUTLINE_PAD;
+      outlineRects.push({
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      });
     }
   }
 
@@ -342,38 +338,26 @@ export function GuitarView({
           }),
         )}
 
-      {/* (music-kb fork) tight per-shape polygon outlines, one path per
-          shape in `shapeOutlines`. Each shape gets its own color from a
-          palette so adjacent overlapping outlines stay visually distinct
-          on the full neck — without the palette, 5 same-color polygons
-          collapse into a noisy mesh at the seams where shapes share
-          frets. Polygons sit OUTLINE_PAD outside the dot markers. */}
-      {outlinePaths.map((d, i) => {
-        // Bright, saturated palette that reads clearly against the dark
-        // fretboard and stays distinct from the green scale-tone fill
-        // and orange root-tone fill. Cycles for >5 shapes (none of our
-        // real scales have more than 5, but the modulo is cheap safety).
-        const PALETTE = [
-          '#4f8cff', // blue
-          '#22c55e', // green
-          '#eab308', // amber
-          '#ec4899', // pink
-          '#06b6d4', // cyan
-        ];
-        return (
-          <path
-            key={`outline-${i}`}
-            d={d}
-            fill="none"
-            stroke={PALETTE[i % PALETTE.length]}
-            strokeWidth={3}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            pointerEvents="none"
-            opacity={0.85}
-          />
-        );
-      })}
+      {/* (music-kb fork) bounding-rect outlines, one rect per shape in
+          `shapeOutlines`. Kept as a legacy mechanism — the cellColors
+          path is the primary tool now for visualizing CAGED-shape
+          separation in scale mode. Drawn outside the dot markers. */}
+      {outlineRects.map((r, i) => (
+        <rect
+          key={`outline-${i}`}
+          x={r.x}
+          y={r.y}
+          width={r.width}
+          height={r.height}
+          rx={8}
+          ry={8}
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth={2.5}
+          pointerEvents="none"
+          opacity={0.85}
+        />
+      ))}
 
       {/* focus rings: every position whose PC matches focusedPitchClass */}
       {!inGame && focusedPitchClass &&
@@ -407,6 +391,14 @@ export function GuitarView({
             const dimmed =
               emphasizedPitchClasses != null &&
               !emphasizedPitchClasses.has(p.note.pitchClass);
+            // (music-kb fork) Per-cell color override drives the CAGED-shape
+            // coloring on /builder's All-positions view. Root always wins
+            // — keeping the orange root signal across the neck is more
+            // useful than letting it disappear into shape colors.
+            const override = cellColors?.get(`${p.string}-${p.fret}`);
+            const fill = root
+              ? 'var(--root)'
+              : (override ?? 'var(--highlight)');
             return (
               <g
                 key={`pos-${p.string}-${p.fret}`}
@@ -417,7 +409,7 @@ export function GuitarView({
                   cx={cx}
                   cy={cy}
                   r={9}
-                  fill={root ? 'var(--root)' : 'var(--highlight)'}
+                  fill={fill}
                   stroke="#0b0d12"
                   strokeWidth={1.5}
                 />
