@@ -1,14 +1,19 @@
-// /theory — standalone music-theory tools page. Currently hosts the Circle
-// of Fifths visualizer; future stuff (mode wheel, interval calculator, etc.)
-// can slot in here as additional panels.
+// /theory — standalone music-theory tools page. Hosts the Circle of Fifths
+// visualizer and friends in the "Tools" tab, plus the full instrument
+// visualizer (piano + guitar + push) in the "Visualizer" tab — the same
+// component the /learn/$videoId Theory tab uses.
 
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { z } from 'zod';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
 import { ChordSubstitutions } from '#/components/ChordSubstitutions';
 import { IntervalCalculator } from '#/components/IntervalCalculator';
 import { StringPairs } from '#/components/StringPairs';
 import { PatternMirror } from '#/components/PatternMirror';
+import { ViewTabs } from '#/components/ViewTabs';
+import TheoryCompanion from '#/lib/music/TheoryCompanion';
+import { parseTheoryParam } from '#/lib/music/deep-link';
 import {
   CIRCLE_MAJORS,
   CIRCLE_MAJOR_DISPLAY,
@@ -16,15 +21,32 @@ import {
   type CircleDirection,
 } from '#/lib/music/circle-of-fifths';
 
+const TheorySearchSchema = z.object({
+  tab: z.enum(['tools', 'visualizer']).optional(),
+});
+
 export const Route = createFileRoute('/theory')({
   component: TheoryPage,
+  validateSearch: TheorySearchSchema,
   head: () => ({ meta: [{ title: 'Music theory · Music KB' }] }),
 });
 
+type TheoryTab = 'tools' | 'visualizer';
+
+const TABS: Array<{ id: TheoryTab; label: string }> = [
+  { id: 'tools', label: 'Theory tools' },
+  { id: 'visualizer', label: 'Visualizer' },
+];
+
 function TheoryPage() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const activeTab: TheoryTab = search.tab ?? 'tools';
+
   // Tonic state is shared between the Circle and the Substitutions panel —
   // clicking a wedge on the wheel re-pivots both the diatonic family
-  // shown on the circle and the substitution suggestions below.
+  // shown on the circle and the substitution suggestions below. It also
+  // seeds the Visualizer tab's initial scale when the user switches over.
   const [tonicIdx, setTonicIdx] = useState(0);
   // The embedded Circle in the Guitar Tuning section gets its own
   // direction state, defaulted to 'fourths' (the entire point of that
@@ -32,9 +54,17 @@ function TheoryPage() {
   // header for side-by-side comparison.
   const [guitarCircleDir, setGuitarCircleDir] = useState<CircleDirection>('fourths');
 
+  const setTab = (id: TheoryTab) => {
+    // Keep tab=tools out of the URL (default) so links to /theory stay clean.
+    navigate({ search: id === 'tools' ? {} : { tab: id }, replace: true });
+  };
+
+  // /theory drops the shared `.page-wrap` (which caps at 1120px) so the
+  // visualizer + side-by-side tools can use the full viewport width.
+  // Only side padding keeps the content off the chrome edges.
   return (
-    <main className="page-wrap mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-8 sm:py-12">
-      <header className="mb-8">
+    <main className="mx-auto w-full px-4 py-8 sm:px-8 sm:py-12 xl:px-12">
+      <header className="mb-6">
         <h1 className="display-title text-3xl text-[var(--ink)] sm:text-4xl">
           Music theory
         </h1>
@@ -42,8 +72,42 @@ function TheoryPage() {
           Interactive theory tools that work independently of any video or
           instrument. Click around to explore.
         </p>
+        <div className="mt-4">
+          <ViewTabs<TheoryTab>
+            active={activeTab}
+            tabs={TABS}
+            onChange={setTab}
+          />
+        </div>
       </header>
 
+      {activeTab === 'visualizer' ? (
+        <VisualizerTab tonicIdx={tonicIdx} />
+      ) : (
+        <ToolsTab
+          tonicIdx={tonicIdx}
+          setTonicIdx={setTonicIdx}
+          guitarCircleDir={guitarCircleDir}
+          setGuitarCircleDir={setGuitarCircleDir}
+        />
+      )}
+    </main>
+  );
+}
+
+function ToolsTab({
+  tonicIdx,
+  setTonicIdx,
+  guitarCircleDir,
+  setGuitarCircleDir,
+}: {
+  tonicIdx: number;
+  setTonicIdx: (idx: number) => void;
+  guitarCircleDir: CircleDirection;
+  setGuitarCircleDir: (d: CircleDirection) => void;
+}) {
+  return (
+    <>
       <section>
         <h2 className="text-base font-semibold text-[var(--ink)]">
           Circle of fifths
@@ -53,36 +117,76 @@ function TheoryPage() {
           relative minors) lights up, and the wheel shows the key signature.
         </p>
         <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
-          <CircleOfFifths tonicIdx={tonicIdx} onTonicChange={setTonicIdx} />
-          {/* Deep-links into /builder so the user can see the chosen tonic
-              rendered as a chord or scale on the fretboard. Sharp-side
-              tonics (C..F#) link with sharp spellings; flat-side keys are
-              still passed as sharps since /builder's parser only accepts
-              the sharp form (Db → C#, Bb → A#, etc.). */}
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-2 border-t border-[var(--line)] pt-4 text-xs">
-            <span className="text-[var(--ink-muted)]">View on fretboard:</span>
-            <Link
-              to="/builder"
-              search={{ theory: `scale:${CIRCLE_MAJORS[tonicIdx]}:major` }}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
-            >
-              {CIRCLE_MAJOR_DISPLAY[tonicIdx]} major scale →
-            </Link>
-            <Link
-              to="/builder"
-              search={{ theory: `scale:${CIRCLE_MAJORS[tonicIdx]}:minor` }}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
-              title={`Relative minor: ${CIRCLE_MINOR_DISPLAY[tonicIdx]}`}
-            >
-              {CIRCLE_MINOR_DISPLAY[tonicIdx]} natural minor →
-            </Link>
-            <Link
-              to="/builder"
-              search={{ theory: `chord:${CIRCLE_MAJORS[tonicIdx]}:maj` }}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
-            >
-              {CIRCLE_MAJOR_DISPLAY[tonicIdx]} chord →
-            </Link>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,560px)_1fr] lg:items-start">
+            {/* Left column: the wheel itself. */}
+            <div>
+              <CircleOfFifths tonicIdx={tonicIdx} onTonicChange={setTonicIdx} />
+            </div>
+            {/* Right column: contextual side panel — deep-links to /builder
+                for the picked tonic, plus a short legend so a first-time
+                visitor knows what the rings + highlights mean without
+                trial-and-error clicking.
+
+                Sharp-side tonics (C..F#) link with sharp spellings; flat-side
+                keys are still passed as sharps since /builder's parser only
+                accepts the sharp form (Db → C#, Bb → A#, etc.). */}
+            <aside className="flex flex-col gap-5 lg:pt-2">
+              <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                  View on fretboard
+                </h3>
+                <div className="flex flex-col gap-2 text-xs">
+                  <Link
+                    to="/builder"
+                    search={{ theory: `scale:${CIRCLE_MAJORS[tonicIdx]}:major` }}
+                    className="inline-flex items-center justify-between gap-2 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1.5 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
+                  >
+                    <span>{CIRCLE_MAJOR_DISPLAY[tonicIdx]} major scale</span>
+                    <span aria-hidden>→</span>
+                  </Link>
+                  <Link
+                    to="/builder"
+                    search={{ theory: `scale:${CIRCLE_MAJORS[tonicIdx]}:minor` }}
+                    className="inline-flex items-center justify-between gap-2 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1.5 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
+                    title={`Relative minor: ${CIRCLE_MINOR_DISPLAY[tonicIdx]}`}
+                  >
+                    <span>{CIRCLE_MINOR_DISPLAY[tonicIdx]} natural minor</span>
+                    <span aria-hidden>→</span>
+                  </Link>
+                  <Link
+                    to="/builder"
+                    search={{ theory: `chord:${CIRCLE_MAJORS[tonicIdx]}:maj` }}
+                    className="inline-flex items-center justify-between gap-2 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1.5 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
+                  >
+                    <span>{CIRCLE_MAJOR_DISPLAY[tonicIdx]} chord</span>
+                    <span aria-hidden>→</span>
+                  </Link>
+                </div>
+              </div>
+              <div className="rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)] p-3 text-xs text-[var(--ink-muted)]">
+                <p className="mb-1 font-semibold text-[var(--ink)]">
+                  How to read this
+                </p>
+                <ul className="ml-4 list-disc space-y-1">
+                  <li>
+                    <strong className="text-[var(--ink)]">Outer ring</strong> =
+                    major keys. Click a wedge to set tonic + major mode.
+                  </li>
+                  <li>
+                    <strong className="text-[var(--ink)]">Inner ring</strong> =
+                    relative minors. Click to set tonic + minor mode.
+                  </li>
+                  <li>
+                    Highlighted wedges are the seven diatonic chords (I, ii,
+                    iii, IV, V, vi, vii°).
+                  </li>
+                  <li>
+                    One step clockwise = up a fifth — or up a fourth when the
+                    Fourths toggle is on.
+                  </li>
+                </ul>
+              </div>
+            </aside>
           </div>
         </div>
       </section>
@@ -169,6 +273,35 @@ function TheoryPage() {
           </div>
         </div>
       </section>
-    </main>
+    </>
+  );
+}
+
+function VisualizerTab({ tonicIdx }: { tonicIdx: number }) {
+  // Seed the visualizer with the tonic the user picked on the Circle so
+  // switching tabs feels continuous. We build a `scale:<pc>:major`
+  // shorthand and let parseTheoryParam construct the AppState — same code
+  // path /builder uses for deep-links.
+  //
+  // parseTheoryParam only accepts sharp spellings (PITCH_CLASSES). The
+  // CIRCLE_MAJORS array already stores sharp-side names (C, G, ... F#, C#,
+  // G#, D#, A#, F), so it lines up without conversion.
+  const initialState =
+    parseTheoryParam(`scale:${CIRCLE_MAJORS[tonicIdx]}:major`) ?? undefined;
+
+  return (
+    <section>
+      <p className="mb-4 text-sm text-[var(--ink-muted)]">
+        Full instrument visualizer — piano, guitar, and Push grid for the
+        scale or chord you pick. Same view as the Theory tab on a video
+        page, but standalone. Seeded with{' '}
+        <span className="font-medium text-[var(--ink)]">
+          {CIRCLE_MAJOR_DISPLAY[tonicIdx]} major
+        </span>{' '}
+        from the Circle on the Tools tab — change scale or mode from the
+        controls below.
+      </p>
+      <TheoryCompanion initialState={initialState} />
+    </section>
   );
 }

@@ -69,6 +69,11 @@ export function ChordSubstitutions({ tonicIdx }: { tonicIdx: number }) {
         </p>
       </header>
 
+      {/* Replacement table on the left, the two shorter lists (Secondary
+          dominants + Modal interchange) stacked on the right. Halves the
+          section's vertical footprint on wide screens; collapses to a
+          single column on narrow ones. */}
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2 lg:items-start">
       <section>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
           Replacement chords (per diatonic function)
@@ -125,37 +130,40 @@ export function ChordSubstitutions({ tonicIdx }: { tonicIdx: number }) {
         </div>
       </section>
 
-      <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-          Secondary dominants
-        </h4>
-        <p className="mt-1 text-xs text-[var(--ink-muted)]">
-          A V7 chord pointing at a non-tonic diatonic target. Adds tension
-          before the resolution; common in jazz, bossa, and pre-chorus
-          builds.
-        </p>
-        <ul className="mt-2 flex flex-col gap-1.5 text-sm">
-          {secondary.map((s, i) => (
-            <SubLine key={i} sub={s} />
-          ))}
-        </ul>
-      </section>
+      <div className="flex flex-col gap-6">
+        <section>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+            Secondary dominants
+          </h4>
+          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+            A V7 chord pointing at a non-tonic diatonic target. Adds tension
+            before the resolution; common in jazz, bossa, and pre-chorus
+            builds.
+          </p>
+          <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+            {secondary.map((s, i) => (
+              <SubLine key={i} sub={s} />
+            ))}
+          </ul>
+        </section>
 
-      <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-          Modal interchange (borrowed from parallel minor)
-        </h4>
-        <p className="mt-1 text-xs text-[var(--ink-muted)]">
-          Chords from the {CIRCLE_MAJOR_DISPLAY[tonicIdx]} natural-minor key
-          dropped into the major progression. Changes the color without
-          changing the key.
-        </p>
-        <ul className="mt-2 flex flex-col gap-1.5 text-sm">
-          {borrowed.map((s, i) => (
-            <SubLine key={i} sub={s} />
-          ))}
-        </ul>
-      </section>
+        <section>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+            Modal interchange (borrowed from parallel minor)
+          </h4>
+          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+            Chords from the {CIRCLE_MAJOR_DISPLAY[tonicIdx]} natural-minor key
+            dropped into the major progression. Changes the color without
+            changing the key.
+          </p>
+          <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+            {borrowed.map((s, i) => (
+              <SubLine key={i} sub={s} />
+            ))}
+          </ul>
+        </section>
+      </div>
+      </div>
     </div>
   );
 }
