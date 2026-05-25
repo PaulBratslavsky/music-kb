@@ -3,9 +3,15 @@
 // can slot in here as additional panels.
 
 import { useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
 import { ChordSubstitutions } from '#/components/ChordSubstitutions';
+import { IntervalCalculator } from '#/components/IntervalCalculator';
+import {
+  CIRCLE_MAJORS,
+  CIRCLE_MAJOR_DISPLAY,
+  CIRCLE_MINOR_DISPLAY,
+} from '#/lib/music/circle-of-fifths';
 
 export const Route = createFileRoute('/theory')({
   component: TheoryPage,
@@ -40,6 +46,36 @@ function TheoryPage() {
         </p>
         <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
           <CircleOfFifths tonicIdx={tonicIdx} onTonicChange={setTonicIdx} />
+          {/* Deep-links into /builder so the user can see the chosen tonic
+              rendered as a chord or scale on the fretboard. Sharp-side
+              tonics (C..F#) link with sharp spellings; flat-side keys are
+              still passed as sharps since /builder's parser only accepts
+              the sharp form (Db → C#, Bb → A#, etc.). */}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2 border-t border-[var(--line)] pt-4 text-xs">
+            <span className="text-[var(--ink-muted)]">View on fretboard:</span>
+            <Link
+              to="/builder"
+              search={{ theory: `scale:${CIRCLE_MAJORS[tonicIdx]}:major` }}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
+            >
+              {CIRCLE_MAJOR_DISPLAY[tonicIdx]} major scale →
+            </Link>
+            <Link
+              to="/builder"
+              search={{ theory: `scale:${CIRCLE_MAJORS[tonicIdx]}:minor` }}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
+              title={`Relative minor: ${CIRCLE_MINOR_DISPLAY[tonicIdx]}`}
+            >
+              {CIRCLE_MINOR_DISPLAY[tonicIdx]} natural minor →
+            </Link>
+            <Link
+              to="/builder"
+              search={{ theory: `chord:${CIRCLE_MAJORS[tonicIdx]}:maj` }}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent)] no-underline hover:bg-[var(--accent)] hover:text-white"
+            >
+              {CIRCLE_MAJOR_DISPLAY[tonicIdx]} chord →
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -50,10 +86,24 @@ function TheoryPage() {
         <p className="mt-1 text-sm text-[var(--ink-muted)]">
           Common reharmonization options for the diatonic chords of the
           selected key — replacement chords, secondary dominants, and
-          modal interchange (borrowed from the parallel minor).
+          modal interchange (borrowed from the parallel minor). Click any
+          chord name to view it on the fretboard.
         </p>
         <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
           <ChordSubstitutions tonicIdx={tonicIdx} />
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-base font-semibold text-[var(--ink)]">
+          Interval calculator
+        </h2>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Pick two notes — see the interval name, semitone count, and what
+          it inverts to. Hit Hear it to audition the pair.
+        </p>
+        <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+          <IntervalCalculator />
         </div>
       </section>
     </main>

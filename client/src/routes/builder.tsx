@@ -10,6 +10,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
+import { z } from 'zod';
 import { useAppState } from '#/lib/music/state/useAppState';
 import { resolveSelection } from '#/lib/music/state/resolve';
 import { SelectionBar } from '#/lib/music/components/SelectionBar';
@@ -20,16 +21,32 @@ import { exportFretboardPng } from '#/lib/music/png-export';
 import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positions';
 import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
+import { parseTheoryParam } from '#/lib/music/deep-link';
 import type { ScalePosition } from '#/lib/music/types';
 import '#/lib/music/theory-companion.css';
 
+// `?theory=` deep-link param so /theory and other surfaces can jump
+// here with a specific chord or scale pre-selected. Uses the same
+// shorthand parser as /learn/$videoId's Theory tab — chord:C:maj,
+// scale:C:major, note:C. Length-capped + max 64 chars matches the
+// /learn schema for consistency.
+const BuilderSearchSchema = z.object({
+  theory: z.string().max(64).optional(),
+});
+
 export const Route = createFileRoute('/builder')({
+  validateSearch: BuilderSearchSchema,
   component: BuilderPage,
   head: () => ({ meta: [{ title: 'Chord & scale builder · Music KB' }] }),
 });
 
 function BuilderPage() {
-  const appState = useAppState({ syncUrl: false });
+  const search = Route.useSearch();
+  // Seed visualizer from ?theory= when present (deep-link from /theory's
+  // Circle of Fifths or Substitutions table). Parsed once on mount;
+  // subsequent picker clicks update state from there.
+  const initialState = parseTheoryParam(search.theory) ?? undefined;
+  const appState = useAppState({ syncUrl: false, initialState });
   const resolved = useMemo(
     () => resolveSelection(appState.state, appState.previewedChordDegree),
     [appState.state, appState.previewedChordDegree],

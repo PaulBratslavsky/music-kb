@@ -12,10 +12,11 @@
 import { useState } from 'react';
 import {
   CIRCLE_MAJORS,
-  CIRCLE_MAJOR_DISPLAY,
-  CIRCLE_MINOR_DISPLAY,
   diatonicPositions,
   keySignatureLabel,
+  majorDisplay,
+  minorDisplay,
+  type Enharmonic,
 } from '#/lib/music/circle-of-fifths';
 
 // Component supports two modes:
@@ -83,16 +84,29 @@ export function CircleOfFifths({
   initialTonicIdx = 0,
   tonicIdx: tonicIdxProp,
   onTonicChange,
+  enharmonic: enharmonicProp,
+  onEnharmonicChange,
 }: {
   initialTonicIdx?: number;
   tonicIdx?: number;
   onTonicChange?: (next: number) => void;
+  /** 'standard' uses sharps on the sharp half, flats on the flat half (the
+   *  default on every printed circle). 'sharps' shows all 5 accidentals as
+   *  sharps; 'flats' shows them all as flats. */
+  enharmonic?: Enharmonic;
+  onEnharmonicChange?: (next: Enharmonic) => void;
 } = {}) {
   const [internalTonicIdx, setInternalTonicIdx] = useState(initialTonicIdx);
   const tonicIdx = tonicIdxProp ?? internalTonicIdx;
   const setTonicIdx = (next: number) => {
     if (onTonicChange) onTonicChange(next);
     else setInternalTonicIdx(next);
+  };
+  const [internalEnharmonic, setInternalEnharmonic] = useState<Enharmonic>('standard');
+  const enharmonic = enharmonicProp ?? internalEnharmonic;
+  const setEnharmonic = (next: Enharmonic) => {
+    if (onEnharmonicChange) onEnharmonicChange(next);
+    else setInternalEnharmonic(next);
   };
   const positions = diatonicPositions(tonicIdx);
 
@@ -114,12 +128,42 @@ export function CircleOfFifths({
     <div className="flex flex-col items-center gap-4">
       <div className="text-center">
         <div className="text-2xl font-semibold text-[var(--ink)]">
-          {CIRCLE_MAJOR_DISPLAY[tonicIdx]} major /{' '}
-          {CIRCLE_MINOR_DISPLAY[tonicIdx]} minor
+          {majorDisplay(tonicIdx, enharmonic)} major /{' '}
+          {minorDisplay(tonicIdx, enharmonic)} minor
         </div>
         <div className="mt-1 text-sm text-[var(--ink-muted)]">
           {keySignatureLabel(tonicIdx)}
         </div>
+      </div>
+
+      <div
+        className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-xs"
+        role="radiogroup"
+        aria-label="Enharmonic spelling"
+      >
+        {(
+          [
+            { mode: 'standard' as const, label: 'Standard', title: 'Sharp half uses sharps, flat half uses flats — the printed-circle convention.' },
+            { mode: 'sharps' as const, label: '♯ Sharps', title: 'All 5 accidentals shown as sharps (C♯, D♯, F♯, G♯, A♯).' },
+            { mode: 'flats' as const, label: '♭ Flats', title: 'All 5 accidentals shown as flats (D♭, E♭, G♭, A♭, B♭).' },
+          ] as const
+        ).map((opt) => (
+          <button
+            key={opt.mode}
+            type="button"
+            role="radio"
+            aria-checked={enharmonic === opt.mode}
+            onClick={() => setEnharmonic(opt.mode)}
+            title={opt.title}
+            className={`rounded-full px-3 py-1 font-medium transition ${
+              enharmonic === opt.mode
+                ? 'bg-[var(--accent)] text-white'
+                : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
 
       <svg
@@ -163,7 +207,7 @@ export function CircleOfFifths({
                 dominantBaseline="middle"
                 pointerEvents="none"
               >
-                {CIRCLE_MAJOR_DISPLAY[i]}
+                {majorDisplay(i, enharmonic)}
               </text>
               {numeral && (
                 <text
@@ -219,7 +263,7 @@ export function CircleOfFifths({
                 dominantBaseline="middle"
                 pointerEvents="none"
               >
-                {CIRCLE_MINOR_DISPLAY[i]}
+                {minorDisplay(i, enharmonic)}
               </text>
               {numeral && (
                 <text

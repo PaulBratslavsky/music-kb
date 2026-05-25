@@ -34,7 +34,9 @@ export const CIRCLE_MAJORS = [
 
 // Standard enharmonic spellings used on a printed circle. Sharp-side gets
 // shown sharp (G has F#, not Gb); flat-side gets shown flat (the bottom
-// half uses Db/Ab/Eb/Bb conventions).
+// half uses Db/Ab/Eb/Bb conventions). The all-sharp and all-flat arrays
+// below let the user override to a single style — guitarists often think
+// in sharps (C# minor barre), horn arrangers in flats (Eb concert).
 export const CIRCLE_MAJOR_DISPLAY = [
   'C', 'G', 'D', 'A', 'E', 'B',
   'F♯', 'D♭', 'A♭', 'E♭', 'B♭', 'F',
@@ -44,6 +46,48 @@ export const CIRCLE_MINOR_DISPLAY = [
   'Am', 'Em', 'Bm', 'F♯m', 'C♯m', 'G♯m',
   'D♯m', 'B♭m', 'Fm', 'Cm', 'Gm', 'Dm',
 ] as const;
+
+export const CIRCLE_MAJOR_DISPLAY_SHARP = [
+  'C', 'G', 'D', 'A', 'E', 'B',
+  'F♯', 'C♯', 'G♯', 'D♯', 'A♯', 'F',
+] as const;
+
+export const CIRCLE_MINOR_DISPLAY_SHARP = [
+  'Am', 'Em', 'Bm', 'F♯m', 'C♯m', 'G♯m',
+  'D♯m', 'A♯m', 'Fm', 'Cm', 'Gm', 'Dm',
+] as const;
+
+export const CIRCLE_MAJOR_DISPLAY_FLAT = [
+  'C', 'G', 'D', 'A', 'E', 'B',
+  'G♭', 'D♭', 'A♭', 'E♭', 'B♭', 'F',
+] as const;
+
+export const CIRCLE_MINOR_DISPLAY_FLAT = [
+  'Am', 'Em', 'Bm', 'G♭m', 'D♭m', 'A♭m',
+  'E♭m', 'B♭m', 'Fm', 'Cm', 'Gm', 'Dm',
+] as const;
+
+export type Enharmonic = 'standard' | 'sharps' | 'flats';
+
+export function majorDisplay(idx: number, mode: Enharmonic = 'standard'): string {
+  const arr =
+    mode === 'sharps'
+      ? CIRCLE_MAJOR_DISPLAY_SHARP
+      : mode === 'flats'
+        ? CIRCLE_MAJOR_DISPLAY_FLAT
+        : CIRCLE_MAJOR_DISPLAY;
+  return arr[idx];
+}
+
+export function minorDisplay(idx: number, mode: Enharmonic = 'standard'): string {
+  const arr =
+    mode === 'sharps'
+      ? CIRCLE_MINOR_DISPLAY_SHARP
+      : mode === 'flats'
+        ? CIRCLE_MINOR_DISPLAY_FLAT
+        : CIRCLE_MINOR_DISPLAY;
+  return arr[idx];
+}
 
 /** Diatonic chord positions for the major-key tonic at the given circle index. */
 export function diatonicPositions(tonicIdx: number) {

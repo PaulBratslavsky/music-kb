@@ -72,6 +72,11 @@ export type ChordSuggestion = {
   name: string;
   /** Short rationale shown to the user. */
   why: string;
+  /** Deep-link target for /builder, using the `theory=` shorthand parser
+   *  (e.g. "chord:C:maj", "chord:Db:dom7", "chord:F:min"). Omitted for
+   *  exotic suggestions that don't map to a known chord quality (we'd
+   *  send the user to the default Cmaj instead of a wrong chord). */
+  link?: string;
 };
 
 export type DiatonicChordSubs = {
@@ -82,6 +87,20 @@ export type DiatonicChordSubs = {
   /** Common substitutions. */
   subs: ChordSuggestion[];
 };
+
+// Deep-link helpers — return the `theory=` shorthand string for /builder.
+function linkMaj(T: number, semis: number): string {
+  return `chord:${spell(T + semis, true)}:maj`;
+}
+function linkMin(T: number, semis: number): string {
+  return `chord:${spell(T + semis, true)}:min`;
+}
+function linkDom7(T: number, semis: number): string {
+  return `chord:${spell(T + semis, true)}:dom7`;
+}
+function linkDim(T: number, semis: number): string {
+  return `chord:${spell(T + semis, true)}:dim`;
+}
 
 /** Substitution catalog for each diatonic chord of the given major-key tonic. */
 export function diatonicSubs(tonicCircleIdx: number): DiatonicChordSubs[] {
@@ -96,55 +115,55 @@ export function diatonicSubs(tonicCircleIdx: number): DiatonicChordSubs[] {
       numeral: 'I',
       chord: M(0),
       subs: [
-        { name: Mm(9), why: 'relative minor (vi) — shares the root and 3rd' },
-        { name: Mm(4), why: 'iii — shares the 3rd and 5th of the I chord' },
+        { name: Mm(9), why: 'relative minor (vi) — shares the root and 3rd', link: linkMin(T, 9) },
+        { name: Mm(4), why: 'iii — shares the 3rd and 5th of the I chord', link: linkMin(T, 4) },
       ],
     },
     {
       numeral: 'ii',
       chord: Mm(2),
       subs: [
-        { name: M(5), why: 'IV — shares two notes, same subdominant function' },
+        { name: M(5), why: 'IV — shares two notes, same subdominant function', link: linkMaj(T, 5) },
       ],
     },
     {
       numeral: 'iii',
       chord: Mm(4),
       subs: [
-        { name: M(0), why: 'I — iii has two notes in common with the tonic' },
-        { name: Mm(9), why: 'vi — same minor function, related roots' },
+        { name: M(0), why: 'I — iii has two notes in common with the tonic', link: linkMaj(T, 0) },
+        { name: Mm(9), why: 'vi — same minor function, related roots', link: linkMin(T, 9) },
       ],
     },
     {
       numeral: 'IV',
       chord: M(5),
       subs: [
-        { name: Mm(2), why: 'ii — same subdominant family' },
-        { name: M(8), why: 'bVI (modal interchange from parallel minor)' },
+        { name: Mm(2), why: 'ii — same subdominant family', link: linkMin(T, 2) },
+        { name: M(8), why: 'bVI (modal interchange from parallel minor)', link: linkMaj(T, 8) },
       ],
     },
     {
       numeral: 'V',
       chord: M(7),
       subs: [
-        { name: M7(1), why: 'tritone sub — bII7 shares the 3rd and 7th of V7' },
-        { name: `${M(11)}°`, why: 'vii° — rootless V7, same leading tone' },
-        { name: M7(2), why: 'V/V — D7 delays the resolution, classic ii-V-I setup' },
+        { name: M7(1), why: 'tritone sub — bII7 shares the 3rd and 7th of V7', link: linkDom7(T, 1) },
+        { name: `${M(11)}°`, why: 'vii° — rootless V7, same leading tone', link: linkDim(T, 11) },
+        { name: M7(2), why: 'V/V — D7 delays the resolution, classic ii-V-I setup', link: linkDom7(T, 2) },
       ],
     },
     {
       numeral: 'vi',
       chord: Mm(9),
       subs: [
-        { name: M(0), why: 'I — relative major, shares root and 3rd' },
-        { name: M(5), why: 'IV — same notes minus the 3rd, used for a softer landing' },
+        { name: M(0), why: 'I — relative major, shares root and 3rd', link: linkMaj(T, 0) },
+        { name: M(5), why: 'IV — same notes minus the 3rd, used for a softer landing', link: linkMaj(T, 5) },
       ],
     },
     {
       numeral: 'vii°',
       chord: `${M(11)}°`,
       subs: [
-        { name: M7(7), why: 'V7 — same function, fuller voicing' },
+        { name: M7(7), why: 'V7 — same function, fuller voicing', link: linkDom7(T, 7) },
       ],
     },
   ];
@@ -158,11 +177,11 @@ export function secondaryDominants(tonicCircleIdx: number): ChordSuggestion[] {
   const Mm = (s: number) => `${spell(T + s, useSharps)}m`;
   const M = (s: number) => spell(T + s, useSharps);
   return [
-    { name: M7(11), why: `V/ii → ${Mm(2)}` },
-    { name: M7(2),  why: `V/V → ${M(7)}` },
-    { name: M7(0),  why: `V/IV → ${M(5)} (notice: same root as I, but dominant 7)` },
-    { name: M7(4),  why: `V/vi → ${Mm(9)}` },
-    { name: M7(9),  why: `V/ii alt — strong pull to ${Mm(2)}` },
+    { name: M7(11), why: `V/ii → ${Mm(2)}`, link: linkDom7(T, 11) },
+    { name: M7(2),  why: `V/V → ${M(7)}`, link: linkDom7(T, 2) },
+    { name: M7(0),  why: `V/IV → ${M(5)} (notice: same root as I, but dominant 7)`, link: linkDom7(T, 0) },
+    { name: M7(4),  why: `V/vi → ${Mm(9)}`, link: linkDom7(T, 4) },
+    { name: M7(9),  why: `V/ii alt — strong pull to ${Mm(2)}`, link: linkDom7(T, 9) },
   ];
 }
 
@@ -173,9 +192,9 @@ export function modalInterchange(tonicCircleIdx: number): ChordSuggestion[] {
   const M = (s: number) => spell(T + s, useSharps);
   const Mm = (s: number) => `${spell(T + s, useSharps)}m`;
   return [
-    { name: M(3),  why: 'bIII — bright minor-key flavor (think: Beatles)' },
-    { name: M(8),  why: 'bVI — wistful, classic "moment of doubt"' },
-    { name: M(10), why: 'bVII — open, modal, rock-leaning (Mixolydian feel)' },
-    { name: Mm(5), why: 'iv — the "saddened IV", common in ballads and outros' },
+    { name: M(3),  why: 'bIII — bright minor-key flavor (think: Beatles)', link: linkMaj(T, 3) },
+    { name: M(8),  why: 'bVI — wistful, classic "moment of doubt"', link: linkMaj(T, 8) },
+    { name: M(10), why: 'bVII — open, modal, rock-leaning (Mixolydian feel)', link: linkMaj(T, 10) },
+    { name: Mm(5), why: 'iv — the "saddened IV", common in ballads and outros', link: linkMin(T, 5) },
   ];
 }
