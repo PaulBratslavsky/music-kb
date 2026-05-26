@@ -180,6 +180,21 @@ export function guitarHasShape(quality: ChordSelection['quality']): boolean {
 }
 
 /**
+ * (music-kb fork) Does this quality have any movable named shape OR any
+ * root-specific open shape? Used by the SelectionBar Quality picker to dim
+ * chips whose qualities will fall back to the pitch-class-flood path (every
+ * matching fretboard position lights up — not a named voicing). Signals
+ * "this is an exotic chord; the guitar view won't have a specific
+ * fingering" without hiding the quality from the picker.
+ */
+export function qualityHasAnyShape(quality: ChordSelection['quality']): boolean {
+  if ((GUITAR_SHAPES[quality] ?? []).length > 0) return true;
+  const openByRoot = OPEN_CHORD_SHAPES[quality];
+  if (!openByRoot) return false;
+  return Object.keys(openByRoot).length > 0;
+}
+
+/**
  * (music-kb fork) First voicing index whose shape is annotated as a barre.
  * Returns -1 when the quality has no barre voicings (e.g. dim, aug, sus2,
  * sus4, or power chord '5'). Used by the "Barre chord" quick-start chip to

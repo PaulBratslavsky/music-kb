@@ -19,11 +19,6 @@ type Props = {
    *  belongs to, giving a clear visual separation between shapes without an
    *  outline. Root notes always keep `--root` regardless of this map. */
   cellColors?: Map<string, string> | null;
-  /** (music-kb fork) Bounding-rect outlines, one rect per shape. Drawn on
-   *  top of the fretboard, offset outward past the dot markers. Kept as a
-   *  legacy mechanism — the shape-coloring path via `cellColors` is cleaner
-   *  for distinguishing CAGED shapes that overlap. */
-  shapeOutlines?: Set<string>[];
   /** (music-kb fork) Absolute barre fret + string range to render as a
    *  thick translucent bar across the fretboard. Drives the "this is a
    *  barre chord" visual for E-shape / A-shape barre voicings. null when
@@ -64,7 +59,6 @@ export function GuitarView({
   pcLabels,
   shapePositions,
   cellColors,
-  shapeOutlines,
   barre,
   showNaturals = false,
   emphasizedPitchClasses,
@@ -135,45 +129,6 @@ export function GuitarView({
   // to the exact (string, fret) positions in the shape.
   const inShape = (string: number, fret: number) =>
     !shapePositions || shapePositions.has(`${string}-${fret}`);
-
-  // (music-kb fork) For each shape in `shapeOutlines`, draw a single
-  // rounded-rectangle outline covering its bounding box on the fretboard,
-  // pushed OUTLINE_PAD outside the dot markers. This is the industry-
-  // standard approach (matches fretboard.js's `highlightAreas`) and
-  // handles CAGED 3-notes-per-string shapes cleanly — those shapes have
-  // intentional gaps in their cell layout (e.g. cells at frets 7,8,10
-  // skipping 9), which a tight per-cell polygon would render as two
-  // disconnected outlines. A single bbox keeps the shape visually
-  // unified.
-  const OUTLINE_PAD = 10;
-  const outlineRects: { x: number; y: number; width: number; height: number }[] = [];
-  if (shapeOutlines) {
-    for (const positions of shapeOutlines) {
-      if (positions.size === 0) continue;
-      let minS = Infinity;
-      let maxS = -Infinity;
-      let minF = Infinity;
-      let maxF = -Infinity;
-      for (const key of positions) {
-        const [s, f] = key.split('-').map(Number);
-        if (s < minS) minS = s;
-        if (s > maxS) maxS = s;
-        if (f < minF) minF = f;
-        if (f > maxF) maxF = f;
-      }
-      if (!Number.isFinite(minS)) continue;
-      const left = xForFret(minF) - FRET_W / 2 - OUTLINE_PAD;
-      const right = xForFret(maxF) + FRET_W / 2 + OUTLINE_PAD;
-      const top = yForString(minS) - STRING_GAP / 2 - OUTLINE_PAD;
-      const bottom = yForString(maxS) + STRING_GAP / 2 + OUTLINE_PAD;
-      outlineRects.push({
-        x: left,
-        y: top,
-        width: right - left,
-        height: bottom - top,
-      });
-    }
-  }
 
   return (
     <svg
@@ -371,27 +326,6 @@ export function GuitarView({
           />
         );
       })()}
-
-      {/* (music-kb fork) bounding-rect outlines, one rect per shape in
-          `shapeOutlines`. Kept as a legacy mechanism — the cellColors
-          path is the primary tool now for visualizing CAGED-shape
-          separation in scale mode. Drawn outside the dot markers. */}
-      {outlineRects.map((r, i) => (
-        <rect
-          key={`outline-${i}`}
-          x={r.x}
-          y={r.y}
-          width={r.width}
-          height={r.height}
-          rx={8}
-          ry={8}
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth={2.5}
-          pointerEvents="none"
-          opacity={0.85}
-        />
-      ))}
 
       {/* focus rings: every position whose PC matches focusedPitchClass */}
       {!inGame && focusedPitchClass &&

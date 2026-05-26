@@ -20,38 +20,7 @@ import {
   supportsCaged,
 } from '../theory/positions';
 import { getDiatonicChords } from '../theory/diatonic';
-
-const QUALITY_LABEL: Record<string, string> = {
-  maj: 'maj',
-  min: 'm',
-  dim: 'dim',
-  aug: 'aug',
-  sus2: 'sus2',
-  sus4: 'sus4',
-  '6': '6',
-  m6: 'm6',
-  maj7: 'maj7',
-  min7: 'm7',
-  dom7: '7',
-  m7b5: 'm7♭5',
-  dim7: 'dim7',
-  mMaj7: 'mMaj7',
-  '7sus4': '7sus4',
-  add9: 'add9',
-  madd9: 'm(add9)',
-  '9': '9',
-  maj9: 'maj9',
-  m9: 'm9',
-  '11': '11',
-  m11: 'm11',
-  '13': '13',
-  m13: 'm13',
-  '7b5': '7♭5',
-  '7#5': '7♯5',
-  '7b9': '7♭9',
-  '7#9': '7♯9',
-  alt: 'alt',
-};
+import { QUALITY_LABELS } from '../theory/quality-labels';
 
 function ordinal(n: number): string {
   if (n === 0) return 'root position';
@@ -108,7 +77,7 @@ export function resolveSelection(
     const safeInv = pcs.length === 0 ? 0 : ((state.chord.inversion % pcs.length) + pcs.length) % pcs.length;
 
     const rootLabel = spelledRoot(state.chord.root, state.preferFlats);
-    const labelBase = `${rootLabel}${QUALITY_LABEL[state.chord.quality] ?? state.chord.quality}`;
+    const labelBase = `${rootLabel}${QUALITY_LABELS[state.chord.quality]}`;
     const shapeStr = shapeName ? `, ${shapeName}` : ', all positions';
     const label = `${labelBase} — ${ordinal(safeInv)}${shapeStr}`;
 

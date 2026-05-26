@@ -1,8 +1,6 @@
 import {
-  CHORD_QUALITIES,
   PITCH_CLASSES,
   SCALE_TYPES,
-  type ChordQuality,
   type PitchClass,
   type ScalePosition,
   type ScaleType,
@@ -11,42 +9,8 @@ import {
 import { SCALE_TYPE_LABELS } from '../theory/scales';
 import { availablePositions } from '../theory/positions';
 import { useAppState } from '../state/useAppState';
-import { chordInversionCount, chordVoicingCount } from '../state/resolve';
-import { currentGuitarShapeName } from '../theory/voicings/guitar';
+import { ChordControlPanel } from './ChordControlPanel';
 import { FLAT_NAMES } from '../theory/notes';
-
-const QUALITY_DISPLAY: Record<ChordQuality, string> = {
-  '5': '5',
-  maj: 'maj',
-  min: 'm',
-  dim: 'dim',
-  aug: 'aug',
-  sus2: 'sus2',
-  sus4: 'sus4',
-  '6': '6',
-  m6: 'm6',
-  maj7: 'maj7',
-  min7: 'm7',
-  dom7: '7',
-  m7b5: 'm7♭5',
-  dim7: 'dim7',
-  mMaj7: 'mMaj7',
-  '7sus4': '7sus4',
-  add9: 'add9',
-  madd9: 'm(add9)',
-  '9': '9',
-  maj9: 'maj9',
-  m9: 'm9',
-  '11': '11',
-  m11: 'm11',
-  '13': '13',
-  m13: 'm13',
-  '7b5': '7♭5',
-  '7#5': '7♯5',
-  '7b9': '7♭9',
-  '7#9': '7♯9',
-  alt: 'alt',
-};
 
 type Props = ReturnType<typeof useAppState>;
 
@@ -137,81 +101,7 @@ export function SelectionBar({
       })()}
 
       {state.mode === 'chord' && (
-        <>
-          <div className="selection-group">
-            <span className="group-label">Quality</span>
-            <div className="btn-row">
-              {CHORD_QUALITIES.map((q) => (
-                <button
-                  key={q}
-                  className={`chip${state.chord.quality === q ? ' active' : ''}`}
-                  onClick={() =>
-                    setChord((c) => ({
-                      ...c,
-                      quality: q as ChordQuality,
-                      inversion: 0,
-                      // Reset voicingIndex on quality change too — the new
-                      // quality has its own voicing list (might be shorter,
-                      // might lack an open shape), so starting from 0 lands
-                      // on the canonical fingering instead of a stale barre.
-                      voicingIndex: 0,
-                    }))
-                  }
-                >
-                  {QUALITY_DISPLAY[q]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="selection-group">
-            <span className="group-label">Inversion</span>
-            <Stepper
-              value={state.chord.inversion}
-              max={Math.max(0, chordInversionCount(state.chord) - 1)}
-              onChange={(n) => setChord((c) => ({ ...c, inversion: n }))}
-            />
-          </div>
-
-          <div className="selection-group">
-            <span className="group-label">Voicing</span>
-            <Stepper
-              value={state.chord.voicingIndex}
-              max={Math.max(0, chordVoicingCount(state.chord) - 1)}
-              onChange={(n) => setChord((c) => ({ ...c, voicingIndex: n }))}
-            />
-            {/* Shape-name badge: surfaces the active voicing's identity
-                ("Open C", "E-shape barre", "A-string power chord") so the
-                user can tell at a glance whether they're on an open shape,
-                a barre, or a power chord — without reading the long label
-                below the SelectionBar. Empty when the quality has no
-                named shape (the pitch-class-flood fallback). */}
-            {(() => {
-              const name = currentGuitarShapeName(state.chord);
-              if (!name) return null;
-              const isBarre = name.toLowerCase().includes('barre');
-              const isPower = name.toLowerCase().includes('power');
-              const badgeColor = isBarre || isPower
-                ? 'var(--accent)'
-                : 'var(--ink-muted)';
-              return (
-                <span
-                  style={{
-                    marginLeft: 8,
-                    padding: '2px 8px',
-                    borderRadius: 12,
-                    border: `1px solid ${badgeColor}`,
-                    color: badgeColor,
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
-                >
-                  {name}
-                </span>
-              );
-            })()}
-          </div>
-        </>
+        <ChordControlPanel chord={state.chord} setChord={setChord} />
       )}
 
       {state.mode === 'scale' && (
@@ -321,29 +211,3 @@ export function SelectionBar({
   );
 }
 
-function Stepper({
-  value,
-  max,
-  onChange,
-}: {
-  value: number;
-  max: number;
-  onChange: (n: number) => void;
-}) {
-  const wrap = (n: number) => {
-    if (max <= 0) return 0;
-    const span = max + 1;
-    return ((n % span) + span) % span;
-  };
-  return (
-    <div className="stepper">
-      <button onClick={() => onChange(wrap(value - 1))} aria-label="previous">
-        ‹
-      </button>
-      <span className="stepper-value">{value}</span>
-      <button onClick={() => onChange(wrap(value + 1))} aria-label="next">
-        ›
-      </button>
-    </div>
-  );
-}
