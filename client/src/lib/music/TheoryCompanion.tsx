@@ -7,10 +7,12 @@
 import { useEffect, useMemo } from 'react';
 import { PianoView } from './instruments/piano/PianoView';
 import { GuitarView } from './instruments/guitar/GuitarView';
+import { BassView } from './instruments/bass/BassView';
 import { PushView } from './instruments/push/PushView';
 import { SelectionBar } from './components/SelectionBar';
 import { GameModePanel } from './components/GameModePanel';
 import { QuickStartRow } from './components/QuickStartRow';
+import { CircleOfFifths } from '#/components/CircleOfFifths';
 import { useAppState } from './state/useAppState';
 import type { AppState, PitchClass, ScaleSelection } from './types';
 import { resolveSelection } from './state/resolve';
@@ -168,6 +170,18 @@ export default function TheoryCompanion({
   return (
     <div className="app theory-companion">
       <QuickStartRow {...appState} />
+      {/* Circle of Fifths as a chord selector. Each wedge click drives
+          selectChord (outer = major triad, inner = minor triad), so the
+          piano/guitar/Push views update to show that chord. The Circle's
+          own sound + ring-aware tonic state is preserved so it's also a
+          standalone Circle visual. */}
+      <div className="panel circle-selector-panel">
+        <CircleOfFifths
+          onChordSelect={(root, mode) =>
+            appState.selectChord(root, mode === 'major' ? 'maj' : 'min')
+          }
+        />
+      </div>
       <SelectionBar {...appState} />
 
       <div className="panel label-row">
@@ -339,6 +353,19 @@ export default function TheoryCompanion({
             emphasizedPitchClasses={resolved.previewedChordPCs}
             gameMode={appState.gameMode.guitar}
             onGameGuess={(pos) => appState.submitGuess('guitar', pos)}
+          />
+        </div>
+        <div className="panel">
+          <h2 className="panel-title">Bass (4-string, standard tuning)</h2>
+          <BassView
+            highlighted={resolved.bass}
+            rootPitchClass={resolved.rootPitchClass}
+            focusedPitchClass={appState.focusedPitchClass}
+            onPickPitchClass={appState.toggleFocusedPitchClass}
+            onPlayNote={(midi) => synth.playNote(midi)}
+            pcLabels={pcLabels}
+            showNaturals={appState.showNaturals}
+            emphasizedPitchClasses={resolved.previewedChordPCs}
           />
         </div>
         <div className="panel">

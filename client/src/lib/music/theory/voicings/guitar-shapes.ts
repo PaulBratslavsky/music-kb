@@ -228,6 +228,22 @@ export const GUITAR_SHAPES: Partial<Record<ChordQuality, GuitarShape[]>> = {
       frets: [-2, -1, -1, 0, null, null],
     },
   ],
+  // "Hendrix chord" — 7♯9. Root on A string. Voicing: root, major 3rd
+  // on D, ♭7 on G, ♯9 on B. The major 3rd + ♯9 (= ♭3 enharmonic) clash
+  // is the signature sound — "Purple Haze" opening, "Foxy Lady". The
+  // article calls this out as the 10th essential shape.
+  //
+  // E7♯9 example (root on A fret 7): A7 D6 G7 B8 → relative to root: 0, -1, 0, +1
+  // We barre A..G (strings 4..2) at the +0 row, which is the root fret;
+  // the index finger covers the A root + the G string b7 in one bar.
+  '7#9': [
+    {
+      name: 'Hendrix chord (A-string root)',
+      rootString: 4,
+      frets: [null, 1, 0, -1, 0, null],
+      barre: { offsetFromRoot: 0, fromString: 2, toString: 4 },
+    },
+  ],
   sus2: [
     // sus2: root, 2, 5. Asus2: x 0 2 2 0 0 → high→low: 0,0,2,2,0,null
     {

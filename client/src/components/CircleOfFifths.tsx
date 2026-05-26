@@ -15,11 +15,16 @@ import {
   diatonicPositions,
   keySignatureLabel,
   majorDisplay,
+  majorKeyAt,
   minorDisplay,
   type CircleDirection,
   type Enharmonic,
   type KeyMode,
 } from '#/lib/music/circle-of-fifths';
+import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
+import { midiFromPitchOctave } from '#/lib/music/theory/notes';
+import { getChordPitchClasses, stackAscending } from '#/lib/music/theory/chords';
+import { synth } from '#/lib/music/audio/synth';
 
 // Component supports two modes:
 //   - Uncontrolled: omit `tonicIdx` + `onTonicChange`, internal state.
@@ -92,6 +97,9 @@ export function CircleOfFifths({
   onKeyModeChange,
   direction: directionProp,
   onDirectionChange,
+  audioMuted: audioMutedProp,
+  onAudioMutedChange,
+  onChordSelect,
 }: {
   initialTonicIdx?: number;
   tonicIdx?: number;
@@ -113,6 +121,18 @@ export function CircleOfFifths({
    *  positions on the wheel. */
   direction?: CircleDirection;
   onDirectionChange?: (next: CircleDirection) => void;
+  /** When false (default), clicking a wedge plays the wedge's root note
+   *  via the global synth singleton. Controlled/uncontrolled — the host
+   *  can lift the state to keep multiple Circles on the same page in
+   *  sync, or omit both props and let the Circle own its own toggle. */
+  audioMuted?: boolean;
+  onAudioMutedChange?: (next: boolean) => void;
+  /** Fires on every wedge click with the (root, mode) that was selected.
+   *  Outer ring fires (majorRoot, 'major'); inner ring fires (minorRoot,
+   *  'minor'). Used by the Visualizer host to drive its selectChord — so
+   *  clicking a wheel wedge updates the piano/guitar/Push views to the
+   *  corresponding triad. Independent of the local tonicIdx state. */
+  onChordSelect?: (root: PitchClass, mode: KeyMode) => void;
 } = {}) {
   const [internalTonicIdx, setInternalTonicIdx] = useState(initialTonicIdx);
   const tonicIdx = tonicIdxProp ?? internalTonicIdx;
@@ -138,7 +158,46 @@ export function CircleOfFifths({
     if (onDirectionChange) onDirectionChange(next);
     else setInternalDirection(next);
   };
+  const [internalAudioMuted, setInternalAudioMuted] = useState(false);
+  const audioMuted = audioMutedProp ?? internalAudioMuted;
+  const setAudioMuted = (next: boolean) => {
+    // Keep the global synth muted state in sync so any other component
+    // hitting `synth.play*` (e.g. IntervalCalculator's "Hear it" button)
+    // respects the same preference.
+    synth.setMuted(next);
+    if (onAudioMutedChange) onAudioMutedChange(next);
+    else setInternalAudioMuted(next);
+  };
   const positions = diatonicPositions(tonicIdx, keyMode, direction);
+
+  // Compute the wedge's pitch class. Outer ring = major root (the wedge's
+  // displayed pitch class); inner ring = relative-minor root, 3 semitones
+  // below the major (e.g., A is the relative minor of C — C - 3 ≡ C + 9
+  // mod 12 = A).
+  const wedgePitchClass = (ring: Ring, idx: number): PitchClass => {
+    const majorPC = majorKeyAt(idx, direction);
+    const majorPcIdx = PITCH_CLASSES.indexOf(majorPC);
+    const pcIdx = ring === 'outer' ? majorPcIdx : (majorPcIdx + 9) % 12;
+    return PITCH_CLASSES[pcIdx];
+  };
+
+  // Play the wedge's chord triad. Outer = major triad; inner = minor
+  // triad. Octave 4 + stackAscending gives a closed mid-range voicing.
+  const playWedge = (ring: Ring, idx: number) => {
+    if (audioMuted) return;
+    const rootPc = wedgePitchClass(ring, idx);
+    const triadPcs = getChordPitchClasses(rootPc, ring === 'outer' ? 'maj' : 'min');
+    const notes = stackAscending(triadPcs, 4);
+    synth.playChord(notes.map((n) => midiFromPitchOctave(n.pitchClass, n.octave)));
+  };
+
+  // Fire the host's chord-selection callback for a wedge click. Used by
+  // the Visualizer tab to update piano/guitar/Push views to the wedge's
+  // triad. No-op when no callback is wired (Tools-tab callsite).
+  const emitChordSelect = (ring: Ring, idx: number) => {
+    if (!onChordSelect) return;
+    onChordSelect(wedgePitchClass(ring, idx), ring === 'outer' ? 'major' : 'minor');
+  };
 
   // Build a quick lookup: (ring, idx) → numeral label, or null.
   const numeralMap = new Map<string, string>();
@@ -235,6 +294,23 @@ export function CircleOfFifths({
             </button>
           ))}
         </div>
+      <button
+        type="button"
+        onClick={() => setAudioMuted(!audioMuted)}
+        aria-pressed={!audioMuted}
+        title={
+          audioMuted
+            ? 'Sound is muted — click to enable wedge-click playback'
+            : 'Sound is on — click a wedge to hear its root note'
+        }
+        className={`inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-3 py-1 text-xs font-medium transition ${
+          audioMuted
+            ? 'bg-[var(--card)] text-[var(--ink-muted)]'
+            : 'bg-[var(--accent-soft)] text-[var(--accent)]'
+        }`}
+      >
+        {audioMuted ? '🔇 muted' : '🔊 sound'}
+      </button>
       <div
         className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-xs"
         role="radiogroup"
@@ -296,6 +372,8 @@ export function CircleOfFifths({
                 // not what users mean when they click "C# major".
                 setTonicIdx(i);
                 if (keyMode !== 'major') setKeyMode('major');
+                playWedge('outer', i);
+                emitChordSelect('outer', i);
               }}
               style={{ cursor: 'pointer' }}
             >
@@ -356,6 +434,8 @@ export function CircleOfFifths({
                 // out of major mode if needed.
                 setTonicIdx(i);
                 if (keyMode !== 'minor') setKeyMode('minor');
+                playWedge('inner', i);
+                emitChordSelect('inner', i);
               }}
               style={{ cursor: 'pointer' }}
             >

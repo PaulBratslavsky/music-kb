@@ -120,6 +120,10 @@ export type ResolvedSelection = {
   piano: Note[];
   guitar: Note[];
   push: Note[];
+  /** (music-kb fork) Notes for the 4-string bass view. Always matched by
+   *  pitch class (bass plays single notes — no chord voicings tracked),
+   *  so the array is the same set the guitar would use in PC-flood mode. */
+  bass: Note[];
   rootPitchClass: PitchClass | null;
   label: string;
 };

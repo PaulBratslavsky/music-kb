@@ -84,6 +84,9 @@ export function resolveSelection(
     return {
       piano,
       guitar,
+      // Bass uses pitch-class matching, so just reuse the guitar notes —
+      // their PCs are what BassView reads.
+      bass: guitar,
       push,
       rootPitchClass: state.chord.root,
       label,
@@ -156,6 +159,7 @@ export function resolveSelection(
     return {
       piano: notes,
       guitar: notes,
+      bass: notes,
       push: notes,
       rootPitchClass: previewedChordRoot ?? state.scale.root,
       label: label + positionLabel + previewLabel,
@@ -176,6 +180,7 @@ export function resolveSelection(
     return {
       piano: notes,
       guitar: notes,
+      bass: notes,
       push: notes,
       rootPitchClass: pc,
       label: `Note — ${noteName}`,
@@ -194,6 +199,7 @@ export function resolveSelection(
   return {
     piano: allNotes,
     guitar: allNotes,
+    bass: allNotes,
     push: allNotes,
     rootPitchClass: null,
     label: 'All notes',

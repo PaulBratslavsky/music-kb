@@ -14,6 +14,9 @@ import { PatternMirror } from '#/components/PatternMirror';
 import { ViewTabs } from '#/components/ViewTabs';
 import TheoryCompanion from '#/lib/music/TheoryCompanion';
 import { parseTheoryParam } from '#/lib/music/deep-link';
+import { ProgressionPlayer } from '#/components/practice/ProgressionPlayer';
+import { EarTrainer } from '#/components/practice/EarTrainer';
+import { RomanAnalyzer } from '#/components/practice/RomanAnalyzer';
 import {
   CIRCLE_MAJORS,
   CIRCLE_MAJOR_DISPLAY,
@@ -22,7 +25,7 @@ import {
 } from '#/lib/music/circle-of-fifths';
 
 const TheorySearchSchema = z.object({
-  tab: z.enum(['tools', 'visualizer']).optional(),
+  tab: z.enum(['tools', 'practice', 'visualizer']).optional(),
 });
 
 export const Route = createFileRoute('/theory')({
@@ -31,10 +34,11 @@ export const Route = createFileRoute('/theory')({
   head: () => ({ meta: [{ title: 'Music theory · Music KB' }] }),
 });
 
-type TheoryTab = 'tools' | 'visualizer';
+type TheoryTab = 'tools' | 'practice' | 'visualizer';
 
 const TABS: Array<{ id: TheoryTab; label: string }> = [
   { id: 'tools', label: 'Theory tools' },
+  { id: 'practice', label: 'Practice' },
   { id: 'visualizer', label: 'Visualizer' },
 ];
 
@@ -83,6 +87,8 @@ function TheoryPage() {
 
       {activeTab === 'visualizer' ? (
         <VisualizerTab tonicIdx={tonicIdx} />
+      ) : activeTab === 'practice' ? (
+        <PracticeTab />
       ) : (
         <ToolsTab
           tonicIdx={tonicIdx}
@@ -106,6 +112,10 @@ function ToolsTab({
   guitarCircleDir: CircleDirection;
   setGuitarCircleDir: (d: CircleDirection) => void;
 }) {
+  // Audio toggle is shared across both Circle instances on this tab —
+  // mute on one, mute on both. Defaults to sound-on so the click-to-play
+  // feature is discoverable.
+  const [audioMuted, setAudioMuted] = useState(false);
   return (
     <>
       <section>
@@ -120,7 +130,12 @@ function ToolsTab({
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,560px)_1fr] lg:items-start">
             {/* Left column: the wheel itself. */}
             <div>
-              <CircleOfFifths tonicIdx={tonicIdx} onTonicChange={setTonicIdx} />
+              <CircleOfFifths
+            tonicIdx={tonicIdx}
+            onTonicChange={setTonicIdx}
+            audioMuted={audioMuted}
+            onAudioMutedChange={setAudioMuted}
+          />
             </div>
             {/* Right column: contextual side panel — deep-links to /builder
                 for the picked tonic, plus a short legend so a first-time
@@ -249,6 +264,8 @@ function ToolsTab({
               onTonicChange={setTonicIdx}
               direction={guitarCircleDir}
               onDirectionChange={setGuitarCircleDir}
+              audioMuted={audioMuted}
+              onAudioMutedChange={setAudioMuted}
             />
           </div>
           {/* Right column: String Pairs + Pattern Mirror. They sit together
@@ -274,6 +291,54 @@ function ToolsTab({
         </div>
       </section>
     </>
+  );
+}
+
+function PracticeTab() {
+  return (
+    <div className="flex flex-col gap-10">
+      <section>
+        <h2 className="text-base font-semibold text-[var(--ink)]">
+          Progression Player
+        </h2>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Pick a key, click the diatonic chord chips to build a progression,
+          then loop it at your chosen tempo. Audio plays through the same
+          synth as the Circle's wedge-click feature.
+        </p>
+        <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+          <ProgressionPlayer />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-base font-semibold text-[var(--ink)]">
+          Ear Trainer
+        </h2>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Three drill modes — interval ID, chord-quality ID, cadence ID.
+          Listen, pick, see if you got it. Streak resets on a wrong guess.
+        </p>
+        <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+          <EarTrainer />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-base font-semibold text-[var(--ink)]">
+          Roman Numeral Analyzer
+        </h2>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Paste a progression, pick a key — each chord gets a Roman numeral
+          plus functional category (tonic / pre-dominant / dominant /
+          chromatic). Detects diatonic, secondary dominants, and common
+          modal-interchange chords.
+        </p>
+        <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+          <RomanAnalyzer />
+        </div>
+      </section>
+    </div>
   );
 }
 

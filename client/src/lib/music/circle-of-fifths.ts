@@ -17,6 +17,8 @@
 // bottom. This neighborhood is the visual payoff of the circle — it makes
 // "the IV-V-vi-I family" something you can see at a glance.
 
+import type { PitchClass } from './types';
+
 export const CIRCLE_MAJORS = [
   'C',  // 0  — 12 o'clock
   'G',  // 1
@@ -113,10 +115,15 @@ export function minorDisplay(
   return arr[idx];
 }
 
-/** Pitch class (used by deep-link builders) at a given wheel index. */
-export function majorKeyAt(idx: number, direction: CircleDirection = 'fifths'): string {
+/** Pitch class (used by deep-link builders + click-to-play synth dispatch)
+ *  at a given wheel index. CIRCLE_MAJORS uses the sharp-side spelling
+ *  internally, which is exactly the PitchClass enum, so the cast is safe. */
+export function majorKeyAt(
+  idx: number,
+  direction: CircleDirection = 'fifths',
+): PitchClass {
   const arr = direction === 'fourths' ? fourthsView(CIRCLE_MAJORS) : CIRCLE_MAJORS;
-  return arr[idx];
+  return arr[idx] as PitchClass;
 }
 
 export type KeyMode = 'major' | 'minor';

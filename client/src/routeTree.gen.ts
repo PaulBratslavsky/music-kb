@@ -20,6 +20,7 @@ import { Route as BuilderRouteImport } from './routes/builder'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VideoDocumentIdRouteImport } from './routes/video.$documentId'
+import { Route as LessonsEssentialChordsRouteImport } from './routes/lessons.essential-chords'
 import { Route as LearnVideoIdRouteImport } from './routes/learn.$videoId'
 import { Route as ApiDigestChatRouteImport } from './routes/api.digest-chat'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
@@ -81,6 +82,11 @@ const VideoDocumentIdRoute = VideoDocumentIdRouteImport.update({
   path: '/video/$documentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LessonsEssentialChordsRoute = LessonsEssentialChordsRouteImport.update({
+  id: '/lessons/essential-chords',
+  path: '/lessons/essential-chords',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LearnVideoIdRoute = LearnVideoIdRouteImport.update({
   id: '/learn/$videoId',
   path: '/learn/$videoId',
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
 }
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
 }
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
 }
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/essential-chords'
     | '/video/$documentId'
     | '/api/notes/compose'
   fileRoutesByTo: FileRoutesByTo
@@ -197,6 +207,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/essential-chords'
     | '/video/$documentId'
     | '/api/notes/compose'
   id:
@@ -215,6 +226,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/essential-chords'
     | '/video/$documentId'
     | '/api/notes/compose'
   fileRoutesById: FileRoutesById
@@ -234,6 +246,7 @@ export interface RootRouteChildren {
   ApiChatRoute: typeof ApiChatRoute
   ApiDigestChatRoute: typeof ApiDigestChatRoute
   LearnVideoIdRoute: typeof LearnVideoIdRoute
+  LessonsEssentialChordsRoute: typeof LessonsEssentialChordsRoute
   VideoDocumentIdRoute: typeof VideoDocumentIdRoute
   ApiNotesComposeRoute: typeof ApiNotesComposeRoute
 }
@@ -317,6 +330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VideoDocumentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lessons/essential-chords': {
+      id: '/lessons/essential-chords'
+      path: '/lessons/essential-chords'
+      fullPath: '/lessons/essential-chords'
+      preLoaderRoute: typeof LessonsEssentialChordsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/learn/$videoId': {
       id: '/learn/$videoId'
       path: '/learn/$videoId'
@@ -370,6 +390,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatRoute: ApiChatRoute,
   ApiDigestChatRoute: ApiDigestChatRoute,
   LearnVideoIdRoute: LearnVideoIdRoute,
+  LessonsEssentialChordsRoute: LessonsEssentialChordsRoute,
   VideoDocumentIdRoute: VideoDocumentIdRoute,
   ApiNotesComposeRoute: ApiNotesComposeRoute,
 }
