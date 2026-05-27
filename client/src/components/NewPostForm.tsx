@@ -15,6 +15,7 @@ import {
   extractYouTubeVideoId,
   type GenerationMode,
   type ShareVideoFormValues,
+  type VideoTypeChoice,
 } from '#/lib/validations/post';
 import type { SuggestedTag } from '#/lib/services/embeddings';
 
@@ -33,6 +34,7 @@ export function NewPostForm() {
       caption: '',
       tags: '',
       mode: 'auto' as GenerationMode,
+      videoType: 'lesson' as VideoTypeChoice,
     } satisfies ShareVideoFormValues,
     validators: { onChange: ShareVideoFormSchema as never },
     onSubmit: async ({ value }) => {
@@ -49,6 +51,7 @@ export function NewPostForm() {
           caption: parsed.data.caption || undefined,
           tags: parsed.data.tags || undefined,
           mode: parsed.data.mode,
+          videoType: parsed.data.videoType,
         },
       });
 
@@ -58,10 +61,19 @@ export function NewPostForm() {
       }
 
       await router.invalidate();
-      router.navigate({
-        to: '/learn/$videoId',
-        params: { videoId: result.video.youtubeVideoId },
-      });
+      // Music videos go straight to the player (no transcript / AI to
+      // wait on); lessons keep the existing /learn flow with polling.
+      if (parsed.data.videoType === 'music') {
+        router.navigate({
+          to: '/video/$documentId',
+          params: { documentId: result.video.documentId },
+        });
+      } else {
+        router.navigate({
+          to: '/learn/$videoId',
+          params: { videoId: result.video.youtubeVideoId },
+        });
+      }
     },
   });
 
@@ -91,6 +103,16 @@ export function NewPostForm() {
       }}
       className="grid gap-5"
     >
+      <form.Field name="videoType">
+        {(field) => (
+          <VideoTypeToggle
+            value={field.state.value as VideoTypeChoice}
+            onChange={(next) => field.handleChange(next)}
+            disabled={form.state.isSubmitting}
+          />
+        )}
+      </form.Field>
+
       <form.Field name="url">
         {(field) => (
           <FieldText
@@ -150,15 +172,24 @@ export function NewPostForm() {
         </form.Subscribe>
       </div>
 
-      <form.Field name="mode">
-        {(field) => (
-          <GenerationModeSelect
-            value={field.state.value as GenerationMode}
-            onChange={(next) => field.handleChange(next)}
-            disabled={form.state.isSubmitting}
-          />
-        )}
-      </form.Field>
+      {/* GenerationMode is a lesson-only knob — it controls how the AI
+          summary is built (single-pass vs map-reduce), which doesn't
+          apply when we're skipping the AI pipeline entirely. */}
+      <form.Subscribe selector={(s: { values: { videoType: VideoTypeChoice } }) => s.values.videoType}>
+        {(videoType: VideoTypeChoice) =>
+          videoType === 'lesson' ? (
+            <form.Field name="mode">
+              {(field) => (
+                <GenerationModeSelect
+                  value={field.state.value as GenerationMode}
+                  onChange={(next) => field.handleChange(next)}
+                  disabled={form.state.isSubmitting}
+                />
+              )}
+            </form.Field>
+          ) : null
+        }
+      </form.Subscribe>
 
       {serverError && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -265,6 +296,71 @@ function SuggestedTagsRow({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// Segmented Lesson / Music toggle. Lives at the top of the form because
+// it controls whether the rest of the inputs (caption / tags) are even
+// shown for the same purpose, and whether the post-submit redirect
+// goes to /learn (lesson, with polling for the AI summary) vs
+// /video/$documentId (music, straight to the player + LoopBuilder).
+function VideoTypeToggle({
+  value,
+  onChange,
+  disabled,
+}: Readonly<{
+  value: VideoTypeChoice;
+  onChange: (next: VideoTypeChoice) => void;
+  disabled?: boolean;
+}>) {
+  const options: Array<{
+    value: VideoTypeChoice;
+    label: string;
+    blurb: string;
+  }> = [
+    {
+      value: 'lesson',
+      label: 'Lesson',
+      blurb:
+        'Instructional video — runs transcript fetch + AI summary + scoring.',
+    },
+    {
+      value: 'music',
+      label: 'Music',
+      blurb:
+        'Just the song — saved with metadata only. Skips transcript / AI. Goes straight to the LoopBuilder + visualizer.',
+    },
+  ];
+
+  const active = options.find((o) => o.value === value) ?? options[0];
+
+  return (
+    <div className="grid gap-2">
+      <Label className="text-sm font-medium">Type</Label>
+      <div className="inline-flex w-fit rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5">
+        {options.map((opt) => {
+          const isActive = opt.value === value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              onClick={() => onChange(opt.value)}
+              disabled={disabled}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                isActive
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'text-[var(--ink-muted)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-[var(--ink-muted)]">{active.blurb}</p>
     </div>
   );
 }

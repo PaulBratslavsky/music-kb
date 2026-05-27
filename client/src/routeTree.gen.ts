@@ -13,13 +13,16 @@ import { Route as TheoryRouteImport } from './routes/theory'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as NewPostRouteImport } from './routes/new-post'
+import { Route as MusicRouteImport } from './routes/music'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as DigestsRouteImport } from './routes/digests'
 import { Route as DigestRouteImport } from './routes/digest'
 import { Route as BuilderRouteImport } from './routes/builder'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LessonsIndexRouteImport } from './routes/lessons.index'
 import { Route as VideoDocumentIdRouteImport } from './routes/video.$documentId'
+import { Route as LessonsFindAnyChordRouteImport } from './routes/lessons.find-any-chord'
 import { Route as LessonsEssentialChordsRouteImport } from './routes/lessons.essential-chords'
 import { Route as LearnVideoIdRouteImport } from './routes/learn.$videoId'
 import { Route as ApiDigestChatRouteImport } from './routes/api.digest-chat'
@@ -45,6 +48,11 @@ const SearchRoute = SearchRouteImport.update({
 const NewPostRoute = NewPostRouteImport.update({
   id: '/new-post',
   path: '/new-post',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MusicRoute = MusicRouteImport.update({
+  id: '/music',
+  path: '/music',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FeedRoute = FeedRouteImport.update({
@@ -77,9 +85,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LessonsIndexRoute = LessonsIndexRouteImport.update({
+  id: '/lessons/',
+  path: '/lessons/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VideoDocumentIdRoute = VideoDocumentIdRouteImport.update({
   id: '/video/$documentId',
   path: '/video/$documentId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LessonsFindAnyChordRoute = LessonsFindAnyChordRouteImport.update({
+  id: '/lessons/find-any-chord',
+  path: '/lessons/find-any-chord',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LessonsEssentialChordsRoute = LessonsEssentialChordsRouteImport.update({
@@ -120,6 +138,7 @@ export interface FileRoutesByFullPath {
   '/digest': typeof DigestRoute
   '/digests': typeof DigestsRoute
   '/feed': typeof FeedRoute
+  '/music': typeof MusicRoute
   '/new-post': typeof NewPostRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
@@ -129,7 +148,9 @@ export interface FileRoutesByFullPath {
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
+  '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
+  '/lessons/': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
 }
 export interface FileRoutesByTo {
@@ -139,6 +160,7 @@ export interface FileRoutesByTo {
   '/digest': typeof DigestRoute
   '/digests': typeof DigestsRoute
   '/feed': typeof FeedRoute
+  '/music': typeof MusicRoute
   '/new-post': typeof NewPostRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
@@ -148,7 +170,9 @@ export interface FileRoutesByTo {
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
+  '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
+  '/lessons': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
 }
 export interface FileRoutesById {
@@ -159,6 +183,7 @@ export interface FileRoutesById {
   '/digest': typeof DigestRoute
   '/digests': typeof DigestsRoute
   '/feed': typeof FeedRoute
+  '/music': typeof MusicRoute
   '/new-post': typeof NewPostRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
@@ -168,7 +193,9 @@ export interface FileRoutesById {
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
+  '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
+  '/lessons/': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
 }
 export interface FileRouteTypes {
@@ -180,6 +207,7 @@ export interface FileRouteTypes {
     | '/digest'
     | '/digests'
     | '/feed'
+    | '/music'
     | '/new-post'
     | '/search'
     | '/settings'
@@ -189,7 +217,9 @@ export interface FileRouteTypes {
     | '/api/digest-chat'
     | '/learn/$videoId'
     | '/lessons/essential-chords'
+    | '/lessons/find-any-chord'
     | '/video/$documentId'
+    | '/lessons/'
     | '/api/notes/compose'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -199,6 +229,7 @@ export interface FileRouteTypes {
     | '/digest'
     | '/digests'
     | '/feed'
+    | '/music'
     | '/new-post'
     | '/search'
     | '/settings'
@@ -208,7 +239,9 @@ export interface FileRouteTypes {
     | '/api/digest-chat'
     | '/learn/$videoId'
     | '/lessons/essential-chords'
+    | '/lessons/find-any-chord'
     | '/video/$documentId'
+    | '/lessons'
     | '/api/notes/compose'
   id:
     | '__root__'
@@ -218,6 +251,7 @@ export interface FileRouteTypes {
     | '/digest'
     | '/digests'
     | '/feed'
+    | '/music'
     | '/new-post'
     | '/search'
     | '/settings'
@@ -227,7 +261,9 @@ export interface FileRouteTypes {
     | '/api/digest-chat'
     | '/learn/$videoId'
     | '/lessons/essential-chords'
+    | '/lessons/find-any-chord'
     | '/video/$documentId'
+    | '/lessons/'
     | '/api/notes/compose'
   fileRoutesById: FileRoutesById
 }
@@ -238,6 +274,7 @@ export interface RootRouteChildren {
   DigestRoute: typeof DigestRoute
   DigestsRoute: typeof DigestsRoute
   FeedRoute: typeof FeedRoute
+  MusicRoute: typeof MusicRoute
   NewPostRoute: typeof NewPostRoute
   SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
@@ -247,7 +284,9 @@ export interface RootRouteChildren {
   ApiDigestChatRoute: typeof ApiDigestChatRoute
   LearnVideoIdRoute: typeof LearnVideoIdRoute
   LessonsEssentialChordsRoute: typeof LessonsEssentialChordsRoute
+  LessonsFindAnyChordRoute: typeof LessonsFindAnyChordRoute
   VideoDocumentIdRoute: typeof VideoDocumentIdRoute
+  LessonsIndexRoute: typeof LessonsIndexRoute
   ApiNotesComposeRoute: typeof ApiNotesComposeRoute
 }
 
@@ -279,6 +318,13 @@ declare module '@tanstack/react-router' {
       path: '/new-post'
       fullPath: '/new-post'
       preLoaderRoute: typeof NewPostRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/music': {
+      id: '/music'
+      path: '/music'
+      fullPath: '/music'
+      preLoaderRoute: typeof MusicRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/feed': {
@@ -323,11 +369,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lessons/': {
+      id: '/lessons/'
+      path: '/lessons'
+      fullPath: '/lessons/'
+      preLoaderRoute: typeof LessonsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/video/$documentId': {
       id: '/video/$documentId'
       path: '/video/$documentId'
       fullPath: '/video/$documentId'
       preLoaderRoute: typeof VideoDocumentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lessons/find-any-chord': {
+      id: '/lessons/find-any-chord'
+      path: '/lessons/find-any-chord'
+      fullPath: '/lessons/find-any-chord'
+      preLoaderRoute: typeof LessonsFindAnyChordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lessons/essential-chords': {
@@ -382,6 +442,7 @@ const rootRouteChildren: RootRouteChildren = {
   DigestRoute: DigestRoute,
   DigestsRoute: DigestsRoute,
   FeedRoute: FeedRoute,
+  MusicRoute: MusicRoute,
   NewPostRoute: NewPostRoute,
   SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
@@ -391,7 +452,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDigestChatRoute: ApiDigestChatRoute,
   LearnVideoIdRoute: LearnVideoIdRoute,
   LessonsEssentialChordsRoute: LessonsEssentialChordsRoute,
+  LessonsFindAnyChordRoute: LessonsFindAnyChordRoute,
   VideoDocumentIdRoute: VideoDocumentIdRoute,
+  LessonsIndexRoute: LessonsIndexRoute,
   ApiNotesComposeRoute: ApiNotesComposeRoute,
 }
 export const routeTree = rootRouteImport

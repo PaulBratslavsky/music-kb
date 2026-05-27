@@ -78,7 +78,10 @@ export function TabView({ notes, pcDisplay, mode }: Props) {
       preserveAspectRatio="xMidYMid meet"
       role="img"
       aria-label="Guitar tablature"
-      style={{ maxWidth: totalWidth * 4, height: 'auto' }}
+      // Cap at a readable density so the tab doesn't balloon on the
+      // full-width Visualizer page. The old 4× cap looked fine on the
+      // narrower /learn page but is way too big on /theory.
+      style={{ maxWidth: 'min(100%, 360px)', height: 'auto' }}
     >
       {/* string labels */}
       {STRING_LABELS.map((label, s) => (

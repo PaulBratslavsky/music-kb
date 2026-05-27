@@ -112,7 +112,11 @@ export function SheetMusicView({ notes, pcDisplay, mode }: Props) {
       preserveAspectRatio="xMidYMid meet"
       role="img"
       aria-label="Sheet music notation"
-      style={{ maxWidth: totalWidth * 4, height: 'auto' }}
+      // Cap at ~2× viewBox dimensions so the staff doesn't balloon on the
+      // full-width Visualizer page. The old 4× cap was sized for the
+      // narrower /learn page; on /theory the container is much wider
+      // and let the SVG render at huge sizes.
+      style={{ maxWidth: 'min(100%, 360px)', height: 'auto' }}
     >
       {/* 5 staff lines */}
       {Array.from({ length: 5 }, (_, i) => (

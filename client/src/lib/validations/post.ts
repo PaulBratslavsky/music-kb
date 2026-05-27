@@ -10,6 +10,9 @@ import { z } from 'zod';
 export const GenerationModeSchema = z.enum(['auto', 'single', 'mapreduce']);
 export type GenerationMode = z.infer<typeof GenerationModeSchema>;
 
+export const VideoTypeSchema = z.enum(['lesson', 'music']);
+export type VideoTypeChoice = z.infer<typeof VideoTypeSchema>;
+
 export const ShareVideoFormSchema = z.object({
   url: z
     .string()
@@ -26,6 +29,9 @@ export const ShareVideoFormSchema = z.object({
     .optional()
     .default(''),
   mode: GenerationModeSchema.optional().default('auto'),
+  /** Defaults to 'lesson' — runs the transcript + AI pipeline. 'music'
+   *  saves the video with metadata only for use with the LoopBuilder. */
+  videoType: VideoTypeSchema.optional().default('lesson'),
 });
 
 export type ShareVideoFormValues = z.infer<typeof ShareVideoFormSchema>;

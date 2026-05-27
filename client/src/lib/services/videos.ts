@@ -62,7 +62,14 @@ export type StrapiTranscript = {
   fetchedAt: string | null;
 };
 
-export type SummaryStatus = 'pending' | 'generated' | 'failed';
+export type SummaryStatus = 'pending' | 'generated' | 'failed' | 'skipped';
+
+/** (music-kb fork) Distinguishes a "lesson" (the default — instructional
+ *  video that goes through the transcript + AI summary pipeline) from a
+ *  "music" video (just-the-song, no transcript, used with the
+ *  LoopBuilder + visualizer to figure out parts by ear). Music videos
+ *  always carry summaryStatus='skipped'. */
+export type VideoType = 'lesson' | 'music';
 
 export type WatchVerdict = 'skip' | 'skim' | 'worth_it';
 
@@ -130,6 +137,9 @@ export type StrapiVideo = {
   caption: string | null;
   createdAt: string;
   tags: StrapiTag[] | null;
+  /** (music-kb fork) 'lesson' (default) runs the transcript + AI pipeline;
+   *  'music' is just-the-song, saved with summaryStatus='skipped'. */
+  videoType: VideoType;
   summaryStatus: SummaryStatus;
   summaryTitle: string | null;
   summaryDescription: string | null;
@@ -242,6 +252,10 @@ export type FeedQuery = {
    * are excluded when this is set — "min score N" implies "must have
    * a score". Omit/0 = no filter. */
   minScore?: number;
+  /** (music-kb fork) Filter by video type. Defaults to undefined =
+   *  no filter, but `/feed` passes 'lesson' to hide music-only videos
+   *  and `/music` passes 'music' to show only those. */
+  videoType?: VideoType;
 };
 
 // Strapi sort string per FeedSort. Multi-key sort puts the secondary
@@ -261,6 +275,7 @@ function feedQuery({
   tag,
   sort = 'recent',
   minScore,
+  videoType,
 }: FeedQuery): StrapiQuery {
   // Keep the feed payload light. No component populate on the list view —
   // summary fields are only needed on the detail page.
@@ -281,6 +296,9 @@ function feedQuery({
     // `$gte` excludes rows where finalScore is null, which is what we want:
     // "min score 50" should hide unrated videos, not lump them in.
     filters.finalScore = { $gte: minScore };
+  }
+  if (videoType) {
+    filters.videoType = { $eq: videoType };
   }
   return {
     populate: ['tags'],
@@ -455,6 +473,9 @@ export type CreateVideoServiceInput = {
   videoAuthor?: string;
   videoThumbnailUrl?: string;
   tagNames: string[];
+  /** (music-kb fork) Defaults to 'lesson'. When 'music', the row is
+   *  created with summaryStatus='skipped' and the AI pipeline never runs. */
+  videoType?: VideoType;
 };
 
 export type CreateVideoServiceResult =
@@ -482,6 +503,7 @@ export async function createVideoService(
     if (created) tagDocumentIds.push(created.documentId);
   }
 
+  const isMusic = input.videoType === 'music';
   const body = {
     data: {
       youtubeVideoId: input.videoId,
@@ -491,7 +513,10 @@ export async function createVideoService(
       videoAuthor: input.videoAuthor,
       videoThumbnailUrl: input.videoThumbnailUrl,
       tags: tagDocumentIds,
-      summaryStatus: 'pending' as SummaryStatus,
+      videoType: (input.videoType ?? 'lesson') as VideoType,
+      // Music videos skip the AI pipeline entirely — set status='skipped'
+      // up front so polling UIs don't wait for a generation that never runs.
+      summaryStatus: (isMusic ? 'skipped' : 'pending') as SummaryStatus,
     },
   };
 
@@ -607,6 +632,52 @@ export async function markSummaryFailedService(documentId: string): Promise<void
   await strapiFetch('PUT', `/api/videos/${documentId}`, {
     body: { data: { summaryStatus: 'failed' } },
   });
+}
+
+/**
+ * (music-kb fork) Convert a video between 'lesson' and 'music' types.
+ * Used when re-sharing an existing video with the opposite type — the
+ * user is saying "I changed my mind, this should be the other kind."
+ *
+ * lesson → music: clears the AI-summary artifacts (status, summary
+ * fields, verdict, scores) and marks status='skipped'. The music page
+ * shouldn't show "SUMMARY FAILED" or stale summary content.
+ *
+ * music → lesson: resets status='pending'. The caller is responsible
+ * for kicking off generation if it wants the AI flow to run.
+ */
+export async function updateVideoTypeService(
+  documentId: string,
+  videoType: VideoType,
+): Promise<StrapiVideo | null> {
+  const data: Record<string, unknown> = { videoType };
+  if (videoType === 'music') {
+    data.summaryStatus = 'skipped';
+    // Wipe AI-summary artifacts so the music page presents a clean card.
+    data.summaryTitle = null;
+    data.summaryDescription = null;
+    data.summaryOverview = null;
+    data.watchVerdict = null;
+    data.verdictSummary = null;
+    data.verdictReason = null;
+    data.valueScore = null;
+    data.valueScoreSource = null;
+    data.signalScore = null;
+    data.finalScore = null;
+    data.signalScores = null;
+    data.aiModel = null;
+    data.summaryGeneratedAt = null;
+  } else {
+    // Reverting to lesson — let the caller decide whether to retrigger.
+    data.summaryStatus = 'pending';
+  }
+  const result = await strapiFetch<StrapiVideo>(
+    'PUT',
+    `/api/videos/${documentId}`,
+    { body: { data } },
+  );
+  if (!result.ok) return null;
+  return result.data;
 }
 
 // Partial-update path for the verdict-only fields (regenerate-verdict

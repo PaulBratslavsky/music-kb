@@ -769,7 +769,7 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
     summaryGeneratedAt: Schema.Attribute.DateTime;
     summaryOverview: Schema.Attribute.RichText;
     summaryStatus: Schema.Attribute.Enumeration<
-      ['pending', 'generated', 'failed']
+      ['pending', 'generated', 'failed', 'skipped']
     > &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'pending'>;
@@ -820,6 +820,9 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 300;
       }>;
+    videoType: Schema.Attribute.Enumeration<['lesson', 'music']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'lesson'>;
     watchVerdict: Schema.Attribute.Enumeration<['skip', 'skim', 'worth_it']>;
     youtubeVideoId: Schema.Attribute.String &
       Schema.Attribute.Required &

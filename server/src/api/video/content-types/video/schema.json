@@ -68,9 +68,15 @@
       "target": "api::loop.loop",
       "mappedBy": "video"
     },
+    "videoType": {
+      "type": "enumeration",
+      "enum": ["lesson", "music"],
+      "required": true,
+      "default": "lesson"
+    },
     "summaryStatus": {
       "type": "enumeration",
-      "enum": ["pending", "generated", "failed"],
+      "enum": ["pending", "generated", "failed", "skipped"],
       "required": true,
       "default": "pending"
     },

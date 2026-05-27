@@ -107,6 +107,10 @@ export const Route = createFileRoute('/feed')({
         pageSize: 9,
         sort: deps.sort ?? 'recent',
         minScore: deps.minScore,
+        // /feed is the lesson library — music-type rows live on /music
+        // (no transcript, no summary, no scoring). Hard-filter so the
+        // feed payload stays focused on AI-summarized content.
+        videoType: 'lesson',
       },
     });
     if (result.error) {

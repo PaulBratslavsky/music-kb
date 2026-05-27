@@ -18,6 +18,7 @@ import {
   updateVideoEmbeddingService,
   updateVideoPassagesService,
   updateVideoSignalScoresService,
+  updateVideoTypeService,
   updateVideoVerdictService,
   type PaginatedVideos,
   type StrapiTag,
@@ -85,6 +86,7 @@ const FeedQuerySchema = z.object({
   tag: z.string().max(80).optional(),
   sort: z.enum(['recent', 'score']).optional(),
   minScore: z.number().int().min(0).max(100).optional(),
+  videoType: z.enum(['lesson', 'music']).optional(),
 });
 
 export const getFeed = createServerFn({ method: 'GET' })
@@ -145,6 +147,10 @@ const ShareVideoInputSchema = z.object({
   caption: z.string().max(500).optional(),
   tags: z.string().max(240).optional(),
   mode: GenerationModeSchema.optional(),
+  /** (music-kb fork) 'lesson' (default) kicks off the transcript + AI
+   *  pipeline; 'music' skips it — the video is saved with metadata only
+   *  for use with the LoopBuilder + visualizer. */
+  videoType: z.enum(['lesson', 'music']).optional(),
 });
 
 export type ShareVideoResult =
@@ -184,8 +190,29 @@ export const shareVideo = createServerFn({ method: 'POST' })
       return { status: 'error', error: "Doesn't look like a YouTube URL" };
     }
 
+    const requestedType = data.videoType ?? 'lesson';
     const alreadyExists = await fetchVideoByVideoIdService(videoId);
     if (alreadyExists) {
+      // Existing row but the user is re-sharing with a different type
+      // (typically converting a failed lesson → music so they can loop
+      // the song without the failed-summary chrome). Convert the row
+      // in place, clearing AI artifacts as needed.
+      const currentType = alreadyExists.videoType ?? 'lesson';
+      if (requestedType !== currentType) {
+        const converted = await updateVideoTypeService(
+          alreadyExists.documentId,
+          requestedType,
+        );
+        // If the user is converting music → lesson, kick off the AI
+        // pipeline so the summary actually gets generated.
+        if (converted && requestedType === 'lesson') {
+          kickoffSummaryGeneration(videoId, data.mode);
+        }
+        return {
+          status: 'exists',
+          video: stripVideoForClient(converted ?? alreadyExists)!,
+        };
+      }
       return { status: 'exists', video: stripVideoForClient(alreadyExists)! };
     }
 
@@ -198,6 +225,7 @@ export const shareVideo = createServerFn({ method: 'POST' })
 
     const meta = await fetchYouTubeMeta(videoId);
 
+    const videoType = data.videoType ?? 'lesson';
     const result = await createVideoService({
       videoId: parsed.videoId,
       url: parsed.url,
@@ -207,6 +235,7 @@ export const shareVideo = createServerFn({ method: 'POST' })
       videoAuthor: meta.author,
       videoThumbnailUrl:
         meta.thumbnailUrl ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      videoType,
     });
 
     if (!result.success) {
@@ -225,7 +254,12 @@ export const shareVideo = createServerFn({ method: 'POST' })
       return { status: 'error', error: result.error };
     }
 
-    kickoffSummaryGeneration(videoId, data.mode);
+    // Music videos don't go through the transcript + AI pipeline — the
+    // row was already saved with summaryStatus='skipped' in
+    // createVideoService. Skip the background generation kickoff.
+    if (videoType !== 'music') {
+      kickoffSummaryGeneration(videoId, data.mode);
+    }
     return { status: 'created', video: stripVideoForClient(result.video)! };
   });
 
