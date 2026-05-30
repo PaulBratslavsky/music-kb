@@ -1,18 +1,18 @@
-// Progression Composer — playback hook. Owns the beat clock and is the
-// only piece that touches the synth. Mirrors ProgressionPlayer's pattern
-// of re-arming the interval on tempo/content changes so live edits take
-// effect on the next beat. The pure schedule comes from buildSchedule;
-// this just walks the step cursor and fires the synth.
+// Progression Composer — playback hook. Owns the tick clock (sixteenth
+// resolution) and is the only piece that touches the synth. Re-arms the
+// interval on tempo/content changes so live edits take effect on the
+// next tick. The pure schedule comes from buildSchedule; this walks the
+// tick cursor and fires the synth with each layer's own voice + sustain.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { synth } from '../audio/synth';
 import type { Composition } from './types';
-import { TOTAL_STEPS } from './types';
-import { buildSchedule, msPerBeat } from './playback';
+import { TOTAL_TICKS } from './types';
+import { buildSchedule, msPerTick } from './playback';
 
 export type CompositionPlayback = {
   isPlaying: boolean;
-  /** Current beat cursor 0..TOTAL_STEPS-1, or null when stopped. */
+  /** Current tick cursor 0..TOTAL_TICKS-1, or null when stopped. */
   currentStep: number | null;
   play: () => void;
   stop: () => void;
@@ -27,14 +27,13 @@ export function useCompositionPlayback(
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState<number | null>(null);
 
-  // Index events by step for O(1) lookup as the cursor advances.
   const eventsByStep = useMemo(() => {
     const map = new Map<number, ReturnType<typeof buildSchedule>[number]>();
     for (const e of buildSchedule(comp)) map.set(e.step, e);
     return map;
   }, [comp]);
 
-  const tickMs = msPerBeat(comp.bpm);
+  const tickMs = msPerTick(comp.bpm);
   const stepRef = useRef(0);
 
   useEffect(() => {
@@ -46,12 +45,10 @@ export function useCompositionPlayback(
     const fire = (step: number) => {
       const e = eventsByStep.get(step);
       if (!e) return;
-      // Chord sustains for its span length; melody/bass for ~one beat.
-      // Each lane gets its own voice: strings for chords, piano for
-      // melody, bass for bass.
-      if (e.chord) synth.playChord(e.chord, tickMs * (e.chordBeats ?? 1) * 0.95, 'string');
-      if (e.melody != null) synth.playNote(e.melody, tickMs * 0.9, 'piano');
-      if (e.bass != null) synth.playNote(e.bass, tickMs * 0.95, 'bass');
+      // Each layer sustains for its span length and uses its own voice.
+      if (e.chord) synth.playChord(e.chord, tickMs * (e.chordTicks ?? 1) * 0.97, 'string');
+      if (e.melody != null) synth.playNote(e.melody, tickMs * (e.melodyTicks ?? 1) * 0.95, 'piano');
+      if (e.bass != null) synth.playNote(e.bass, tickMs * (e.bassTicks ?? 1) * 0.97, 'bass');
     };
 
     stepRef.current = 0;
@@ -60,7 +57,7 @@ export function useCompositionPlayback(
 
     const id = setInterval(() => {
       const next = stepRef.current + 1;
-      if (next >= TOTAL_STEPS) {
+      if (next >= TOTAL_TICKS) {
         if (!loop) {
           clearInterval(id);
           setIsPlaying(false);

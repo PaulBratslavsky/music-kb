@@ -11,18 +11,18 @@
 
 import { useRef, useState } from 'react';
 import type { Composition, ChordSpan } from '#/lib/music/compose/types';
-import { TOTAL_STEPS } from '#/lib/music/compose/types';
+import { TOTAL_TICKS } from '#/lib/music/compose/types';
 import { triadLabel } from '#/lib/music/compose/labels';
 import { degreeColor } from '#/lib/music/compose/colors';
 import { getDiatonicChords } from '#/lib/music/theory/diatonic';
 import { keyToScaleSelection } from '#/lib/music/compose/playback';
-import { LABEL_W, TRACK_COLS, isBarStart } from './laneLayout';
+import { LABEL_W, TRACK_COLS, isBarStart, isBeatStart } from './laneLayout';
 
 type DragState = {
   id: string;
   mode: 'move' | 'resize';
   pointerStartX: number;
-  beatW: number;
+  tickW: number;
   origStart: number;
   origLength: number;
 };
@@ -71,7 +71,7 @@ export function ChordLane({
       id: span.id,
       mode,
       pointerStartX: e.clientX,
-      beatW: rect.width / TOTAL_STEPS,
+      tickW: rect.width / TOTAL_TICKS,
       origStart: span.start,
       origLength: span.length,
     };
@@ -83,11 +83,11 @@ export function ChordLane({
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
-    const deltaBeats = Math.round((e.clientX - d.pointerStartX) / d.beatW);
+    const deltaTicks = Math.round((e.clientX - d.pointerStartX) / d.tickW);
     if (d.mode === 'move') {
-      onMove(d.id, d.origStart + deltaBeats);
+      onMove(d.id, d.origStart + deltaTicks);
     } else {
-      onResize(d.id, d.origLength + deltaBeats);
+      onResize(d.id, d.origLength + deltaTicks);
     }
   };
 
@@ -118,7 +118,7 @@ export function ChordLane({
           className="grid h-full"
           style={{ gridTemplateColumns: TRACK_COLS }}
         >
-          {Array.from({ length: TOTAL_STEPS }, (_, step) => (
+          {Array.from({ length: TOTAL_TICKS }, (_, step) => (
             <button
               key={step}
               type="button"
@@ -126,17 +126,22 @@ export function ChordLane({
                 onSelect(null);
                 onSetCursor(step);
               }}
-              className={`border-b border-r ${
-                isBarStart(step) ? 'border-l' : ''
-              } ${
+              className={`border-b ${
                 step === currentStep ? 'bg-[var(--accent-soft)]' : ''
               } ${
                 step === cursor && selectedId == null
                   ? 'bg-[var(--bg-subtle)] ring-1 ring-inset ring-[var(--accent)]'
                   : ''
               }`}
-              style={{ borderColor: 'var(--line)' }}
-              aria-label={`Beat ${step + 1}`}
+              style={{
+                borderColor: 'var(--line)',
+                borderLeft: isBarStart(step)
+                  ? '2px solid var(--ink-muted)'
+                  : isBeatStart(step)
+                    ? '1px solid var(--line)'
+                    : 'none',
+              }}
+              aria-label={`Tick ${step + 1}`}
             />
           ))}
         </div>

@@ -41,7 +41,7 @@ describe('degree → note resolution stays ascending across the octave wrap', ()
     expect(d3).toBeGreaterThan(d1); // C is realized in the octave above A
   });
 
-  it('octave offset raises a melody cell by exactly 12 semitones', () => {
+  it('octave offset raises a melody note by exactly 12 semitones', () => {
     const c = cMajor();
     const low = resolveMelodyMidi(c, { degree: 1, octave: 0 })!;
     const high = resolveMelodyMidi(c, { degree: 1, octave: 1 })!;
@@ -68,38 +68,39 @@ describe('buildSchedule', () => {
     expect(buildSchedule(cMajor())).toEqual([]);
   });
 
-  it('fires each chord span once on its start beat, carrying its length', () => {
+  it('fires each chord span once on its start tick, carrying its length', () => {
     const c = cMajor();
     c.chords = [
-      { id: 'a', degree: 1 as Degree, start: 0, length: 4 },
-      { id: 'b', degree: 5 as Degree, start: 8, length: 2 },
+      { id: 'a', degree: 1 as Degree, start: 0, length: 16 },
+      { id: 'b', degree: 5 as Degree, start: 32, length: 8 },
     ];
     const schedule = buildSchedule(c);
-    expect(schedule.map((e) => e.step)).toEqual([0, 8]);
+    expect(schedule.map((e) => e.step)).toEqual([0, 32]);
     expect(schedule[0].chord?.map(pitchClassFromMidi)).toEqual(['C', 'E', 'G']);
-    expect(schedule[0].chordBeats).toBe(4);
+    expect(schedule[0].chordTicks).toBe(16);
     expect(schedule[1].chord?.map(pitchClassFromMidi)).toEqual(['G', 'B', 'D']);
-    expect(schedule[1].chordBeats).toBe(2);
+    expect(schedule[1].chordTicks).toBe(8);
   });
 
-  it('merges chord + melody + bass that land on the same step', () => {
+  it('merges chord + melody + bass that land on the same tick', () => {
     const c = cMajor();
-    c.chords = [{ id: 'a', degree: 1 as Degree, start: 0, length: 4 }];
-    c.melody[0] = { degree: 3, octave: 0 };
-    c.bass[0] = { degree: 1, octave: 0 };
+    c.chords = [{ id: 'a', degree: 1 as Degree, start: 0, length: 16 }];
+    c.melody = [{ id: 'm', degree: 3, octave: 0, start: 0, length: 4 }];
+    c.bass = [{ id: 'b', degree: 1, octave: 0, start: 0, length: 4 }];
     const [first] = buildSchedule(c);
     expect(first.step).toBe(0);
     expect(first.chord).toBeDefined();
     expect(pitchClassFromMidi(first.melody!)).toBe('E');
+    expect(first.melodyTicks).toBe(4);
     expect(pitchClassFromMidi(first.bass!)).toBe('C');
   });
 
   it('keeps a mid-bar melody note independent of any chord', () => {
     const c = cMajor();
-    c.melody[5] = { degree: 2, octave: 0 }; // bar 2, beat 2
+    c.melody = [{ id: 'm', degree: 2, octave: 0, start: 20, length: 2 }];
     const schedule = buildSchedule(c);
     expect(schedule).toHaveLength(1);
-    expect(schedule[0].step).toBe(5);
+    expect(schedule[0].step).toBe(20);
     expect(schedule[0].chord).toBeUndefined();
     expect(pitchClassFromMidi(schedule[0].melody!)).toBe('D');
   });
