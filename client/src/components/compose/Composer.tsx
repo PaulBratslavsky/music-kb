@@ -23,6 +23,9 @@ import {
 } from '#/lib/music/compose/spans';
 import { useCompositionPlayback } from '#/lib/music/compose/useCompositionPlayback';
 import { synth } from '#/lib/music/audio/synth';
+import { chordToneDegrees } from '#/lib/music/compose/labels';
+import { degreeColor, hexToRgba } from '#/lib/music/compose/colors';
+import type { ChordToneHighlight } from './NoteGrid';
 import { BeatRuler } from './BeatRuler';
 import { ChordPalette } from './ChordPalette';
 import { ChordLane } from './ChordLane';
@@ -97,6 +100,20 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
       arr[step] = next;
       return { ...c, [lane]: arr };
     });
+
+  // When a chord is selected, shade its triad tones across its span in
+  // the melody grid so the user can see which notes are chord tones.
+  const selectedSpan = selectedId
+    ? comp.chords.find((s) => s.id === selectedId)
+    : undefined;
+  const melodyHighlight: ChordToneHighlight | null = selectedSpan
+    ? {
+        degrees: new Set(chordToneDegrees(selectedSpan.degree)),
+        start: selectedSpan.start,
+        length: selectedSpan.length,
+        color: hexToRgba(degreeColor(selectedSpan.degree), 0.28),
+      }
+    : null;
 
   const clearAll = () => {
     stop();
@@ -212,6 +229,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
               cells={comp.melody}
               currentStep={currentStep}
               color={MELODY_COLOR}
+              highlight={melodyHighlight}
               onToggle={(step, degree) => toggleCell('melody', step, degree)}
             />
           </div>

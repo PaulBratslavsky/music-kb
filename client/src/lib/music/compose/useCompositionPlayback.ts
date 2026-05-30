@@ -47,9 +47,11 @@ export function useCompositionPlayback(
       const e = eventsByStep.get(step);
       if (!e) return;
       // Chord sustains for its span length; melody/bass for ~one beat.
-      if (e.chord) synth.playChord(e.chord, tickMs * (e.chordBeats ?? 1) * 0.95);
-      if (e.melody != null) synth.playNote(e.melody, tickMs * 0.9);
-      if (e.bass != null) synth.playNote(e.bass, tickMs * 0.95);
+      // Each lane gets its own voice: strings for chords, piano for
+      // melody, bass for bass.
+      if (e.chord) synth.playChord(e.chord, tickMs * (e.chordBeats ?? 1) * 0.95, 'string');
+      if (e.melody != null) synth.playNote(e.melody, tickMs * 0.9, 'piano');
+      if (e.bass != null) synth.playNote(e.bass, tickMs * 0.95, 'bass');
     };
 
     stepRef.current = 0;

@@ -16,3 +16,11 @@ export const DEGREE_COLORS: Record<number, string> = {
 export function degreeColor(degree: number): string {
   return DEGREE_COLORS[degree] ?? '#6b7280';
 }
+
+/** A #rrggbb hex at the given alpha, as an rgba() string. */
+export function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return hex;
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16));
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}

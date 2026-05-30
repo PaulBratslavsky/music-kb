@@ -16,6 +16,16 @@ function semitones(a: string, b: string): number {
   return ((bi - ai) % 12 + 12) % 12;
 }
 
+/**
+ * The three scale degrees (1–7) that make up the triad on `degree`:
+ * the degree itself, plus a third and fifth stacked diatonically. E.g.
+ * I → [1,3,5], V → [5,7,2], vi → [6,1,3].
+ */
+export function chordToneDegrees(degree: number): number[] {
+  const i = degree - 1;
+  return [i % 7, (i + 2) % 7, (i + 4) % 7].map((x) => x + 1);
+}
+
 export type TriadLabel = { roman: string; name: string };
 
 /** Triad-level Roman numeral + chord name for a diatonic chord. */

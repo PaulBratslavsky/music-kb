@@ -13,12 +13,21 @@ import { LABEL_W, TRACK_COLS, isBarStart } from './laneLayout';
 
 const DEGREES: Degree[] = [7, 6, 5, 4, 3, 2, 1];
 
+/** Shading of the selected chord's tones across its column span. */
+export type ChordToneHighlight = {
+  degrees: Set<number>;
+  start: number;
+  length: number;
+  color: string;
+};
+
 export function NoteGrid({
   comp,
   lane,
   cells,
   currentStep,
   color,
+  highlight,
   onToggle,
 }: {
   comp: Composition;
@@ -26,6 +35,7 @@ export function NoteGrid({
   cells: (DegreeCell | null)[];
   currentStep: number | null;
   color: string;
+  highlight?: ChordToneHighlight | null;
   onToggle: (step: number, degree: Degree) => void;
 }) {
   const pcs = getScalePitchClasses(keyToScaleSelection(comp)); // index 0 = degree 1
@@ -33,7 +43,7 @@ export function NoteGrid({
 
   const preview = (degree: Degree) => {
     const midi = resolve(comp, { degree, octave: 0 });
-    if (midi != null) synth.playNote(midi, 260);
+    if (midi != null) synth.playNote(midi, 260, lane === 'melody' ? 'piano' : 'bass');
   };
 
   return (
@@ -56,6 +66,16 @@ export function NoteGrid({
             {Array.from({ length: TOTAL_STEPS }, (_, step) => {
               const active = cells[step]?.degree === degree;
               const isPlayhead = step === currentStep;
+              const toned =
+                highlight != null &&
+                highlight.degrees.has(degree) &&
+                step >= highlight.start &&
+                step < highlight.start + highlight.length;
+              const bg = active
+                ? color
+                : toned
+                  ? highlight!.color
+                  : undefined;
               return (
                 <button
                   key={step}
@@ -67,13 +87,15 @@ export function NoteGrid({
                       ? 'border-l border-l-[var(--line)]'
                       : ''
                   } ${
-                    isPlayhead
+                    isPlayhead && !bg
                       ? 'bg-[var(--accent-soft)]'
-                      : 'hover:bg-[var(--bg-subtle)]'
+                      : !bg
+                        ? 'hover:bg-[var(--bg-subtle)]'
+                        : ''
                   }`}
                   style={{
                     borderColor: 'var(--line)',
-                    backgroundColor: active ? color : undefined,
+                    backgroundColor: bg,
                   }}
                   aria-label={`${lane} degree ${degree} beat ${step + 1}`}
                 />

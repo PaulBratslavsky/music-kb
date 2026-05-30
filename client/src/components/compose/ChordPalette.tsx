@@ -42,7 +42,7 @@ export function ChordPalette({
             onClick={() => {
               onPick(c.degree as Degree);
               const midis = resolveChordMidis(comp, c.degree as Degree);
-              if (midis.length) synth.playChord(midis, 700);
+              if (midis.length) synth.playChord(midis, 700, 'string');
             }}
             className="flex min-w-[2.75rem] flex-col items-center rounded px-2 py-1 text-white transition hover:opacity-90"
             style={{ backgroundColor: degreeColor(c.degree) }}
