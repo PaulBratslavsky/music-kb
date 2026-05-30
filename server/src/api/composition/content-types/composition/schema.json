@@ -1,0 +1,27 @@
+{
+  "kind": "collectionType",
+  "collectionName": "compositions",
+  "info": {
+    "singularName": "composition",
+    "pluralName": "compositions",
+    "displayName": "Composition",
+    "description": "A saved 8-bar progression sketch from the Theory → Compose tool. The whole composition (key, tempo, chord spans, melody/bass note spans — all in scale degrees over a 128-tick grid) lives in the `data` JSON field so the composer state round-trips with no flattening. `title` mirrors the composition name for listing."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "data": {
+      "type": "json",
+      "required": true,
+      "description": "The full Composition object: { id, name, key:{root,mode}, bpm, chords[], melody[], bass[] }. Spans use tick units (sixteenth resolution, 128 ticks / 8 bars)."
+    }
+  }
+}

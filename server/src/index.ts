@@ -152,6 +152,13 @@ export default {
       'api::loop.loop.create',
       'api::loop.loop.update',
       'api::loop.loop.delete',
+      // Composition is a saved 8-bar progression sketch from the
+      // Theory → Compose tool; the whole thing lives in a JSON field.
+      'api::composition.composition.find',
+      'api::composition.composition.findOne',
+      'api::composition.composition.create',
+      'api::composition.composition.update',
+      'api::composition.composition.delete',
     ];
 
     try {

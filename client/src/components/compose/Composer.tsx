@@ -29,6 +29,12 @@ import {
 } from '#/lib/music/compose/spans';
 import { useCompositionPlayback } from '#/lib/music/compose/useCompositionPlayback';
 import { synth } from '#/lib/music/audio/synth';
+import {
+  listCompositions,
+  saveComposition as saveCompositionFn,
+  deleteComposition as deleteCompositionFn,
+} from '#/data/server-functions/compositions';
+import type { StrapiComposition } from '#/lib/services/compositions';
 import { chordToneDegrees } from '#/lib/music/compose/labels';
 import { degreeColor, hexToRgba } from '#/lib/music/compose/colors';
 import type { ChordToneHighlight } from './chordHighlight';
@@ -39,6 +45,18 @@ import { NoteLane } from './NoteLane';
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${(idCounter += 1)}`;
+
+// Reassign span/note ids on load so they can't collide with ids minted
+// later this session (the counter resets on page load, but a loaded
+// composition carries ids from whenever it was created).
+function reidentify(comp: Composition): Composition {
+  return {
+    ...comp,
+    chords: comp.chords.map((s) => ({ ...s, id: nextId('span') })),
+    melody: comp.melody.map((n) => ({ ...n, id: nextId('note') })),
+    bass: comp.bass.map((n) => ({ ...n, id: nextId('note') })),
+  };
+}
 
 const MELODY_COLOR = '#2563eb';
 const BASS_COLOR = '#9333ea';
@@ -52,11 +70,29 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
   const [muted, setMuted] = useState(false);
   const [durTicks, setDurTicks] = useState(4); // default 1/4 note
 
+  // Strapi persistence: documentId of the currently-loaded row (null =
+  // unsaved), the saved-list for the picker, and a transient status line.
+  const [docId, setDocId] = useState<string | null>(null);
+  const [saved, setSaved] = useState<StrapiComposition[]>([]);
+  const [status, setStatus] = useState<string | null>(null);
+
   const { isPlaying, currentStep, toggle, stop } = useCompositionPlayback(comp);
 
   useEffect(() => {
     synth.setMuted(muted);
   }, [muted]);
+
+  const refreshSaved = async () => {
+    try {
+      const r = await listCompositions();
+      if (r.status === 'ok') setSaved(r.compositions);
+    } catch {
+      /* backend down — leave the list as-is */
+    }
+  };
+  useEffect(() => {
+    void refreshSaved();
+  }, []);
 
   // ---- key / tempo / duration ----
   const setKeyRoot = (root: PitchClass) =>
@@ -134,6 +170,61 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
     setSelectedId(null);
     setCursor(0);
     setComp((c) => ({ ...c, chords: [], melody: [], bass: [] }));
+  };
+
+  // ---- persistence ----
+  const setName = (name: string) => setComp((c) => ({ ...c, name }));
+
+  const onSave = async () => {
+    setStatus('Saving…');
+    try {
+      const r = await saveCompositionFn({ data: { documentId: docId, composition: comp } });
+      if (r.status === 'ok') {
+        setDocId(r.composition.documentId);
+        setStatus(`Saved "${r.composition.title}"`);
+        await refreshSaved();
+      } else {
+        setStatus(`Save failed: ${r.error}`);
+      }
+    } catch {
+      setStatus('Save failed — backend unreachable');
+    }
+  };
+
+  const onLoad = (documentId: string) => {
+    const row = saved.find((s) => s.documentId === documentId);
+    if (!row) return;
+    stop();
+    setComp(reidentify(row.data));
+    setDocId(documentId);
+    setSelectedId(null);
+    setCursor(0);
+    setStatus(`Loaded "${row.title}"`);
+  };
+
+  const onNew = () => {
+    stop();
+    setComp(emptyComposition(nextId('comp'), 'Untitled', comp.key.root, comp.key.mode));
+    setDocId(null);
+    setSelectedId(null);
+    setCursor(0);
+    setStatus(null);
+  };
+
+  const onDelete = async () => {
+    if (!docId) return;
+    try {
+      const r = await deleteCompositionFn({ data: { documentId: docId } });
+      if (r.status === 'ok') {
+        await refreshSaved();
+        onNew();
+        setStatus('Deleted');
+      } else {
+        setStatus(`Delete failed: ${r.error}`);
+      }
+    } catch {
+      setStatus('Delete failed — backend unreachable');
+    }
   };
 
   return (
@@ -239,6 +330,53 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
         >
           Clear
         </button>
+      </div>
+
+      {/* Save / load bar */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <input
+          type="text"
+          value={comp.name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Composition name"
+          className="w-44 rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-[var(--ink)] placeholder:text-[var(--ink-muted)]"
+        />
+        <button
+          type="button"
+          onClick={onSave}
+          className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white"
+        >
+          {docId ? 'Save' : 'Save new'}
+        </button>
+        <button
+          type="button"
+          onClick={onNew}
+          className="rounded border border-[var(--line)] px-2 py-1 text-[var(--ink-soft)] hover:border-[var(--accent)]"
+        >
+          New
+        </button>
+        <select
+          value={docId ?? ''}
+          onChange={(e) => e.target.value && onLoad(e.target.value)}
+          className="rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-[var(--ink-soft)]"
+        >
+          <option value="">Load saved…</option>
+          {saved.map((s) => (
+            <option key={s.documentId} value={s.documentId}>
+              {s.title}
+            </option>
+          ))}
+        </select>
+        {docId && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded border border-[var(--line)] px-2 py-1 text-[var(--ink-muted)] hover:border-red-500 hover:text-red-500"
+          >
+            Delete
+          </button>
+        )}
+        {status && <span className="text-[var(--ink-muted)]">{status}</span>}
       </div>
 
       {/* Palette */}
