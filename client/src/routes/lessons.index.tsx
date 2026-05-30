@@ -18,6 +18,30 @@ type LessonEntry = {
 
 const LESSONS: LessonEntry[] = [
   {
+    href: '/lessons/music-theory-fundamentals',
+    title: 'Music theory fundamentals (part 1 of 3)',
+    blurb:
+      'What general music theory actually is, why "guitar theory" is a shortcut on top of it, and the 9 short principles that turn notes into scales into chords into keys. Conceptual primer — no fretboard diagrams yet.',
+    duration: '~15 min read',
+    level: 'Beginner',
+  },
+  {
+    href: '/lessons/scale-systems-on-the-neck',
+    title: 'Mapping scales on the neck (part 2 of 3)',
+    blurb:
+      'Three systems for mapping the diatonic scale across all six strings — 5 pentatonic positions, 7 three-notes-per-string patterns, and the underrated 3-pattern "Super Duper" system. Every pattern opens on the fretboard explorer.',
+    duration: '~20 min read',
+    level: 'Intermediate',
+  },
+  {
+    href: '/lessons/caged-and-roman-numerals',
+    title: 'CAGED + thinking in numbers (part 3 of 3)',
+    blurb:
+      'The CAGED system covers every chord across the neck; Roman numerals let you transpose any progression to any key for free. Together they turn the fretboard into one interconnected map.',
+    duration: '~15 min read',
+    level: 'Intermediate',
+  },
+  {
     href: '/lessons/find-any-chord',
     title: 'Find any chord with 2 strings + 4 shapes',
     blurb:

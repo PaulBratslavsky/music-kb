@@ -22,8 +22,11 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LessonsIndexRouteImport } from './routes/lessons.index'
 import { Route as VideoDocumentIdRouteImport } from './routes/video.$documentId'
+import { Route as LessonsScaleSystemsOnTheNeckRouteImport } from './routes/lessons.scale-systems-on-the-neck'
+import { Route as LessonsMusicTheoryFundamentalsRouteImport } from './routes/lessons.music-theory-fundamentals'
 import { Route as LessonsFindAnyChordRouteImport } from './routes/lessons.find-any-chord'
 import { Route as LessonsEssentialChordsRouteImport } from './routes/lessons.essential-chords'
+import { Route as LessonsCagedAndRomanNumeralsRouteImport } from './routes/lessons.caged-and-roman-numerals'
 import { Route as LearnVideoIdRouteImport } from './routes/learn.$videoId'
 import { Route as ApiDigestChatRouteImport } from './routes/api.digest-chat'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
@@ -95,6 +98,18 @@ const VideoDocumentIdRoute = VideoDocumentIdRouteImport.update({
   path: '/video/$documentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LessonsScaleSystemsOnTheNeckRoute =
+  LessonsScaleSystemsOnTheNeckRouteImport.update({
+    id: '/lessons/scale-systems-on-the-neck',
+    path: '/lessons/scale-systems-on-the-neck',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const LessonsMusicTheoryFundamentalsRoute =
+  LessonsMusicTheoryFundamentalsRouteImport.update({
+    id: '/lessons/music-theory-fundamentals',
+    path: '/lessons/music-theory-fundamentals',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const LessonsFindAnyChordRoute = LessonsFindAnyChordRouteImport.update({
   id: '/lessons/find-any-chord',
   path: '/lessons/find-any-chord',
@@ -105,6 +120,12 @@ const LessonsEssentialChordsRoute = LessonsEssentialChordsRouteImport.update({
   path: '/lessons/essential-chords',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LessonsCagedAndRomanNumeralsRoute =
+  LessonsCagedAndRomanNumeralsRouteImport.update({
+    id: '/lessons/caged-and-roman-numerals',
+    path: '/lessons/caged-and-roman-numerals',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const LearnVideoIdRoute = LearnVideoIdRouteImport.update({
   id: '/learn/$videoId',
   path: '/learn/$videoId',
@@ -147,8 +168,11 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
+  '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
+  '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons/': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -169,8 +193,11 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
+  '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
+  '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -192,8 +219,11 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
+  '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
+  '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons/': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -216,8 +246,11 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
+    | '/lessons/music-theory-fundamentals'
+    | '/lessons/scale-systems-on-the-neck'
     | '/video/$documentId'
     | '/lessons/'
     | '/api/notes/compose'
@@ -238,8 +271,11 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
+    | '/lessons/music-theory-fundamentals'
+    | '/lessons/scale-systems-on-the-neck'
     | '/video/$documentId'
     | '/lessons'
     | '/api/notes/compose'
@@ -260,8 +296,11 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
+    | '/lessons/music-theory-fundamentals'
+    | '/lessons/scale-systems-on-the-neck'
     | '/video/$documentId'
     | '/lessons/'
     | '/api/notes/compose'
@@ -283,8 +322,11 @@ export interface RootRouteChildren {
   ApiChatRoute: typeof ApiChatRoute
   ApiDigestChatRoute: typeof ApiDigestChatRoute
   LearnVideoIdRoute: typeof LearnVideoIdRoute
+  LessonsCagedAndRomanNumeralsRoute: typeof LessonsCagedAndRomanNumeralsRoute
   LessonsEssentialChordsRoute: typeof LessonsEssentialChordsRoute
   LessonsFindAnyChordRoute: typeof LessonsFindAnyChordRoute
+  LessonsMusicTheoryFundamentalsRoute: typeof LessonsMusicTheoryFundamentalsRoute
+  LessonsScaleSystemsOnTheNeckRoute: typeof LessonsScaleSystemsOnTheNeckRoute
   VideoDocumentIdRoute: typeof VideoDocumentIdRoute
   LessonsIndexRoute: typeof LessonsIndexRoute
   ApiNotesComposeRoute: typeof ApiNotesComposeRoute
@@ -383,6 +425,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VideoDocumentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lessons/scale-systems-on-the-neck': {
+      id: '/lessons/scale-systems-on-the-neck'
+      path: '/lessons/scale-systems-on-the-neck'
+      fullPath: '/lessons/scale-systems-on-the-neck'
+      preLoaderRoute: typeof LessonsScaleSystemsOnTheNeckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lessons/music-theory-fundamentals': {
+      id: '/lessons/music-theory-fundamentals'
+      path: '/lessons/music-theory-fundamentals'
+      fullPath: '/lessons/music-theory-fundamentals'
+      preLoaderRoute: typeof LessonsMusicTheoryFundamentalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lessons/find-any-chord': {
       id: '/lessons/find-any-chord'
       path: '/lessons/find-any-chord'
@@ -395,6 +451,13 @@ declare module '@tanstack/react-router' {
       path: '/lessons/essential-chords'
       fullPath: '/lessons/essential-chords'
       preLoaderRoute: typeof LessonsEssentialChordsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lessons/caged-and-roman-numerals': {
+      id: '/lessons/caged-and-roman-numerals'
+      path: '/lessons/caged-and-roman-numerals'
+      fullPath: '/lessons/caged-and-roman-numerals'
+      preLoaderRoute: typeof LessonsCagedAndRomanNumeralsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/learn/$videoId': {
@@ -451,8 +514,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatRoute: ApiChatRoute,
   ApiDigestChatRoute: ApiDigestChatRoute,
   LearnVideoIdRoute: LearnVideoIdRoute,
+  LessonsCagedAndRomanNumeralsRoute: LessonsCagedAndRomanNumeralsRoute,
   LessonsEssentialChordsRoute: LessonsEssentialChordsRoute,
   LessonsFindAnyChordRoute: LessonsFindAnyChordRoute,
+  LessonsMusicTheoryFundamentalsRoute: LessonsMusicTheoryFundamentalsRoute,
+  LessonsScaleSystemsOnTheNeckRoute: LessonsScaleSystemsOnTheNeckRoute,
   VideoDocumentIdRoute: VideoDocumentIdRoute,
   LessonsIndexRoute: LessonsIndexRoute,
   ApiNotesComposeRoute: ApiNotesComposeRoute,

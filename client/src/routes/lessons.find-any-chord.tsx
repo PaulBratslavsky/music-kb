@@ -17,6 +17,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ChordDiagram } from '#/components/ChordDiagram';
 import { NaturalNotesStrings } from '#/components/NaturalNotesStrings';
+import { Step } from '#/components/lesson/Step';
 
 export const Route = createFileRoute('/lessons/find-any-chord')({
   component: FindAnyChordPage,
@@ -343,36 +344,3 @@ function FindAnyChordPage() {
   );
 }
 
-/** Visual sectioning helper — big step number + title + descriptive
- *  lede, then the step content as children. Keeps the four sections
- *  visually distinct and clearly numbered. */
-function Step({
-  number,
-  title,
-  lede,
-  children,
-}: {
-  number: number;
-  title: string;
-  lede: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="mb-12 max-w-5xl">
-      <div className="flex items-start gap-4">
-        <span className="mt-0.5 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-base font-bold text-white">
-          {number}
-        </span>
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--ink)] sm:text-xl">
-            {title}
-          </h2>
-          <p className="mt-1 max-w-3xl text-sm text-[var(--ink-soft)]">
-            {lede}
-          </p>
-        </div>
-      </div>
-      <div className="ml-14">{children}</div>
-    </section>
-  );
-}
