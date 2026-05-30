@@ -9,7 +9,7 @@
 // spans.ts; this component just converts pointer geometry into beats and
 // calls the handlers live so a block follows the cursor as you drag.
 
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import type { Composition, ChordSpan } from '#/lib/music/compose/types';
 import { TOTAL_TICKS } from '#/lib/music/compose/types';
 import { triadLabel } from '#/lib/music/compose/labels';
@@ -50,7 +50,6 @@ export function ChordLane({
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
-  const [dragging, setDragging] = useState(false);
 
   const labelByDegree = (() => {
     const chords = getDiatonicChords(keyToScaleSelection(comp));
@@ -59,13 +58,17 @@ export function ChordLane({
     return m;
   })();
 
+  // Capture + handlers live on the block (not gated by state) so the
+  // first pointermove of a quick flick isn't dropped.
   const beginDrag = (
     e: React.PointerEvent,
     span: ChordSpan,
     mode: 'move' | 'resize',
   ) => {
     const track = trackRef.current;
-    if (!track) return;
+    const el = e.currentTarget as HTMLElement;
+    const block = mode === 'resize' ? (el.parentElement as HTMLElement | null) : el;
+    if (!track || !block) return;
     const rect = track.getBoundingClientRect();
     dragRef.current = {
       id: span.id,
@@ -75,8 +78,7 @@ export function ChordLane({
       origStart: span.start,
       origLength: span.length,
     };
-    setDragging(true);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    block.setPointerCapture(e.pointerId);
     e.stopPropagation();
   };
 
@@ -94,13 +96,12 @@ export function ChordLane({
   const endDrag = (e: React.PointerEvent) => {
     if (dragRef.current) {
       try {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {
         /* not captured */
       }
     }
     dragRef.current = null;
-    setDragging(false);
   };
 
   return (
@@ -150,8 +151,6 @@ export function ChordLane({
         <div
           className="pointer-events-none absolute inset-0 grid"
           style={{ gridTemplateColumns: TRACK_COLS }}
-          onPointerMove={dragging ? onPointerMove : undefined}
-          onPointerUp={dragging ? endDrag : undefined}
         >
           {comp.chords.map((span) => {
             const label = labelByDegree.get(span.degree);
@@ -168,6 +167,8 @@ export function ChordLane({
                   backgroundColor: color,
                 }}
                 onPointerDown={(e) => beginDrag(e, span, 'move')}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelect(span.id);

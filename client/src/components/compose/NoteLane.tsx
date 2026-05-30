@@ -10,7 +10,7 @@
 // a move-drag can carry a note across rows; the per-row background grids
 // underneath handle placement clicks + gridlines + chord-tone highlight.
 
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import type { Composition, Degree, NoteSpan } from '#/lib/music/compose/types';
 import { TOTAL_TICKS } from '#/lib/music/compose/types';
 import { keyToScaleSelection, resolveMelodyMidi, resolveBassMidi } from '#/lib/music/compose/playback';
@@ -66,16 +66,20 @@ export function NoteLane({
   const pcs = getScalePitchClasses(keyToScaleSelection(comp)); // index 0 = degree 1
   const resolve = lane === 'melody' ? resolveMelodyMidi : resolveBassMidi;
   const dragRef = useRef<DragState | null>(null);
-  const [dragging, setDragging] = useState(false);
 
   const preview = (degree: Degree) => {
     const midi = resolve(comp, { degree, octave: 0 });
     if (midi != null) synth.playNote(midi, 260, lane === 'melody' ? 'piano' : 'bass');
   };
 
+  // Pointer capture + handlers live on the note block (not gated by
+  // state) so the very first pointermove of a quick flick registers —
+  // otherwise short nudges get dropped and read as a click.
   const beginDrag = (e: React.PointerEvent, note: NoteSpan, mode: 'move' | 'resize') => {
-    const overlay = (e.currentTarget as HTMLElement).closest('.note-overlay');
-    if (!overlay) return;
+    const el = e.currentTarget as HTMLElement;
+    const block = mode === 'resize' ? (el.parentElement as HTMLElement | null) : el;
+    const overlay = el.closest('.note-overlay');
+    if (!overlay || !block) return;
     const rect = overlay.getBoundingClientRect();
     dragRef.current = {
       id: note.id,
@@ -87,8 +91,7 @@ export function NoteLane({
       origLength: note.length,
       origDegree: note.degree,
     };
-    setDragging(true);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    block.setPointerCapture(e.pointerId);
     e.stopPropagation();
   };
 
@@ -109,13 +112,12 @@ export function NoteLane({
   const endDrag = (e: React.PointerEvent) => {
     if (dragRef.current) {
       try {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {
         /* not captured */
       }
     }
     dragRef.current = null;
-    setDragging(false);
   };
 
   return (
@@ -176,8 +178,6 @@ export function NoteLane({
           gridTemplateColumns: TRACK_COLS,
           gridTemplateRows: `repeat(${DEGREES.length}, ${ROW_H}px)`,
         }}
-        onPointerMove={dragging ? onPointerMove : undefined}
-        onPointerUp={dragging ? endDrag : undefined}
       >
         {notes.map((note) => {
           const selected = note.id === selectedId;
@@ -193,6 +193,8 @@ export function NoteLane({
                 backgroundColor: color,
               }}
               onPointerDown={(e) => beginDrag(e, note, 'move')}
+              onPointerMove={onPointerMove}
+              onPointerUp={endDrag}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelect(note.id);
