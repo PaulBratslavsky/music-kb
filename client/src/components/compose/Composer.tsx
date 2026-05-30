@@ -101,8 +101,14 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
       ...c,
       [lane]: addNote(c[lane], nextId('note'), degree, 0, tick, durTicks),
     }));
-  const moveNote = (lane: 'melody' | 'bass', id: string, s: number) =>
-    setComp((c) => ({ ...c, [lane]: moveSpan(c[lane], id, s) }));
+  // Body drag moves a note in time (clamped) and pitch (free degree 1–7).
+  const moveNote = (lane: 'melody' | 'bass', id: string, s: number, degree: Degree) =>
+    setComp((c) => ({
+      ...c,
+      [lane]: moveSpan(c[lane], id, s).map((n) =>
+        n.id === id ? { ...n, degree } : n,
+      ),
+    }));
   const resizeNote = (lane: 'melody' | 'bass', id: string, l: number) =>
     setComp((c) => ({ ...c, [lane]: resizeSpan(c[lane], id, l) }));
   const removeNote = (lane: 'melody' | 'bass', id: string) => {
@@ -258,7 +264,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
               selectedId={selectedId}
               onPlace={(degree, tick) => placeNote('melody', degree, tick)}
               onSelect={setSelectedId}
-              onMove={(id, s) => moveNote('melody', id, s)}
+              onMove={(id, s, degree) => moveNote('melody', id, s, degree)}
               onResize={(id, l) => resizeNote('melody', id, l)}
               onRemove={(id) => removeNote('melody', id)}
             />
@@ -285,7 +291,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
             selectedId={selectedId}
             onPlace={(degree, tick) => placeNote('bass', degree, tick)}
             onSelect={setSelectedId}
-            onMove={(id, s) => moveNote('bass', id, s)}
+            onMove={(id, s, degree) => moveNote('bass', id, s, degree)}
             onResize={(id, l) => resizeNote('bass', id, l)}
             onRemove={(id) => removeNote('bass', id)}
           />
