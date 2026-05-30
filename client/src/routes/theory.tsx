@@ -17,6 +17,7 @@ import { parseTheoryParam } from '#/lib/music/deep-link';
 import { ProgressionPlayer } from '#/components/practice/ProgressionPlayer';
 import { EarTrainer } from '#/components/practice/EarTrainer';
 import { RomanAnalyzer } from '#/components/practice/RomanAnalyzer';
+import { Composer } from '#/components/compose/Composer';
 import {
   CIRCLE_MAJORS,
   CIRCLE_MAJOR_DISPLAY,
@@ -25,7 +26,7 @@ import {
 } from '#/lib/music/circle-of-fifths';
 
 const TheorySearchSchema = z.object({
-  tab: z.enum(['tools', 'practice', 'visualizer']).optional(),
+  tab: z.enum(['tools', 'practice', 'visualizer', 'compose']).optional(),
 });
 
 export const Route = createFileRoute('/theory')({
@@ -34,12 +35,13 @@ export const Route = createFileRoute('/theory')({
   head: () => ({ meta: [{ title: 'Music theory · Music KB' }] }),
 });
 
-type TheoryTab = 'tools' | 'practice' | 'visualizer';
+type TheoryTab = 'tools' | 'practice' | 'visualizer' | 'compose';
 
 const TABS: Array<{ id: TheoryTab; label: string }> = [
   { id: 'tools', label: 'Theory tools' },
   { id: 'practice', label: 'Practice' },
   { id: 'visualizer', label: 'Visualizer' },
+  { id: 'compose', label: 'Compose' },
 ];
 
 function TheoryPage() {
@@ -89,6 +91,8 @@ function TheoryPage() {
         <VisualizerTab tonicIdx={tonicIdx} />
       ) : activeTab === 'practice' ? (
         <PracticeTab />
+      ) : activeTab === 'compose' ? (
+        <ComposeTab tonicIdx={tonicIdx} />
       ) : (
         <ToolsTab
           tonicIdx={tonicIdx}
@@ -339,6 +343,28 @@ function PracticeTab() {
         </div>
       </section>
     </div>
+  );
+}
+
+function ComposeTab({ tonicIdx }: { tonicIdx: number }) {
+  // Seed the composer's key with the tonic picked on the Circle (Tools
+  // tab). CIRCLE_MAJORS stores sharp-side PitchClass names, which is
+  // exactly what Composition.key.root expects.
+  return (
+    <section>
+      <h2 className="text-base font-semibold text-[var(--ink)]">
+        Progression composer
+      </h2>
+      <p className="mt-1 text-sm text-[var(--ink-muted)]">
+        Sketch an 8-bar progression in scale degrees. Pick a key, click a
+        bar then a chord to place it, and loop it at your chosen tempo.
+        Everything is stored relative to the key, so changing the key
+        transposes the whole sketch.
+      </p>
+      <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+        <Composer initialRoot={CIRCLE_MAJORS[tonicIdx]} />
+      </div>
+    </section>
   );
 }
 
