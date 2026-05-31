@@ -50,7 +50,11 @@ export type StrapiLoop = {
   endSec: number;
   key: KeySig | null;
   progression: ChordEntry[] | null;
-  melody: unknown | null; // reserved for v3
+  // Reserved for v3; always null in v1/v2. Typed `null` (not `unknown`)
+  // because these rows flow back through a TanStack server function whose
+  // return type must be serializable — `unknown` fails that constraint
+  // and breaks the createServerFn handler typing. Retype when v3 lands.
+  melody: null; // reserved for v3
   bpm: number | null;
   notes: string | null;
   video: StrapiLoopVideo | null;

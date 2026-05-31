@@ -79,6 +79,9 @@ export function stateFromUrl(search: string): AppState {
   const scalePosition = parseScalePosition(params.get('pos'));
   const preferFlats = params.get('flats') === '1';
 
+  const chordDepth =
+    params.get('depth') === 'seventh' ? 'seventh' : DEFAULT_STATE.chordDepth;
+
   return {
     mode,
     chord: { root: chordRoot, quality, inversion, voicingIndex },
@@ -86,6 +89,7 @@ export function stateFromUrl(search: string): AppState {
     singleNote,
     scalePosition,
     preferFlats,
+    chordDepth,
   };
 }
 
