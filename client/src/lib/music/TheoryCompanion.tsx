@@ -78,6 +78,14 @@ export interface TheoryCompanionProps {
    *  as picking a key — equivalent to clicking "Use as X major" but
    *  without the explicit two-button step. Null when mode is not scale. */
   onScaleChange?: (scale: ScaleSelection | null) => void;
+  /** When true, hides the supplemental chrome (embedded Circle of Fifths
+   *  selector, top quick-start row, the play-current/sound-toggle label
+   *  row, the "click a key to focus" hint) so the visualizer renders
+   *  just the SelectionBar + piano + guitar + bass + Push + notation
+   *  strips. Used when the host page already provides these affordances
+   *  (e.g., the music video page has its own Wheel tab and the
+   *  "Open visualizer →" header link). */
+  compact?: boolean;
 }
 
 export default function TheoryCompanion({
@@ -85,6 +93,7 @@ export default function TheoryCompanion({
   onFocusedPitchClassChange,
   onDiatonicChordClick,
   onScaleChange,
+  compact = false,
 }: TheoryCompanionProps = {}) {
   // syncUrl=false so the visualizer doesn't fight TanStack Router for the URL.
   // The host route owns the URL via its zod-validated search schema; deep-links
@@ -169,19 +178,20 @@ export default function TheoryCompanion({
 
   return (
     <div className="app theory-companion">
-      <QuickStartRow {...appState} />
+      {!compact && <QuickStartRow {...appState} />}
       {/* Circle of Fifths as a chord selector. Each wedge click drives
           selectChord (outer = major triad, inner = minor triad), so the
-          piano/guitar/Push views update to show that chord. The Circle's
-          own sound + ring-aware tonic state is preserved so it's also a
-          standalone Circle visual. */}
-      <div className="panel circle-selector-panel">
-        <CircleOfFifths
-          onChordSelect={(root, mode) =>
-            appState.selectChord(root, mode === 'major' ? 'maj' : 'min')
-          }
-        />
-      </div>
+          piano/guitar/Push views update to show that chord. Hidden in
+          compact mode — the host page already provides a Wheel tab. */}
+      {!compact && (
+        <div className="panel circle-selector-panel">
+          <CircleOfFifths
+            onChordSelect={(root, mode) =>
+              appState.selectChord(root, mode === 'major' ? 'maj' : 'min')
+            }
+          />
+        </div>
+      )}
       <SelectionBar {...appState} />
 
       <div className="panel label-row">
@@ -217,11 +227,13 @@ export default function TheoryCompanion({
           {appState.audioMuted ? '🔇 muted' : '🔊 sound'}
         </button>
       </div>
-      <div className="panel hint-row">
-        <span className="hint">
-          tip: click a key, fret, or pad to focus a note across all three views.
-        </span>
-      </div>
+      {!compact && (
+        <div className="panel hint-row">
+          <span className="hint">
+            tip: click a key, fret, or pad to focus a note across all three views.
+          </span>
+        </div>
+      )}
 
       {diatonicChords.length > 0 && (
         <div className="panel diatonic-panel">

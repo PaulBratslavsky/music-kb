@@ -100,6 +100,7 @@ export function CircleOfFifths({
   audioMuted: audioMutedProp,
   onAudioMutedChange,
   onChordSelect,
+  compact = false,
 }: {
   initialTonicIdx?: number;
   tonicIdx?: number;
@@ -133,6 +134,12 @@ export function CircleOfFifths({
    *  clicking a wheel wedge updates the piano/guitar/Push views to the
    *  corresponding triad. Independent of the local tonicIdx state. */
   onChordSelect?: (root: PitchClass, mode: KeyMode) => void;
+  /** When true, hides the top title block ("C major / Am minor" + key
+   *  signature line) and the bottom hint paragraph so the component
+   *  renders just the controls + wheel itself. Used when embedded in
+   *  a tight surface (e.g., the music-video page's right column)
+   *  where the surrounding chrome already provides context. */
+  compact?: boolean;
 } = {}) {
   const [internalTonicIdx, setInternalTonicIdx] = useState(initialTonicIdx);
   const tonicIdx = tonicIdxProp ?? internalTonicIdx;
@@ -218,6 +225,7 @@ export function CircleOfFifths({
 
   return (
     <div className="flex flex-col items-center gap-4">
+      {!compact && (
       <div className="text-center">
         <div className="text-2xl font-semibold text-[var(--ink)]">
           {keyMode === 'minor' ? (
@@ -236,6 +244,7 @@ export function CircleOfFifths({
           {keySignatureLabel(tonicIdx)}
         </div>
       </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-center gap-3">
         <div
@@ -486,12 +495,14 @@ export function CircleOfFifths({
         />
       </svg>
 
-      <div className="max-w-md text-center text-xs text-[var(--ink-muted)]">
-        Click any key to make it the tonic. The cluster of highlighted
-        wedges shows the diatonic chord family: I, IV, V on the outer
-        (major) ring; ii, iii, vi on the inner (minor) ring. vii° sits
-        opposite as the leading-tone diminished.
-      </div>
+      {!compact && (
+        <div className="max-w-md text-center text-xs text-[var(--ink-muted)]">
+          Click any key to make it the tonic. The cluster of highlighted
+          wedges shows the diatonic chord family: I, IV, V on the outer
+          (major) ring; ii, iii, vi on the inner (minor) ring. vii° sits
+          opposite as the leading-tone diminished.
+        </div>
+      )}
     </div>
   );
 }

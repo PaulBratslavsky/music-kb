@@ -140,6 +140,16 @@ export type StrapiVideo = {
   /** (music-kb fork) 'lesson' (default) runs the transcript + AI pipeline;
    *  'music' is just-the-song, saved with summaryStatus='skipped'. */
   videoType: VideoType;
+  /** (music-kb fork) Raw tablature paste (free-form ASCII). Only used
+   *  when videoType='music'. Edited via the /video/$documentId music
+   *  layout. */
+  tabContent: string | null;
+  /** (music-kb fork) Lyrics, with optional inline chord brackets like
+   *  `[Am]Hey there [G]Delilah`. Only used when videoType='music'. */
+  lyricsContent: string | null;
+  /** (music-kb fork) Source URL when tab/lyrics were imported (e.g.,
+   *  Ultimate Guitar print page). Stored for attribution + re-import. */
+  tabSourceUrl: string | null;
   summaryStatus: SummaryStatus;
   summaryTitle: string | null;
   summaryDescription: string | null;
@@ -646,6 +656,30 @@ export async function markSummaryFailedService(documentId: string): Promise<void
  * music → lesson: resets status='pending'. The caller is responsible
  * for kicking off generation if it wants the AI flow to run.
  */
+/**
+ * (music-kb fork) Update the song-content fields (tab + lyrics +
+ * source URL) on a music-type video. Only writes the fields the caller
+ * passes — undefined keys are left untouched.
+ */
+export async function updateVideoSongContentService(input: {
+  documentId: string;
+  tabContent?: string | null;
+  lyricsContent?: string | null;
+  tabSourceUrl?: string | null;
+}): Promise<{ success: true; video: StrapiVideo } | { success: false; error: string }> {
+  const data: Record<string, unknown> = {};
+  if ('tabContent' in input) data.tabContent = input.tabContent;
+  if ('lyricsContent' in input) data.lyricsContent = input.lyricsContent;
+  if ('tabSourceUrl' in input) data.tabSourceUrl = input.tabSourceUrl;
+  const result = await strapiFetch<StrapiVideo>(
+    'PUT',
+    `/api/videos/${input.documentId}`,
+    { body: { data } },
+  );
+  if (!result.ok) return { success: false, error: result.error };
+  return { success: true, video: result.data };
+}
+
 export async function updateVideoTypeService(
   documentId: string,
   videoType: VideoType,

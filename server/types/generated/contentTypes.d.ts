@@ -430,6 +430,41 @@ export interface AdminUser extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiCompositionComposition extends Struct.CollectionTypeSchema {
+  collectionName: 'compositions';
+  info: {
+    description: 'A saved 8-bar progression sketch from the Theory \u2192 Compose tool. The whole composition (key, tempo, chord spans, melody/bass note spans \u2014 all in scale degrees over a 128-tick grid) lives in the `data` JSON field so the composer state round-trips with no flattening. `title` mirrors the composition name for listing.';
+    displayName: 'Composition';
+    pluralName: 'compositions';
+    singularName: 'composition';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    data: Schema.Attribute.JSON & Schema.Attribute.Required;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::composition.composition'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    title: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 200;
+        minLength: 1;
+      }>;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
 export interface ApiDigestDigest extends Struct.CollectionTypeSchema {
   collectionName: 'digests';
   info: {
@@ -742,6 +777,7 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
     localizations: Schema.Attribute.Relation<'oneToMany', 'api::video.video'> &
       Schema.Attribute.Private;
     loops: Schema.Attribute.Relation<'oneToMany', 'api::loop.loop'>;
+    lyricsContent: Schema.Attribute.Text;
     notes: Schema.Attribute.Relation<'manyToMany', 'api::note.note'>;
     passageEmbeddings: Schema.Attribute.JSON;
     publishedAt: Schema.Attribute.DateTime;
@@ -776,6 +812,11 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
     summaryTitle: Schema.Attribute.String &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 200;
+      }>;
+    tabContent: Schema.Attribute.Text;
+    tabSourceUrl: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 2000;
       }>;
     tags: Schema.Attribute.Relation<'manyToMany', 'api::tag.tag'>;
     transcript: Schema.Attribute.Relation<
@@ -1344,6 +1385,7 @@ declare module '@strapi/strapi' {
       'admin::transfer-token': AdminTransferToken;
       'admin::transfer-token-permission': AdminTransferTokenPermission;
       'admin::user': AdminUser;
+      'api::composition.composition': ApiCompositionComposition;
       'api::digest.digest': ApiDigestDigest;
       'api::loop.loop': ApiLoopLoop;
       'api::note.note': ApiNoteNote;

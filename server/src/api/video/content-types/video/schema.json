@@ -74,6 +74,16 @@
       "required": true,
       "default": "lesson"
     },
+    "tabContent": {
+      "type": "text"
+    },
+    "lyricsContent": {
+      "type": "text"
+    },
+    "tabSourceUrl": {
+      "type": "string",
+      "maxLength": 2000
+    },
     "summaryStatus": {
       "type": "enumeration",
       "enum": ["pending", "generated", "failed", "skipped"],

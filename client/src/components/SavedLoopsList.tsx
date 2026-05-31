@@ -35,9 +35,16 @@ function keyLabel(key: StrapiLoop['key']): string | null {
 export function SavedLoopsList({
   videoDocumentId,
   refreshKey,
+  // (music-kb fork) Where to navigate when the user clicks a loop.
+  // 'learn' (default) goes to /learn/$videoId?view=theory&loopId=...
+  // which is the lesson flow with the full LoopBuilder + chat.
+  // 'video' goes to /video/$documentId?loopId=... — the music-page
+  // flow where /learn doesn't make sense (no transcript / AI summary).
+  target = 'learn',
 }: {
   videoDocumentId: string;
   refreshKey: number;
+  target?: 'learn' | 'video';
 }) {
   const [loops, setLoops] = useState<StrapiLoop[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,6 +130,29 @@ export function SavedLoopsList({
               key={loop.documentId}
               className="flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg-subtle)] px-2.5 py-1.5 text-xs"
             >
+              {target === 'video' ? (
+                <Link
+                  to="/video/$documentId"
+                  params={{ documentId: videoDocumentId }}
+                  search={{ loopId: loop.documentId }}
+                  className="flex min-w-0 flex-1 items-center gap-2 no-underline"
+                >
+                  <span className="truncate font-medium text-[var(--ink)]">
+                    {loop.label}
+                  </span>
+                  <span className="font-mono text-[var(--ink-muted)]">
+                    {formatRange(loop.startSec, loop.endSec)}
+                  </span>
+                  {key && (
+                    <span className="rounded-full border border-[var(--line-strong)] bg-[var(--card)] px-1.5 py-0.5 text-[0.65rem] text-[var(--ink-soft)]">
+                      {key}
+                    </span>
+                  )}
+                  <span className="text-[var(--ink-muted)]">
+                    {chordCount} chord{chordCount === 1 ? '' : 's'}
+                  </span>
+                </Link>
+              ) : (
               <Link
                 to="/learn/$videoId"
                 params={{ videoId: loop.video?.youtubeVideoId ?? '' }}
@@ -144,6 +174,7 @@ export function SavedLoopsList({
                   {chordCount} chord{chordCount === 1 ? '' : 's'}
                 </span>
               </Link>
+              )}
               <button
                 type="button"
                 onClick={() => void handleDelete(loop.documentId)}

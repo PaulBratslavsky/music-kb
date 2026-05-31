@@ -18,6 +18,7 @@ import {
   updateVideoEmbeddingService,
   updateVideoPassagesService,
   updateVideoSignalScoresService,
+  updateVideoSongContentService,
   updateVideoTypeService,
   updateVideoVerdictService,
   type PaginatedVideos,
@@ -93,6 +94,32 @@ export const getFeed = createServerFn({ method: 'GET' })
   .inputValidator((data: z.input<typeof FeedQuerySchema>) => FeedQuerySchema.parse(data))
   .handler(async ({ data }): Promise<PaginatedVideos> => {
     return await fetchFeedService(data);
+  });
+
+// =============================================================================
+// Music videos — tab / lyrics / source URL editing
+// =============================================================================
+
+const SongContentInputSchema = z.object({
+  documentId: z.string().min(1),
+  // null = clear; undefined = leave untouched. Empty string = clear too.
+  tabContent: z.string().max(100_000).nullable().optional(),
+  lyricsContent: z.string().max(100_000).nullable().optional(),
+  tabSourceUrl: z.string().url().max(2000).nullable().optional(),
+});
+
+export type SongContentResult =
+  | { status: 'ok'; video: StrapiVideo }
+  | { status: 'error'; error: string };
+
+export const saveSongContent = createServerFn({ method: 'POST' })
+  .inputValidator((data: z.input<typeof SongContentInputSchema>) =>
+    SongContentInputSchema.parse(data),
+  )
+  .handler(async ({ data }): Promise<SongContentResult> => {
+    const result = await updateVideoSongContentService(data);
+    if (!result.success) return { status: 'error', error: result.error };
+    return { status: 'ok', video: stripVideoForClient(result.video)! };
   });
 
 // =============================================================================
