@@ -33,6 +33,8 @@ type DragState = {
   origStart: number;
   origLength: number;
   origDegree: Degree;
+  /** Last degree auditioned during a move-drag, to avoid re-triggering. */
+  lastDegree: Degree;
 };
 
 export function NoteLane({
@@ -90,6 +92,7 @@ export function NoteLane({
       origStart: note.start,
       origLength: note.length,
       origDegree: note.degree,
+      lastDegree: note.degree,
     };
     block.setPointerCapture(e.pointerId);
     e.stopPropagation();
@@ -106,6 +109,11 @@ export function NoteLane({
     // Body drag: time (x) + pitch (y). Up = higher degree.
     const deltaRows = Math.round((e.clientY - d.startY) / ROW_H);
     const newDegree = Math.max(1, Math.min(7, d.origDegree - deltaRows)) as Degree;
+    // Audition the pitch as the note crosses into a new row.
+    if (newDegree !== d.lastDegree) {
+      preview(newDegree);
+      d.lastDegree = newDegree;
+    }
     onMove(d.id, d.origStart + deltaTicks, newDegree);
   };
 

@@ -14,10 +14,12 @@ import {
   emptyComposition,
   DURATIONS,
   DEFAULT_CHORD_TICKS,
+  TOTAL_TICKS,
   type Composition,
   type Degree,
   type KeyMode,
 } from '#/lib/music/compose/types';
+import { LABEL_W } from './laneLayout';
 import {
   addChord,
   addNote,
@@ -69,6 +71,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
   const [cursor, setCursor] = useState(0);
   const [muted, setMuted] = useState(false);
   const [durTicks, setDurTicks] = useState(4); // default 1/4 note
+  const [loop, setLoop] = useState(true);
 
   // Strapi persistence: documentId of the currently-loaded row (null =
   // unsaved), the saved-list for the picker, and a transient status line.
@@ -76,7 +79,9 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
   const [saved, setSaved] = useState<StrapiComposition[]>([]);
   const [status, setStatus] = useState<string | null>(null);
 
-  const { isPlaying, currentStep, toggle, stop } = useCompositionPlayback(comp);
+  const { isPlaying, currentStep, toggle, stop } = useCompositionPlayback(comp, {
+    loop,
+  });
 
   useEffect(() => {
     synth.setMuted(muted);
@@ -151,6 +156,31 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
     setComp((c) => ({ ...c, [lane]: removeById(c[lane], id) }));
     setSelectedId((cur) => (cur === id ? null : cur));
   };
+
+  // ---- keyboard: delete selected, escape to deselect ----
+  const removeSelected = () => {
+    if (!selectedId) return;
+    if (comp.chords.some((s) => s.id === selectedId)) removeChordSpan(selectedId);
+    else if (comp.melody.some((n) => n.id === selectedId)) removeNote('melody', selectedId);
+    else if (comp.bass.some((n) => n.id === selectedId)) removeNote('bass', selectedId);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+      if (e.key === 'Escape') {
+        setSelectedId(null);
+        return;
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && !typing) {
+        e.preventDefault();
+        removeSelected();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // ---- selected-chord tone highlight in the melody grid ----
   const selectedChord = selectedId
@@ -325,6 +355,19 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
 
         <button
           type="button"
+          onClick={() => setLoop((l) => !l)}
+          className={`rounded border px-2 py-0.5 text-xs transition ${
+            loop
+              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+              : 'border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--accent)]'
+          }`}
+          title="Loop playback"
+        >
+          ↻ Loop {loop ? 'on' : 'off'}
+        </button>
+
+        <button
+          type="button"
           onClick={clearAll}
           className="ml-auto rounded border border-[var(--line)] px-2 py-0.5 text-xs text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--ink)]"
         >
@@ -389,7 +432,17 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
 
       {/* Timeline */}
       <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--card)] p-3">
-        <div className="min-w-[820px]">
+        <div className="relative min-w-[820px]">
+          {/* Moving playhead — spans all lanes at the current tick. The
+              track starts after the LABEL_W gutter, so offset by it. */}
+          {currentStep != null && (
+            <div
+              className="pointer-events-none absolute bottom-0 top-4 z-10 w-0.5 bg-[var(--accent)] opacity-70"
+              style={{
+                left: `calc(${LABEL_W} + (100% - ${LABEL_W}) * ${(currentStep + 0.5) / TOTAL_TICKS})`,
+              }}
+            />
+          )}
           <BeatRuler />
           <div className="mt-1">
             <NoteLane
