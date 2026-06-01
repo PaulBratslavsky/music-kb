@@ -31,12 +31,14 @@ import {
 
 export type Lane = 'melody' | 'bass';
 
+/** What's selected, tagged by which lane owns it (no id-space guessing). */
+export type Selection = { kind: 'chord' | Lane; id: string };
+
 export type EditorState = {
   comp: Composition;
   /** Insertion cursor (tick) where the next palette chord lands. */
   cursor: number;
-  /** Selected chord or note id (shared id space; ids are prefix-unique). */
-  selectedId: string | null;
+  selected: Selection | null;
 };
 
 let idCounter = 0;
@@ -58,7 +60,7 @@ type Action =
   | { type: 'setBpm'; bpm: number }
   | { type: 'setName'; name: string }
   | { type: 'selectBar'; tick: number }
-  | { type: 'select'; id: string }
+  | { type: 'select'; kind: Selection['kind']; id: string }
   | { type: 'deselect' }
   | { type: 'pickDegree'; degree: Degree; newId: string }
   | { type: 'moveChord'; id: string; start: number }
@@ -85,17 +87,17 @@ function reducer(s: EditorState, a: Action): EditorState {
       return { ...s, comp: { ...comp, name: a.name } };
 
     case 'selectBar':
-      return { ...s, cursor: a.tick, selectedId: null };
+      return { ...s, cursor: a.tick, selected: null };
     case 'select':
-      return { ...s, selectedId: a.id };
+      return { ...s, selected: { kind: a.kind, id: a.id } };
     case 'deselect':
-      return { ...s, selectedId: null };
+      return { ...s, selected: null };
 
     case 'pickDegree': {
       // A selected chord is re-colored; otherwise drop a new chord at the
       // cursor and advance the cursor past it.
-      if (s.selectedId && comp.chords.some((c) => c.id === s.selectedId)) {
-        return { ...s, comp: { ...comp, chords: setChordDegree(comp.chords, s.selectedId, a.degree) } };
+      if (s.selected?.kind === 'chord') {
+        return { ...s, comp: { ...comp, chords: setChordDegree(comp.chords, s.selected.id, a.degree) } };
       }
       const chords = addChord(comp.chords, a.newId, a.degree, s.cursor, DEFAULT_CHORD_TICKS);
       const placed = spanAt(chords, s.cursor);
@@ -112,7 +114,7 @@ function reducer(s: EditorState, a: Action): EditorState {
       return {
         ...s,
         comp: { ...comp, chords: removeById(comp.chords, a.id) },
-        selectedId: s.selectedId === a.id ? null : s.selectedId,
+        selected: s.selected?.id === a.id ? null : s.selected,
       };
 
     case 'placeNote': {
@@ -135,15 +137,15 @@ function reducer(s: EditorState, a: Action): EditorState {
       return {
         ...s,
         comp: { ...comp, [a.lane]: removeById(comp[a.lane], a.id) },
-        selectedId: s.selectedId === a.id ? null : s.selectedId,
+        selected: s.selected?.id === a.id ? null : s.selected,
       };
 
     case 'clearAll':
-      return { comp: { ...comp, chords: [], melody: [], bass: [] }, cursor: 0, selectedId: null };
+      return { comp: { ...comp, chords: [], melody: [], bass: [] }, cursor: 0, selected: null };
     case 'load':
-      return { comp: reidentify(a.comp), cursor: 0, selectedId: null };
+      return { comp: reidentify(a.comp), cursor: 0, selected: null };
     case 'replace':
-      return { comp: a.comp, cursor: 0, selectedId: null };
+      return { comp: a.comp, cursor: 0, selected: null };
     default:
       return s;
   }
@@ -155,7 +157,7 @@ export type CompositionActions = {
   setBpm: (bpm: number) => void;
   setName: (name: string) => void;
   selectBar: (tick: number) => void;
-  select: (id: string) => void;
+  select: (kind: Selection['kind'], id: string) => void;
   deselect: () => void;
   pickDegree: (degree: Degree) => void;
   moveChord: (id: string, start: number) => void;
@@ -176,7 +178,7 @@ export function useCompositionState(initialRoot: Composition['key']['root']) {
   const [state, dispatch] = useReducer(reducer, undefined, () => ({
     comp: emptyComposition(nextId('comp'), 'Untitled', initialRoot, 'major'),
     cursor: 0,
-    selectedId: null as string | null,
+    selected: null as Selection | null,
   }));
 
   // Stable across renders (dispatch is stable) → lets lanes be memoized.
@@ -187,7 +189,7 @@ export function useCompositionState(initialRoot: Composition['key']['root']) {
       setBpm: (bpm) => dispatch({ type: 'setBpm', bpm }),
       setName: (name) => dispatch({ type: 'setName', name }),
       selectBar: (tick) => dispatch({ type: 'selectBar', tick }),
-      select: (id) => dispatch({ type: 'select', id }),
+      select: (kind, id) => dispatch({ type: 'select', kind, id }),
       deselect: () => dispatch({ type: 'deselect' }),
       pickDegree: (degree) => dispatch({ type: 'pickDegree', degree, newId: nextId('span') }),
       moveChord: (id, start) => dispatch({ type: 'moveChord', id, start }),

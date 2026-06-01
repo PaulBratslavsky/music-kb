@@ -51,7 +51,8 @@ const BASS_COLOR = '#9333ea';
 export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
   // Composition + edit state (comp, cursor, selectedId) live in the
   // reducer; only ephemeral UI + persistence state stays local here.
-  const { comp, cursor, selectedId, actions } = useCompositionState(initialRoot);
+  const { comp, cursor, selected, actions } = useCompositionState(initialRoot);
+  const selectedId = selected?.id ?? null; // for lane render (selection ring)
 
   const [muted, setMuted] = useState(false);
   const [durTicks, setDurTicks] = useState(4); // default 1/4 note
@@ -121,41 +122,39 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
 
   // Stable handler bundles (actions is stable; dur/preview via refs) so
   // the memoized lanes only re-render when their own data changes.
-  const handleSelect = useMemo(
-    () => (id: string | null) => (id ? actions.select(id) : actions.deselect()),
-    [actions],
-  );
+  // Per-lane select handlers carry the lane kind, so selection is typed
+  // (no id-space scans needed to disambiguate chord vs note).
   const melodyHandlers = useMemo(
     () => ({
       onPlace: (degree: Degree, tick: number) => actions.placeNote('melody', degree, tick, durRef.current),
-      onSelect: handleSelect,
+      onSelect: (id: string | null) => (id ? actions.select('melody', id) : actions.deselect()),
       onMove: (id: string, s: number, degree: Degree) => actions.moveNote('melody', id, s, degree),
       onResize: (id: string, l: number) => actions.resizeNote('melody', id, l),
       onRemove: (id: string) => actions.removeNote('melody', id),
       previewNote: (d: Degree) => previewRef.current.melody(d),
     }),
-    [actions, handleSelect],
+    [actions],
   );
   const bassHandlers = useMemo(
     () => ({
       onPlace: (degree: Degree, tick: number) => actions.placeNote('bass', degree, tick, durRef.current),
-      onSelect: handleSelect,
+      onSelect: (id: string | null) => (id ? actions.select('bass', id) : actions.deselect()),
       onMove: (id: string, s: number, degree: Degree) => actions.moveNote('bass', id, s, degree),
       onResize: (id: string, l: number) => actions.resizeNote('bass', id, l),
       onRemove: (id: string) => actions.removeNote('bass', id),
       previewNote: (d: Degree) => previewRef.current.bass(d),
     }),
-    [actions, handleSelect],
+    [actions],
   );
   const chordHandlers = useMemo(
     () => ({
-      onSelect: handleSelect,
+      onSelect: (id: string | null) => (id ? actions.select('chord', id) : actions.deselect()),
       onSetCursor: actions.selectBar,
       onMove: actions.moveChord,
       onResize: actions.resizeChord,
       onRemove: actions.removeChord,
     }),
-    [actions, handleSelect],
+    [actions],
   );
 
   // ---- keyboard: delete selected, escape to deselect ----
@@ -168,21 +167,21 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
         actions.deselect();
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && !typing) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected && !typing) {
         e.preventDefault();
-        if (comp.chords.some((s) => s.id === selectedId)) actions.removeChord(selectedId);
-        else if (comp.melody.some((n) => n.id === selectedId)) actions.removeNote('melody', selectedId);
-        else if (comp.bass.some((n) => n.id === selectedId)) actions.removeNote('bass', selectedId);
+        if (selected.kind === 'chord') actions.removeChord(selected.id);
+        else actions.removeNote(selected.kind, selected.id);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId, comp, actions]);
+  }, [selected, actions]);
 
   // ---- selected-chord tone highlight in the melody grid ----
-  const selectedChord = selectedId
-    ? comp.chords.find((s) => s.id === selectedId)
-    : undefined;
+  const selectedChord =
+    selected?.kind === 'chord'
+      ? comp.chords.find((s) => s.id === selected.id)
+      : undefined;
   // Memoized so a chord stays selected without re-rendering the melody
   // lane on every unrelated render.
   const melodyHighlight = useMemo<ChordToneHighlight | null>(

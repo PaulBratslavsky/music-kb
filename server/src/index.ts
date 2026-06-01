@@ -109,8 +109,10 @@ export default {
 
   async bootstrap({ strapi }: { strapi: Core.Strapi }) {
     // Local-first, single-user app — no auth. Public role gets full read +
-    // create + update on every content type. Delete stays admin-only so we
-    // don't accidentally nuke the knowledge base via the UI.
+    // create + update on every content type. Delete is also public for the
+    // user-authored types (note, digest, loop, composition) so the UI can
+    // remove them; the core knowledge-base types (video/transcript/tag)
+    // grant no delete.
     //
     // `await`ed so Strapi logs the result during startup and so the grants
     // are in place before the server accepts requests. The previous fire-
