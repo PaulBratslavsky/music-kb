@@ -8,52 +8,33 @@ import {
   type StrapiComposition,
 } from '#/lib/services/compositions';
 import type { Composition } from '#/lib/music/compose/types';
+import {
+  CompositionSchema,
+  parseStoredComposition,
+} from '#/lib/music/compose/schema';
 
 // =============================================================================
-// Schema — validate the composition at the server-fn boundary so the
-// service can trust it. Mirrors lib/music/compose/types.ts (tick units:
-// sixteenth resolution, 128 ticks / 8 bars).
-// =============================================================================
-
-const DegreeSchema = z.number().int().min(1).max(7);
-const SpanBase = {
-  id: z.string().min(1).max(64),
-  degree: DegreeSchema,
-  start: z.number().int().min(0).max(127),
-  length: z.number().int().min(1).max(128),
-};
-const ChordSpanSchema = z.object(SpanBase);
-const NoteSpanSchema = z.object({
-  ...SpanBase,
-  octave: z.union([z.literal(0), z.literal(1)]),
-});
-
-const CompositionSchema = z.object({
-  id: z.string().min(1).max(64),
-  name: z.string().min(1).max(200),
-  key: z.object({
-    root: z.string().min(1).max(3),
-    mode: z.enum(['major', 'minor']),
-  }),
-  bpm: z.number().int().min(20).max(400),
-  chords: z.array(ChordSpanSchema).max(64),
-  melody: z.array(NoteSpanSchema).max(512),
-  bass: z.array(NoteSpanSchema).max(512),
-});
-
-// =============================================================================
-// List — for the saved-compositions picker.
+// List — for the saved-compositions picker. Each row's `data` blob is
+// validated/migrated on the way out; rows that can't be coerced into the
+// current shape are dropped rather than crashing the editor on load.
 // =============================================================================
 
 export type ListCompositionsResult =
-  | { status: 'ok'; compositions: StrapiComposition[] }
+  | { status: 'ok'; compositions: StrapiComposition[]; dropped: number }
   | { status: 'error'; error: string };
 
 export const listCompositions = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ListCompositionsResult> => {
     const result = await listCompositionsService();
     if (!result.success) return { status: 'error', error: result.error };
-    return { status: 'ok', compositions: result.data };
+    const valid: StrapiComposition[] = [];
+    let dropped = 0;
+    for (const row of result.data) {
+      const data = parseStoredComposition(row.data);
+      if (data) valid.push({ ...row, data });
+      else dropped += 1;
+    }
+    return { status: 'ok', compositions: valid, dropped };
   },
 );
 

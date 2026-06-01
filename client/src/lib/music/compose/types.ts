@@ -44,8 +44,19 @@ export type NoteSpan = TimeSpan & {
   octave: 0 | 1;
 };
 
+/**
+ * Persisted-shape version. Bump when the Composition layout changes in a
+ * way that old saved rows can't be read as-is, and add a migration
+ * branch in compose/schema.ts → parseStoredComposition. (History: v1 is
+ * the tick-based model; the earlier beats-based shape predates this
+ * Strapi content type, so there are no v0 rows to migrate.)
+ */
+export const SCHEMA_VERSION = 1;
+
 export type Composition = {
   id: string;
+  /** Persisted-shape version; see SCHEMA_VERSION. */
+  version: number;
   name: string;
   key: { root: PitchClass; mode: KeyMode };
   /** Quarter-note tempo, 60–180. */
@@ -81,6 +92,7 @@ export function emptyComposition(
 ): Composition {
   return {
     id,
+    version: SCHEMA_VERSION,
     name,
     key: { root, mode },
     bpm: DEFAULT_BPM,
