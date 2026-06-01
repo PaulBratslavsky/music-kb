@@ -8,27 +8,16 @@
 // length of newly-placed chords and notes; everything is draggable and
 // resizable afterwards.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
 import {
-  emptyComposition,
   DURATIONS,
-  DEFAULT_CHORD_TICKS,
   TOTAL_TICKS,
-  type Composition,
   type Degree,
   type KeyMode,
 } from '#/lib/music/compose/types';
 import { LABEL_W } from './laneLayout';
-import {
-  addChord,
-  addNote,
-  moveSpan,
-  removeById,
-  resizeSpan,
-  setChordDegree,
-  spanAt,
-} from '#/lib/music/compose/spans';
+import { useCompositionState } from '#/lib/music/compose/useCompositionState';
 import { useCompositionPlayback } from '#/lib/music/compose/useCompositionPlayback';
 import { synth } from '#/lib/music/audio/synth';
 import {
@@ -45,30 +34,14 @@ import { ChordPalette } from './ChordPalette';
 import { ChordLane } from './ChordLane';
 import { NoteLane } from './NoteLane';
 
-let idCounter = 0;
-const nextId = (prefix: string) => `${prefix}-${(idCounter += 1)}`;
-
-// Reassign span/note ids on load so they can't collide with ids minted
-// later this session (the counter resets on page load, but a loaded
-// composition carries ids from whenever it was created).
-function reidentify(comp: Composition): Composition {
-  return {
-    ...comp,
-    chords: comp.chords.map((s) => ({ ...s, id: nextId('span') })),
-    melody: comp.melody.map((n) => ({ ...n, id: nextId('note') })),
-    bass: comp.bass.map((n) => ({ ...n, id: nextId('note') })),
-  };
-}
-
 const MELODY_COLOR = '#2563eb';
 const BASS_COLOR = '#9333ea';
 
 export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
-  const [comp, setComp] = useState<Composition>(() =>
-    emptyComposition(nextId('comp'), 'Untitled', initialRoot, 'major'),
-  );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [cursor, setCursor] = useState(0);
+  // Composition + edit state (comp, cursor, selectedId) live in the
+  // reducer; only ephemeral UI + persistence state stays local here.
+  const { comp, cursor, selectedId, actions } = useCompositionState(initialRoot);
+
   const [muted, setMuted] = useState(false);
   const [durTicks, setDurTicks] = useState(4); // default 1/4 note
   const [loop, setLoop] = useState(true);
@@ -99,88 +72,34 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
     void refreshSaved();
   }, []);
 
-  // ---- key / tempo / duration ----
-  const setKeyRoot = (root: PitchClass) =>
-    setComp((c) => ({ ...c, key: { ...c.key, root } }));
-  const setKeyMode = (mode: KeyMode) =>
-    setComp((c) => ({ ...c, key: { ...c.key, mode } }));
-  const setBpm = (bpm: number) => setComp((c) => ({ ...c, bpm }));
-
-  // ---- chords ----
-  const cursorRef = useRef(cursor);
-  cursorRef.current = cursor;
-  const pickDegree = (degree: Degree) => {
-    if (selectedId) {
-      // Only re-color a selected *chord*; ignore if a note is selected.
-      setComp((c) =>
-        c.chords.some((s) => s.id === selectedId)
-          ? { ...c, chords: setChordDegree(c.chords, selectedId, degree) }
-          : c,
-      );
-      return;
-    }
-    setComp((c) => {
-      const id = nextId('span');
-      const chords = addChord(c.chords, id, degree, cursorRef.current, DEFAULT_CHORD_TICKS);
-      const placed = spanAt(chords, cursorRef.current);
-      if (placed) setCursor(Math.min(placed.start + placed.length, 127));
-      return { ...c, chords };
-    });
-  };
-  const moveChordSpan = (id: string, s: number) =>
-    setComp((c) => ({ ...c, chords: moveSpan(c.chords, id, s) }));
-  const resizeChordSpan = (id: string, l: number) =>
-    setComp((c) => ({ ...c, chords: resizeSpan(c.chords, id, l) }));
-  const removeChordSpan = (id: string) => {
-    setComp((c) => ({ ...c, chords: removeById(c.chords, id) }));
-    setSelectedId((cur) => (cur === id ? null : cur));
-  };
-
-  // ---- melody / bass notes ----
+  // ---- note placement carries the duration-picker length ----
   const placeNote = (lane: 'melody' | 'bass', degree: Degree, tick: number) =>
-    setComp((c) => ({
-      ...c,
-      [lane]: addNote(c[lane], nextId('note'), degree, 0, tick, durTicks),
-    }));
-  // Body drag moves a note in time (clamped) and pitch (free degree 1–7).
-  const moveNote = (lane: 'melody' | 'bass', id: string, s: number, degree: Degree) =>
-    setComp((c) => ({
-      ...c,
-      [lane]: moveSpan(c[lane], id, s).map((n) =>
-        n.id === id ? { ...n, degree } : n,
-      ),
-    }));
-  const resizeNote = (lane: 'melody' | 'bass', id: string, l: number) =>
-    setComp((c) => ({ ...c, [lane]: resizeSpan(c[lane], id, l) }));
-  const removeNote = (lane: 'melody' | 'bass', id: string) => {
-    setComp((c) => ({ ...c, [lane]: removeById(c[lane], id) }));
-    setSelectedId((cur) => (cur === id ? null : cur));
-  };
+    actions.placeNote(lane, degree, tick, durTicks);
+
+  // Lanes pass `string | null`; route to select/deselect.
+  const handleSelect = (id: string | null) =>
+    id ? actions.select(id) : actions.deselect();
 
   // ---- keyboard: delete selected, escape to deselect ----
-  const removeSelected = () => {
-    if (!selectedId) return;
-    if (comp.chords.some((s) => s.id === selectedId)) removeChordSpan(selectedId);
-    else if (comp.melody.some((n) => n.id === selectedId)) removeNote('melody', selectedId);
-    else if (comp.bass.some((n) => n.id === selectedId)) removeNote('bass', selectedId);
-  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const typing =
         el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
       if (e.key === 'Escape') {
-        setSelectedId(null);
+        actions.deselect();
         return;
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && !typing) {
         e.preventDefault();
-        removeSelected();
+        if (comp.chords.some((s) => s.id === selectedId)) actions.removeChord(selectedId);
+        else if (comp.melody.some((n) => n.id === selectedId)) actions.removeNote('melody', selectedId);
+        else if (comp.bass.some((n) => n.id === selectedId)) actions.removeNote('bass', selectedId);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, [selectedId, comp, actions]);
 
   // ---- selected-chord tone highlight in the melody grid ----
   const selectedChord = selectedId
@@ -197,14 +116,10 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
 
   const clearAll = () => {
     stop();
-    setSelectedId(null);
-    setCursor(0);
-    setComp((c) => ({ ...c, chords: [], melody: [], bass: [] }));
+    actions.clearAll();
   };
 
   // ---- persistence ----
-  const setName = (name: string) => setComp((c) => ({ ...c, name }));
-
   const onSave = async () => {
     setStatus('Saving…');
     try {
@@ -225,19 +140,15 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
     const row = saved.find((s) => s.documentId === documentId);
     if (!row) return;
     stop();
-    setComp(reidentify(row.data));
+    actions.load(row.data);
     setDocId(documentId);
-    setSelectedId(null);
-    setCursor(0);
     setStatus(`Loaded "${row.title}"`);
   };
 
   const onNew = () => {
     stop();
-    setComp(emptyComposition(nextId('comp'), 'Untitled', comp.key.root, comp.key.mode));
+    actions.reset(comp.key.root, comp.key.mode);
     setDocId(null);
-    setSelectedId(null);
-    setCursor(0);
     setStatus(null);
   };
 
@@ -278,7 +189,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
               <button
                 key={pc}
                 type="button"
-                onClick={() => setKeyRoot(pc)}
+                onClick={() => actions.setKeyRoot(pc)}
                 className={`rounded border px-1.5 py-0.5 text-xs font-medium transition ${
                   comp.key.root === pc
                     ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
@@ -296,7 +207,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
             <button
               key={m}
               type="button"
-              onClick={() => setKeyMode(m)}
+              onClick={() => actions.setKeyMode(m)}
               className={`px-2.5 py-0.5 text-xs font-medium capitalize transition ${
                 comp.key.mode === m
                   ? 'bg-[var(--accent)] text-white'
@@ -315,7 +226,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
             min={60}
             max={180}
             value={comp.bpm}
-            onChange={(e) => setBpm(Number(e.target.value))}
+            onChange={(e) => actions.setBpm(Number(e.target.value))}
             className="w-24"
           />
           <span className="w-12 tabular-nums text-[var(--ink-soft)]">
@@ -380,7 +291,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
         <input
           type="text"
           value={comp.name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => actions.setName(e.target.value)}
           placeholder="Composition name"
           className="w-44 rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-[var(--ink)] placeholder:text-[var(--ink-muted)]"
         />
@@ -423,7 +334,7 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
       </div>
 
       {/* Palette */}
-      <ChordPalette comp={comp} onPick={pickDegree} />
+      <ChordPalette comp={comp} onPick={actions.pickDegree} />
       <p className="-mt-2 text-[11px] text-[var(--ink-muted)]">
         {selectedChord
           ? 'Chord selected — pick a palette chip to change it, drag its body to move, drag the right edge to extend, or × to remove.'
@@ -454,10 +365,10 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
               highlight={melodyHighlight}
               selectedId={selectedId}
               onPlace={(degree, tick) => placeNote('melody', degree, tick)}
-              onSelect={setSelectedId}
-              onMove={(id, s, degree) => moveNote('melody', id, s, degree)}
-              onResize={(id, l) => resizeNote('melody', id, l)}
-              onRemove={(id) => removeNote('melody', id)}
+              onSelect={handleSelect}
+              onMove={(id, s, degree) => actions.moveNote('melody', id, s, degree)}
+              onResize={(id, l) => actions.resizeNote('melody', id, l)}
+              onRemove={(id) => actions.removeNote('melody', id)}
             />
           </div>
           <div className="my-1.5">
@@ -466,11 +377,11 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
               selectedId={selectedId}
               cursor={cursor}
               currentStep={currentStep}
-              onSelect={setSelectedId}
-              onSetCursor={setCursor}
-              onMove={moveChordSpan}
-              onResize={resizeChordSpan}
-              onRemove={removeChordSpan}
+              onSelect={handleSelect}
+              onSetCursor={actions.selectBar}
+              onMove={actions.moveChord}
+              onResize={actions.resizeChord}
+              onRemove={actions.removeChord}
             />
           </div>
           <NoteLane
@@ -481,10 +392,10 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
             color={BASS_COLOR}
             selectedId={selectedId}
             onPlace={(degree, tick) => placeNote('bass', degree, tick)}
-            onSelect={setSelectedId}
-            onMove={(id, s, degree) => moveNote('bass', id, s, degree)}
-            onResize={(id, l) => resizeNote('bass', id, l)}
-            onRemove={(id) => removeNote('bass', id)}
+            onSelect={handleSelect}
+            onMove={(id, s, degree) => actions.moveNote('bass', id, s, degree)}
+            onResize={(id, l) => actions.resizeNote('bass', id, l)}
+            onRemove={(id) => actions.removeNote('bass', id)}
           />
           <div className="mt-2 flex gap-4 text-[10px] text-[var(--ink-muted)]">
             <span className="flex items-center gap-1">
