@@ -723,3 +723,7 @@ New chat surfaces should pipe caught errors through `friendlyOllamaError` before
 Substring filter + highlight on the Learn page transcript tab. Search input lives in the `TranscriptPane` header; matches are filtered (rows hidden), the matched substrings are wrapped in `<mark>`, click-to-seek still works on each row. The playback-following auto-scroll is **suspended while searching** — the user is navigating by query, not by playback. Esc clears.
 
 Cross-video moment search is a separate question — Tier 2 embeddings (Section 11.2) cover the semantic-similarity case via `/api/ask`. A deterministic substring search across all transcripts (Cmd-F-across-the-library) is deliberately not built; revisit if usage proves the semantic path insufficient.
+
+### 11.9 Progression Composer (music-kb fork)
+
+The **Compose** tab on `/theory` — a Hookpad-style 8-bar sketchpad for chord progression + melody + bass, expressed entirely in scale degrees over a 128-tick (16th-note) grid so changing the key transposes the whole piece. Saved to a Strapi `composition` content type as one versioned JSON blob. Pure domain (`client/src/lib/music/compose/`: model, span ops, degree→MIDI resolution, schedule) is split from the React UI (`client/src/components/compose/`: presentational memoized lanes, shared `useSpanDrag`, a reducer for edit state). Full deep-dive — model, the monophonic invariant, playback clock, voices, persistence/versioning, constraints + extension points — in [`./composer.md`](./composer.md).
