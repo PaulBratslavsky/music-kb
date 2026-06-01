@@ -8,7 +8,7 @@
 // length of newly-placed chords and notes; everything is draggable and
 // resizable afterwards.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
 import {
   DURATIONS,
@@ -21,12 +21,23 @@ import { useCompositionState } from '#/lib/music/compose/useCompositionState';
 import { useCompositionPlayback } from '#/lib/music/compose/useCompositionPlayback';
 import { synth } from '#/lib/music/audio/synth';
 import {
+  keyToScaleSelection,
+  resolveMelodyMidi,
+  resolveBassMidi,
+} from '#/lib/music/compose/playback';
+import { getScalePitchClasses } from '#/lib/music/theory/scales';
+import { getDiatonicChords } from '#/lib/music/theory/diatonic';
+import {
+  chordToneDegrees,
+  triadLabel,
+  type TriadLabel,
+} from '#/lib/music/compose/labels';
+import {
   listCompositions,
   saveComposition as saveCompositionFn,
   deleteComposition as deleteCompositionFn,
 } from '#/data/server-functions/compositions';
 import type { StrapiComposition } from '#/lib/services/compositions';
-import { chordToneDegrees } from '#/lib/music/compose/labels';
 import { degreeColor, hexToRgba } from '#/lib/music/compose/colors';
 import type { ChordToneHighlight } from './chordHighlight';
 import { BeatRuler } from './BeatRuler';
@@ -72,13 +83,80 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
     void refreshSaved();
   }, []);
 
-  // ---- note placement carries the duration-picker length ----
-  const placeNote = (lane: 'melody' | 'bass', degree: Degree, tick: number) =>
-    actions.placeNote(lane, degree, tick, durTicks);
+  // Note placement carries the duration-picker length, read via a ref so
+  // the stable handler bundles below don't churn when the duration changes.
+  const durRef = useRef(durTicks);
+  durRef.current = durTicks;
 
-  // Lanes pass `string | null`; route to select/deselect.
-  const handleSelect = (id: string | null) =>
-    id ? actions.select(id) : actions.deselect();
+  // Key-derived data (changes only when the key changes) so the memoized
+  // lanes don't re-render on note/chord edits or playback ticks.
+  const scaleSel = useMemo(
+    () => keyToScaleSelection(comp),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- key-only
+    [comp.key.root, comp.key.mode],
+  );
+  const pcs = useMemo(() => getScalePitchClasses(scaleSel), [scaleSel]);
+  const labels = useMemo(() => {
+    const m: Record<number, TriadLabel> = {};
+    for (const c of getDiatonicChords(scaleSel)) m[c.degree] = triadLabel(c);
+    return m;
+  }, [scaleSel]);
+
+  // Latest preview fns (depend on key) read through a ref so the stable
+  // handler bundles don't change identity when the composition edits.
+  const previewRef = useRef<{ melody: (d: Degree) => void; bass: (d: Degree) => void }>({
+    melody: () => {},
+    bass: () => {},
+  });
+  previewRef.current = {
+    melody: (d) => {
+      const midi = resolveMelodyMidi(comp, { degree: d, octave: 0 });
+      if (midi != null) synth.playNote(midi, 260, 'piano');
+    },
+    bass: (d) => {
+      const midi = resolveBassMidi(comp, { degree: d, octave: 0 });
+      if (midi != null) synth.playNote(midi, 260, 'bass');
+    },
+  };
+
+  // Stable handler bundles (actions is stable; dur/preview via refs) so
+  // the memoized lanes only re-render when their own data changes.
+  const handleSelect = useMemo(
+    () => (id: string | null) => (id ? actions.select(id) : actions.deselect()),
+    [actions],
+  );
+  const melodyHandlers = useMemo(
+    () => ({
+      onPlace: (degree: Degree, tick: number) => actions.placeNote('melody', degree, tick, durRef.current),
+      onSelect: handleSelect,
+      onMove: (id: string, s: number, degree: Degree) => actions.moveNote('melody', id, s, degree),
+      onResize: (id: string, l: number) => actions.resizeNote('melody', id, l),
+      onRemove: (id: string) => actions.removeNote('melody', id),
+      previewNote: (d: Degree) => previewRef.current.melody(d),
+    }),
+    [actions, handleSelect],
+  );
+  const bassHandlers = useMemo(
+    () => ({
+      onPlace: (degree: Degree, tick: number) => actions.placeNote('bass', degree, tick, durRef.current),
+      onSelect: handleSelect,
+      onMove: (id: string, s: number, degree: Degree) => actions.moveNote('bass', id, s, degree),
+      onResize: (id: string, l: number) => actions.resizeNote('bass', id, l),
+      onRemove: (id: string) => actions.removeNote('bass', id),
+      previewNote: (d: Degree) => previewRef.current.bass(d),
+    }),
+    [actions, handleSelect],
+  );
+  const chordHandlers = useMemo(
+    () => ({
+      onSelect: handleSelect,
+      onSetCursor: actions.selectBar,
+      onMove: actions.moveChord,
+      onResize: actions.resizeChord,
+      onRemove: actions.removeChord,
+    }),
+    [actions, handleSelect],
+  );
 
   // ---- keyboard: delete selected, escape to deselect ----
   useEffect(() => {
@@ -105,14 +183,20 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
   const selectedChord = selectedId
     ? comp.chords.find((s) => s.id === selectedId)
     : undefined;
-  const melodyHighlight: ChordToneHighlight | null = selectedChord
-    ? {
-        degrees: new Set(chordToneDegrees(selectedChord.degree)),
-        start: selectedChord.start,
-        length: selectedChord.length,
-        color: hexToRgba(degreeColor(selectedChord.degree), 0.28),
-      }
-    : null;
+  // Memoized so a chord stays selected without re-rendering the melody
+  // lane on every unrelated render.
+  const melodyHighlight = useMemo<ChordToneHighlight | null>(
+    () =>
+      selectedChord
+        ? {
+            degrees: new Set(chordToneDegrees(selectedChord.degree)),
+            start: selectedChord.start,
+            length: selectedChord.length,
+            color: hexToRgba(degreeColor(selectedChord.degree), 0.28),
+          }
+        : null,
+    [selectedChord],
+  );
 
   const clearAll = () => {
     stop();
@@ -357,45 +441,31 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
           <BeatRuler />
           <div className="mt-1">
             <NoteLane
-              comp={comp}
               lane="melody"
               notes={comp.melody}
-              currentStep={currentStep}
+              pcs={pcs}
               color={MELODY_COLOR}
               highlight={melodyHighlight}
               selectedId={selectedId}
-              onPlace={(degree, tick) => placeNote('melody', degree, tick)}
-              onSelect={handleSelect}
-              onMove={(id, s, degree) => actions.moveNote('melody', id, s, degree)}
-              onResize={(id, l) => actions.resizeNote('melody', id, l)}
-              onRemove={(id) => actions.removeNote('melody', id)}
+              {...melodyHandlers}
             />
           </div>
           <div className="my-1.5">
             <ChordLane
-              comp={comp}
+              chords={comp.chords}
+              labels={labels}
               selectedId={selectedId}
               cursor={cursor}
-              currentStep={currentStep}
-              onSelect={handleSelect}
-              onSetCursor={actions.selectBar}
-              onMove={actions.moveChord}
-              onResize={actions.resizeChord}
-              onRemove={actions.removeChord}
+              {...chordHandlers}
             />
           </div>
           <NoteLane
-            comp={comp}
             lane="bass"
             notes={comp.bass}
-            currentStep={currentStep}
+            pcs={pcs}
             color={BASS_COLOR}
             selectedId={selectedId}
-            onPlace={(degree, tick) => placeNote('bass', degree, tick)}
-            onSelect={handleSelect}
-            onMove={(id, s, degree) => actions.moveNote('bass', id, s, degree)}
-            onResize={(id, l) => actions.resizeNote('bass', id, l)}
-            onRemove={(id) => actions.removeNote('bass', id)}
+            {...bassHandlers}
           />
           <div className="mt-2 flex gap-4 text-[10px] text-[var(--ink-muted)]">
             <span className="flex items-center gap-1">

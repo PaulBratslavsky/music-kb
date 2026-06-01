@@ -9,39 +9,30 @@
 // spans.ts; this component just converts pointer geometry into beats and
 // calls the handlers live so a block follows the cursor as you drag.
 
-import { useRef } from 'react';
-import type { Composition, ChordSpan } from '#/lib/music/compose/types';
+import { memo, useRef } from 'react';
+import type { ChordSpan } from '#/lib/music/compose/types';
 import { TOTAL_TICKS } from '#/lib/music/compose/types';
-import { triadLabel } from '#/lib/music/compose/labels';
+import type { TriadLabel } from '#/lib/music/compose/labels';
 import { degreeColor } from '#/lib/music/compose/colors';
-import { getDiatonicChords } from '#/lib/music/theory/diatonic';
-import { keyToScaleSelection } from '#/lib/music/compose/playback';
 import { LABEL_W, TRACK_COLS, isBarStart, isBeatStart } from './laneLayout';
+import { useSpanDrag } from './useSpanDrag';
 
-type DragState = {
-  id: string;
-  mode: 'move' | 'resize';
-  pointerStartX: number;
-  tickW: number;
-  origStart: number;
-  origLength: number;
-};
-
-export function ChordLane({
-  comp,
+function ChordLaneImpl({
+  chords,
+  labels,
   selectedId,
   cursor,
-  currentStep,
   onSelect,
   onSetCursor,
   onMove,
   onResize,
   onRemove,
 }: {
-  comp: Composition;
+  chords: ChordSpan[];
+  /** Triad label (roman + name) per diatonic degree for the current key. */
+  labels: Record<number, TriadLabel>;
   selectedId: string | null;
   cursor: number;
-  currentStep: number | null;
   onSelect: (id: string | null) => void;
   onSetCursor: (beat: number) => void;
   onMove: (id: string, newStart: number) => void;
@@ -49,60 +40,12 @@ export function ChordLane({
   onRemove: (id: string) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<DragState | null>(null);
-
-  const labelByDegree = (() => {
-    const chords = getDiatonicChords(keyToScaleSelection(comp));
-    const m = new Map<number, ReturnType<typeof triadLabel>>();
-    for (const c of chords) m.set(c.degree, triadLabel(c));
-    return m;
-  })();
-
-  // Capture + handlers live on the block (not gated by state) so the
-  // first pointermove of a quick flick isn't dropped.
-  const beginDrag = (
-    e: React.PointerEvent,
-    span: ChordSpan,
-    mode: 'move' | 'resize',
-  ) => {
-    const track = trackRef.current;
-    const el = e.currentTarget as HTMLElement;
-    const block = mode === 'resize' ? (el.parentElement as HTMLElement | null) : el;
-    if (!track || !block) return;
-    const rect = track.getBoundingClientRect();
-    dragRef.current = {
-      id: span.id,
-      mode,
-      pointerStartX: e.clientX,
-      tickW: rect.width / TOTAL_TICKS,
-      origStart: span.start,
-      origLength: span.length,
-    };
-    block.setPointerCapture(e.pointerId);
-    e.stopPropagation();
-  };
-
-  const onPointerMove = (e: React.PointerEvent) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const deltaTicks = Math.round((e.clientX - d.pointerStartX) / d.tickW);
-    if (d.mode === 'move') {
-      onMove(d.id, d.origStart + deltaTicks);
-    } else {
-      onResize(d.id, d.origLength + deltaTicks);
-    }
-  };
-
-  const endDrag = (e: React.PointerEvent) => {
-    if (dragRef.current) {
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        /* not captured */
-      }
-    }
-    dragRef.current = null;
-  };
+  const { begin, onPointerMove, onPointerUp } = useSpanDrag({
+    trackRef,
+    totalTicks: TOTAL_TICKS,
+    onMove: (id, start) => onMove(id, start),
+    onResize,
+  });
 
   return (
     <div className="flex items-stretch" style={{ height: 56 }}>
@@ -128,8 +71,6 @@ export function ChordLane({
                 onSetCursor(step);
               }}
               className={`border-b ${
-                step === currentStep ? 'bg-[var(--accent-soft)]' : ''
-              } ${
                 step === cursor && selectedId == null
                   ? 'bg-[var(--bg-subtle)] ring-1 ring-inset ring-[var(--accent)]'
                   : ''
@@ -152,8 +93,8 @@ export function ChordLane({
           className="pointer-events-none absolute inset-0 grid"
           style={{ gridTemplateColumns: TRACK_COLS }}
         >
-          {comp.chords.map((span) => {
-            const label = labelByDegree.get(span.degree);
+          {chords.map((span) => {
+            const label = labels[span.degree];
             const selected = span.id === selectedId;
             const color = degreeColor(span.degree);
             return (
@@ -166,9 +107,9 @@ export function ChordLane({
                   gridColumn: `${span.start + 1} / span ${span.length}`,
                   backgroundColor: color,
                 }}
-                onPointerDown={(e) => beginDrag(e, span, 'move')}
+                onPointerDown={(e) => begin(e, span, 'move')}
                 onPointerMove={onPointerMove}
-                onPointerUp={endDrag}
+                onPointerUp={onPointerUp}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelect(span.id);
@@ -196,7 +137,7 @@ export function ChordLane({
                 </button>
                 {/* Resize handle (right edge) */}
                 <div
-                  onPointerDown={(e) => beginDrag(e, span, 'resize')}
+                  onPointerDown={(e) => begin(e, span, 'resize')}
                   className="absolute right-0 top-0 h-full w-2 cursor-ew-resize rounded-r bg-black/10 hover:bg-black/25"
                   aria-label="Resize chord"
                 />
@@ -208,3 +149,7 @@ export function ChordLane({
     </div>
   );
 }
+
+// Memoized: with stable handler props + key-derived `labels`, editing a
+// note lane or the playhead advancing won't re-render the chord lane.
+export const ChordLane = memo(ChordLaneImpl);

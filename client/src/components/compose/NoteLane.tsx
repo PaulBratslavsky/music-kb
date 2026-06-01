@@ -6,42 +6,32 @@
 // to remove. Monophonic: notes never overlap in time (clamped in
 // spans.ts). Hovering a cell auditions the pitch.
 //
+// Presentational: the parent supplies the per-degree note labels (`pcs`)
+// and a `previewNote` audition callback, so this component holds no
+// theory/audio knowledge and can be memoized — editing another lane or
+// advancing the playhead won't re-render it.
+//
 // All notes render in a single lane-wide overlay (7 rows × 128 cols) so
 // a move-drag can carry a note across rows; the per-row background grids
 // underneath handle placement clicks + gridlines + chord-tone highlight.
 
-import { useRef } from 'react';
-import type { Composition, Degree, NoteSpan } from '#/lib/music/compose/types';
+import { memo, useRef } from 'react';
+import type { Degree, NoteSpan } from '#/lib/music/compose/types';
 import { TOTAL_TICKS } from '#/lib/music/compose/types';
-import { keyToScaleSelection, resolveMelodyMidi, resolveBassMidi } from '#/lib/music/compose/playback';
-import { getScalePitchClasses } from '#/lib/music/theory/scales';
-import { synth } from '#/lib/music/audio/synth';
+import type { PitchClass } from '#/lib/music/types';
 import { LABEL_W, TRACK_COLS, isBarStart, isBeatStart } from './laneLayout';
 import type { ChordToneHighlight } from './chordHighlight';
+import { useSpanDrag } from './useSpanDrag';
 
 const DEGREES: Degree[] = [7, 6, 5, 4, 3, 2, 1];
 const ROW_H = 20; // px, must match the row height below
 /** Grid row (1-based, top=1) for a degree, given DEGREES order. */
 const rowForDegree = (degree: number) => 8 - degree;
 
-type DragState = {
-  id: string;
-  mode: 'move' | 'resize';
-  startX: number;
-  startY: number;
-  tickW: number;
-  origStart: number;
-  origLength: number;
-  origDegree: Degree;
-  /** Last degree auditioned during a move-drag, to avoid re-triggering. */
-  lastDegree: Degree;
-};
-
-export function NoteLane({
-  comp,
+function NoteLaneImpl({
   lane,
   notes,
-  currentStep,
+  pcs,
   color,
   highlight,
   selectedId,
@@ -50,11 +40,12 @@ export function NoteLane({
   onMove,
   onResize,
   onRemove,
+  previewNote,
 }: {
-  comp: Composition;
   lane: 'melody' | 'bass';
   notes: NoteSpan[];
-  currentStep: number | null;
+  /** Note label per degree, index 0 = degree 1, for the current key. */
+  pcs: PitchClass[];
   color: string;
   highlight?: ChordToneHighlight | null;
   selectedId: string | null;
@@ -64,69 +55,18 @@ export function NoteLane({
   onMove: (id: string, newStart: number, newDegree: Degree) => void;
   onResize: (id: string, newLength: number) => void;
   onRemove: (id: string) => void;
+  /** Audition a degree (hover + drag-across-rows). */
+  previewNote: (degree: Degree) => void;
 }) {
-  const pcs = getScalePitchClasses(keyToScaleSelection(comp)); // index 0 = degree 1
-  const resolve = lane === 'melody' ? resolveMelodyMidi : resolveBassMidi;
-  const dragRef = useRef<DragState | null>(null);
-
-  const preview = (degree: Degree) => {
-    const midi = resolve(comp, { degree, octave: 0 });
-    if (midi != null) synth.playNote(midi, 260, lane === 'melody' ? 'piano' : 'bass');
-  };
-
-  // Pointer capture + handlers live on the note block (not gated by
-  // state) so the very first pointermove of a quick flick registers —
-  // otherwise short nudges get dropped and read as a click.
-  const beginDrag = (e: React.PointerEvent, note: NoteSpan, mode: 'move' | 'resize') => {
-    const el = e.currentTarget as HTMLElement;
-    const block = mode === 'resize' ? (el.parentElement as HTMLElement | null) : el;
-    const overlay = el.closest('.note-overlay');
-    if (!overlay || !block) return;
-    const rect = overlay.getBoundingClientRect();
-    dragRef.current = {
-      id: note.id,
-      mode,
-      startX: e.clientX,
-      startY: e.clientY,
-      tickW: rect.width / TOTAL_TICKS,
-      origStart: note.start,
-      origLength: note.length,
-      origDegree: note.degree,
-      lastDegree: note.degree,
-    };
-    block.setPointerCapture(e.pointerId);
-    e.stopPropagation();
-  };
-
-  const onPointerMove = (e: React.PointerEvent) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const deltaTicks = Math.round((e.clientX - d.startX) / d.tickW);
-    if (d.mode === 'resize') {
-      onResize(d.id, d.origLength + deltaTicks);
-      return;
-    }
-    // Body drag: time (x) + pitch (y). Up = higher degree.
-    const deltaRows = Math.round((e.clientY - d.startY) / ROW_H);
-    const newDegree = Math.max(1, Math.min(7, d.origDegree - deltaRows)) as Degree;
-    // Audition the pitch as the note crosses into a new row.
-    if (newDegree !== d.lastDegree) {
-      preview(newDegree);
-      d.lastDegree = newDegree;
-    }
-    onMove(d.id, d.origStart + deltaTicks, newDegree);
-  };
-
-  const endDrag = (e: React.PointerEvent) => {
-    if (dragRef.current) {
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        /* not captured */
-      }
-    }
-    dragRef.current = null;
-  };
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const { begin, onPointerMove, onPointerUp } = useSpanDrag({
+    trackRef: overlayRef,
+    totalTicks: TOTAL_TICKS,
+    rowHeight: ROW_H,
+    onMove: (id, start, degree) => onMove(id, start, degree as Degree),
+    onResize,
+    onDegreeChange: (degree) => previewNote(degree as Degree),
+  });
 
   return (
     <div className="relative">
@@ -147,16 +87,13 @@ export function NoteLane({
                 highlight.degrees.has(degree) &&
                 tick >= highlight.start &&
                 tick < highlight.start + highlight.length;
-              const isPlayhead = tick === currentStep;
               return (
                 <button
                   key={tick}
                   type="button"
                   onClick={() => onPlace(degree, tick)}
-                  onMouseEnter={() => preview(degree)}
-                  className={`border-b ${
-                    isPlayhead ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-subtle)]'
-                  }`}
+                  onMouseEnter={() => previewNote(degree)}
+                  className="border-b hover:bg-[var(--bg-subtle)]"
                   style={{
                     borderColor: 'var(--line)',
                     borderLeft: isBarStart(tick)
@@ -164,7 +101,7 @@ export function NoteLane({
                       : isBeatStart(tick)
                         ? '1px solid var(--line)'
                         : 'none',
-                    backgroundColor: toned && !isPlayhead ? highlight!.color : undefined,
+                    backgroundColor: toned ? highlight!.color : undefined,
                   }}
                   aria-label={`${lane} degree ${degree} tick ${tick + 1}`}
                 />
@@ -178,7 +115,8 @@ export function NoteLane({
           across rows (pitch) as well as columns (time). Offset by the
           label gutter so columns align with the background. */}
       <div
-        className="note-overlay pointer-events-none absolute top-0 grid"
+        ref={overlayRef}
+        className="pointer-events-none absolute top-0 grid"
         style={{
           left: LABEL_W,
           right: 0,
@@ -200,9 +138,9 @@ export function NoteLane({
                 gridRow: rowForDegree(note.degree),
                 backgroundColor: color,
               }}
-              onPointerDown={(e) => beginDrag(e, note, 'move')}
+              onPointerDown={(e) => begin(e, note, 'move')}
               onPointerMove={onPointerMove}
-              onPointerUp={endDrag}
+              onPointerUp={onPointerUp}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelect(note.id);
@@ -214,7 +152,7 @@ export function NoteLane({
               title="Drag to move (time + pitch), right edge to resize, double-click to remove"
             >
               <div
-                onPointerDown={(e) => beginDrag(e, note, 'resize')}
+                onPointerDown={(e) => begin(e, note, 'resize')}
                 className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize rounded-r bg-black/20 hover:bg-black/40"
                 aria-label="Resize note"
               />
@@ -225,3 +163,7 @@ export function NoteLane({
     </div>
   );
 }
+
+// Memoized: with stable handler props + key-derived `pcs`, editing the
+// other lane or advancing the playhead won't re-render this one.
+export const NoteLane = memo(NoteLaneImpl);
