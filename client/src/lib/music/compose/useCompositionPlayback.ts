@@ -1,8 +1,12 @@
 // Progression Composer — playback hook. Owns the tick clock (sixteenth
-// resolution) and is the only piece that touches the synth. Re-arms the
-// interval on tempo/content changes so live edits take effect on the
-// next tick. The pure schedule comes from buildSchedule; this walks the
-// tick cursor and fires the synth with each layer's own voice + sustain.
+// resolution) and is the only piece that touches the synth. The pure
+// schedule comes from buildSchedule; this walks the tick cursor and
+// fires the synth with each layer's own voice + sustain.
+//
+// The schedule and tempo are read through refs so that editing the
+// composition *while it plays* takes effect on the next tick WITHOUT
+// re-arming the interval (which would snap the cursor back to tick 0).
+// Only starting/stopping and the loop flag re-arm the clock.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { synth } from '../audio/synth';
@@ -33,7 +37,13 @@ export function useCompositionPlayback(
     return map;
   }, [comp]);
 
-  const tickMs = msPerTick(comp.bpm);
+  // Latest schedule + tempo, read live by the running interval so edits
+  // (and tempo nudges) apply on the next tick without resetting position.
+  const eventsRef = useRef(eventsByStep);
+  eventsRef.current = eventsByStep;
+  const tickMsRef = useRef(msPerTick(comp.bpm));
+  tickMsRef.current = msPerTick(comp.bpm);
+
   const stepRef = useRef(0);
 
   useEffect(() => {
@@ -43,8 +53,9 @@ export function useCompositionPlayback(
     }
 
     const fire = (step: number) => {
-      const e = eventsByStep.get(step);
+      const e = eventsRef.current.get(step);
       if (!e) return;
+      const tickMs = tickMsRef.current;
       // Each layer sustains for its span length and uses its own voice.
       if (e.chord) synth.playChord(e.chord, tickMs * (e.chordTicks ?? 1) * 0.97, 'string');
       if (e.melody != null) synth.playNote(e.melody, tickMs * (e.melodyTicks ?? 1) * 0.95, 'piano');
@@ -55,11 +66,13 @@ export function useCompositionPlayback(
     setCurrentStep(0);
     fire(0);
 
-    const id = setInterval(() => {
+    // Self-scheduling timeout (re-read tickMs each tick) so a live tempo
+    // change takes effect without re-arming and losing the cursor.
+    let timer: ReturnType<typeof setTimeout>;
+    const advance = () => {
       const next = stepRef.current + 1;
       if (next >= TOTAL_TICKS) {
         if (!loop) {
-          clearInterval(id);
           setIsPlaying(false);
           setCurrentStep(null);
           return;
@@ -70,10 +83,12 @@ export function useCompositionPlayback(
       }
       setCurrentStep(stepRef.current);
       fire(stepRef.current);
-    }, tickMs);
+      timer = setTimeout(advance, tickMsRef.current);
+    };
+    timer = setTimeout(advance, tickMsRef.current);
 
-    return () => clearInterval(id);
-  }, [isPlaying, eventsByStep, tickMs, loop]);
+    return () => clearTimeout(timer);
+  }, [isPlaying, loop]);
 
   return {
     isPlaying,
