@@ -116,7 +116,7 @@
       "enum": ["skip", "skim", "worth_it"]
     },
     "verdictSummary": {
-      "type": "string",
+      "type": "text",
       "maxLength": 280
     },
     "verdictReason": {
