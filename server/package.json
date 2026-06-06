@@ -13,6 +13,10 @@
     "strapi": "strapi",
     "export": "strapi export --no-encrypt --file ./seed-data/seed",
     "seed": "strapi import --file ./seed-data/seed.tar.gz",
+    "db:dump:local": "mkdir -p exports && NODE_ENV=development strapi export --no-encrypt --file exports/local-$(date +%Y%m%d-%H%M%S)",
+    "db:dump:neon": "mkdir -p exports && NODE_ENV=production strapi export --no-encrypt --file exports/neon-$(date +%Y%m%d-%H%M%S)",
+    "db:load:local": "NODE_ENV=development strapi import --force --file",
+    "db:load:neon": "NODE_ENV=production strapi import --force --file",
     "music-tags": "node scripts/seed-music-tags.mjs",
     "upgrade": "npx @strapi/upgrade latest",
     "upgrade:dry": "npx @strapi/upgrade latest --dry"

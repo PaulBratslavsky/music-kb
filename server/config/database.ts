@@ -2,7 +2,17 @@ import path from 'path';
 import type { Core } from '@strapi/strapi';
 
 const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Database => {
-  const client = env('DATABASE_CLIENT', 'sqlite');
+  // Local-first dev / Neon-in-prod split: `strapi develop`
+  // (NODE_ENV=development) always uses a local throwaway SQLite, so dev
+  // is offline and never touches cloud data. Everything else —
+  // `strapi start`, and CLI commands run with NODE_ENV=production — uses
+  // the configured client (Neon Postgres). The two databases are
+  // independent; move data between them with the db:dump:* / db:load:*
+  // scripts (see docs/operations.md "Local SQLite ↔ Neon").
+  const client =
+    env('NODE_ENV', 'development') === 'development'
+      ? 'sqlite'
+      : env('DATABASE_CLIENT', 'postgres');
 
   const connections = {
     mysql: {

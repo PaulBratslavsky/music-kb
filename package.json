@@ -15,7 +15,11 @@
     "start": "./start.sh",
     "start:fresh": "./start.sh --restart-ollama",
     "export": "yarn --cwd ./server export",
-    "seed": "yarn --cwd ./server seed"
+    "seed": "yarn --cwd ./server seed",
+    "db:dump:local": "yarn --cwd ./server db:dump:local",
+    "db:dump:neon": "yarn --cwd ./server db:dump:neon",
+    "db:load:local": "yarn --cwd ./server db:load:local",
+    "db:load:neon": "yarn --cwd ./server db:load:neon"
   },
   "dependencies": {
     "concurrently": "^8.2.2",
