@@ -179,7 +179,7 @@ The export is **unencrypted** (`--no-encrypt`) so it's git-diffable. **Don't com
 
 The app deliberately runs **two independent databases**, picked by `NODE_ENV` in `server/config/database.ts`:
 
-- **`strapi develop`** (NODE_ENV=development) → a local **SQLite** file (`server/.tmp/data.db`). Offline, throwaway, never touches the cloud.
+- **`strapi develop`** (NODE_ENV=development) → a local **SQLite** file (`server/.tmp/music-kb.db`, override with `DATABASE_FILENAME`). Offline, never touches the cloud.
 - **`strapi start`** (NODE_ENV=production) → **Neon Postgres** (the `DATABASE_*` env vars).
 
 This is **not** sync — there's no per-row merge. Data moves between the two only when you run an export/import, and **import wipes the destination first** (whole-DB, last-writer-wins). So work in one place at a time and propagate deliberately:
@@ -196,7 +196,7 @@ yarn db:load:local exports/neon-20260601-101500.tar.gz    # seed local dev from 
 ```
 
 Notes:
-- After switching to this split, **dev starts on an empty SQLite** — run `yarn db:dump:neon` then `yarn db:load:local <file>` once to pull your cloud data down for offline work.
+- Dev opens the existing `server/.tmp/music-kb.db` if present (your prior local data). To refresh it from Neon, run `yarn db:dump:neon` then `yarn db:load:local <file>`.
 - Exports are engine-agnostic (logical data, not a SQL dump), so SQLite ↔ Postgres round-trips cleanly, and they include media files + schema.
 - They're **unencrypted** and contain everything — don't commit or share them (`server/exports/` is git-ignored).
 - `strapi transfer` (instance→instance over HTTP, needs a running destination + transfer token) is an alternative to the file dance; the export/import flow above is simpler for a single machine.
