@@ -14,6 +14,19 @@ const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Database 
       ? 'sqlite'
       : env('DATABASE_CLIENT', 'postgres');
 
+  // Neon's pooled (PgBouncer) endpoint breaks Strapi's boot migrations —
+  // advisory locks and session-level state don't survive transaction
+  // pooling. Fail fast with a fix instead of a cryptic migration error.
+  // Only checked when postgres is actually selected, so SQLite dev boot
+  // is untouched.
+  if (client === 'postgres' && env('DATABASE_HOST', '').includes('-pooler.')) {
+    throw new Error(
+      `DATABASE_HOST points at Neon's pooled (PgBouncer) endpoint (${env('DATABASE_HOST')}). ` +
+        "Strapi's boot migrations fail through the pooler — use the direct endpoint instead " +
+        '(remove `-pooler` from the host).',
+    );
+  }
+
   const connections = {
     mysql: {
       connection: {
@@ -35,7 +48,6 @@ const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Database 
     },
     postgres: {
       connection: {
-        connectionString: env('DATABASE_URL'),
         host: env('DATABASE_HOST', 'localhost'),
         port: env.int('DATABASE_PORT', 5432),
         database: env('DATABASE_NAME', 'strapi'),

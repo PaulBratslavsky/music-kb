@@ -845,7 +845,7 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 1000;
       }>;
-    verdictSummary: Schema.Attribute.String &
+    verdictSummary: Schema.Attribute.Text &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 280;
       }>;
