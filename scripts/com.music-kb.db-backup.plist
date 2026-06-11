@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Daily snapshot-mode run of db-backup.sh (no - -push: safe while the app
+     runs; SQLite online .backup API; prunes snapshots older than 14 days).
+
+     Install (one time):
+       cp scripts/com.music-kb.db-backup.plist ~/Library/LaunchAgents/
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.music-kb.db-backup.plist
+
+     Uninstall:
+       launchctl bootout gui/$(id -u)/com.music-kb.db-backup
+       rm ~/Library/LaunchAgents/com.music-kb.db-backup.plist
+
+     Logs: ~/Library/Logs/music-kb-backup.log -->
+<dict>
+  <key>Label</key>
+  <string>com.music-kb.db-backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/paul/programing/music-kb/db-backup.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/Users/paul/Library/Logs/music-kb-backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/paul/Library/Logs/music-kb-backup.log</string>
+</dict>
+</plist>

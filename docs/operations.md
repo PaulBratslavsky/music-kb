@@ -201,6 +201,24 @@ Notes:
 - They're **unencrypted** and contain everything — don't commit or share them (`server/exports/` is git-ignored).
 - `strapi transfer` (instance→instance over HTTP, needs a running destination + transfer token) is an alternative to the file dance; the export/import flow above is simpler for a single machine.
 
+## Maintenance: periodic local backups
+
+`./db-backup.sh` (repo root) takes a consistent snapshot of the dev SQLite
+into `backups/sqlite/` — safe while the app runs (SQLite online `.backup`
+API) — and prunes snapshots older than 14 days (`KEEP` env to override).
+`./db-backup.sh --push` additionally mirrors local data up to Neon
+(destructive to Neon; pre-dumps it to `backups/neon/` first; needs the
+stack stopped).
+
+To run the snapshot daily at 09:00 via launchd:
+
+```bash
+cp scripts/com.music-kb.db-backup.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.music-kb.db-backup.plist
+```
+
+Logs land in `~/Library/Logs/music-kb-backup.log`.
+
 ## Performance tuning
 
 ### Ollama
