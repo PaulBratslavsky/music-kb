@@ -1,23 +1,46 @@
 // SSE parser for TanStack AI's AG-UI chat stream. The server emits
 // `data: <json>\n\n` blocks via `toServerSentEventsResponse`; this
 // module turns those raw bytes into a typed `StreamEvent` async
-// iterator. Used by both `VideoChat` (per-video chat) and `DigestChat`
-// (cross-video digest chat); was previously duplicated across both
-// consumers with subtle field-name drift between the two copies.
+// iterator. The single transport for every streaming-chat consumer:
+// `VideoChat` (per-video chat), `DigestChat` (cross-video digest chat),
+// `useLibraryChat` (library-wide ask), and `NoteComposer` (note
+// drafting) — was previously duplicated across consumers with subtle
+// field-name drift between the copies.
 //
 // The parser is pure with respect to networking — it consumes a `Response`
 // the caller already issued. Each consumer handles its own URL, body,
 // and abort logic.
 
+import { friendlyOllamaError } from '#/lib/services/ollama-errors';
+
 // -----------------------------------------------------------------------------
 // Public Interface
 // -----------------------------------------------------------------------------
 
+// Citation payload carried by the CITATIONS frame `/api/ask` emits
+// before the text stream — retrieved-passage metadata so the client can
+// render clickable chips. Mirrors `toCitationPayload` in
+// `routes/api.ask.tsx`.
+export type Citation = {
+  index: number;
+  videoDocumentId: string;
+  youtubeVideoId: string;
+  videoTitle: string | null;
+  videoAuthor: string | null;
+  videoThumbnailUrl: string | null;
+  startSec: number;
+  endSec: number;
+  text: string;
+};
+
 // Events the UI cares about. Run-start / run-end / step / text-start /
 // text-end / tool-args (intermediate) are silently dropped — only the
-// minimal set needed to update the UI is surfaced.
+// minimal set needed to update the UI is surfaced. RUN_ERROR is the
+// exception: it throws instead of yielding, so a failed run can't end
+// the stream as an empty assistant message with no error.
 export type StreamEvent =
   | { kind: 'text'; delta: string }
+  | { kind: 'citations'; citations: Citation[] }
   | { kind: 'tool_start'; id: string; name: string }
   | {
       kind: 'tool_end';
@@ -34,6 +57,13 @@ export type StreamEvent =
 export async function* streamChatSSE(
   response: Response,
 ): AsyncGenerator<StreamEvent, void, void> {
+  if (!response.ok) {
+    // Pull the body so the upstream message survives — collapsing every
+    // non-OK response to a bare status code hides the actual cause
+    // (Ollama down, retrieval errored, etc).
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `Request failed: ${response.status}`);
+  }
   if (!response.body) {
     throw new Error('chat-stream: empty response body');
   }
@@ -69,10 +99,11 @@ export async function* streamChatSSE(
 // -----------------------------------------------------------------------------
 
 // Parse one SSE event block (newline-joined `data:` lines) into a typed
-// event, or null to skip. The AG-UI wire format has had two field-name
-// dialects observed in the wild — `toolName` / `input` vs.
-// `toolCallName` / `args` — so we accept both shapes via `??` fallbacks.
-// Keeps the parser robust to upstream TanStack AI version drift.
+// event, null to skip — or throw, for RUN_ERROR frames. The AG-UI wire
+// format has had two field-name dialects observed in the wild —
+// `toolName` / `input` vs. `toolCallName` / `args` — so we accept both
+// shapes via `??` fallbacks. Keeps the parser robust to upstream
+// TanStack AI version drift.
 function parseSseEventBlock(block: string): StreamEvent | null {
   const lines = block.split('\n');
   let payload = '';
@@ -95,6 +126,25 @@ function parseSseEventBlock(block: string): StreamEvent | null {
       return typeof event.delta === 'string'
         ? { kind: 'text', delta: event.delta }
         : null;
+    case 'CITATIONS':
+      // Pre-stream frame from /api/ask. The frame's `model` field is
+      // informational only (eval harness records it) — dropped here.
+      return Array.isArray(event.citations)
+        ? { kind: 'citations', citations: event.citations }
+        : null;
+    case 'RUN_ERROR': {
+      // @tanstack/ai emits RUN_ERROR when generation fails mid-stream
+      // (e.g. Ollama dies). Dropping it would end the stream as an
+      // empty assistant message with no error — throw so consumer
+      // catch sites fire. Translated here because the message is raw
+      // adapter/Ollama text; friendlyOllamaError is idempotent on its
+      // own output, so consumers re-translating in their catch is safe.
+      const raw =
+        typeof event.error?.message === 'string' && event.error.message
+          ? event.error.message
+          : 'AI run failed';
+      throw new Error(friendlyOllamaError(raw));
+    }
     case 'TOOL_CALL_START': {
       const id = event.toolCallId;
       const name = event.toolName ?? event.toolCallName;
@@ -132,4 +182,6 @@ type AgUiEvent = {
   input?: unknown;
   args?: unknown;
   result?: string | null;
+  citations?: Citation[];
+  error?: { message?: string; code?: string };
 };
