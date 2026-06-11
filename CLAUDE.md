@@ -41,7 +41,7 @@ All run from the **repo root** unless noted.
 ### Tests
 
 ```bash
-yarn --cwd client test                         # full vitest suite (~165 tests)
+yarn --cwd client test                         # full vitest suite (~275 tests)
 yarn --cwd client test path/to/file.test.ts    # single file
 yarn --cwd client test -t "name fragment"      # filter by test name
 yarn --cwd client test:e2e                     # Playwright smoke (needs stack up)
@@ -52,7 +52,8 @@ Playwright e2e specs live in `client/e2e/*.spec.ts` and assume the full
 stack is already running (`yarn dev`/`yarn start` from the repo root) —
 they do not boot it. They guard the seroval server→client boundary on the
 video-shipping surfaces (`/feed`, semantic feed, `/learn`, `/search`).
-`vite.config.ts`'s `test.exclude` keeps vitest out of `e2e/`.
+`vitest.config.ts` (which vitest prefers over `vite.config.ts`, deliberately
+plugin-free) holds the `test.include`/`exclude` that keep vitest out of `e2e/`.
 
 ### Typecheck
 
@@ -83,7 +84,7 @@ Each video carries three score fields:
 - `signalScore` (0–100) — programmatic composite from filler density, lexical density, gzip compression ratio, speaking pace, sponsor presence (`client/src/lib/services/content-signals.ts`).
 - `finalScore` (0–100) — `computeFinalScore(valueScore, signalScore)` in `client/src/lib/services/videos.ts`. Default weights: 60% signal, 40% value (`FINAL_SCORE_WEIGHTS`). **`finalScore` is the canonical user-visible "Content score"**; the other two are the inputs.
 
-Three writers update these (summary save, verdict-only AI re-rate, signal-only recompute), and there's a Settings backfill for older rows missing `signalScore` / `finalScore`. If you change scoring math, check that all three writers stay consistent.
+All partial score updates (verdict-only re-rate, derived-value backfill, signal-only recompute, finalScore re-derive) go through **one writer**: `applyVideoScoreUpdateService` in `client/src/lib/services/videos.ts`, which derives `finalScore` internally. The full-summary save (`updateVideoSummaryService`) derives it the same way. **Never compute or pass `finalScore` from a caller** — if you add a score path, route it through the writer; the invariant is pinned by `videos.score-writer.test.ts`.
 
 ### Timecodes are deterministic
 
@@ -103,7 +104,7 @@ A digest is identified by `videoSetKey = sort(youtubeVideoIds).join(',')`, not a
 
 ### Embedding invalidation
 
-Stored vectors carry `embeddingModel` + `embeddingVersion`. Mismatch with current env flags the row stale; `/settings` offers backfill (missing / stale / all). Bumping the env-level `EMBEDDING_VERSION` alongside changing the text-builder in `client/src/lib/services/embeddings.ts` is the protocol — without it, old vectors silently keep being trusted.
+Stored vectors carry `embeddingModel` + `embeddingVersion`. Mismatch with current env flags the row stale; `/settings` offers backfill (missing / stale / all). Bumping the code-level (client/src/lib/env.ts) `EMBEDDING_VERSION` alongside changing the text-builder in `client/src/lib/services/embeddings.ts` is the protocol — without it, old vectors silently keep being trusted.
 
 ### Map-reduce kicks in past ~25K tokens
 

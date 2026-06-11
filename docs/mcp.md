@@ -9,7 +9,7 @@ when you want more power than a local model can provide.
 ## Endpoint
 
 ```
-http://localhost:1340/api/mcp
+http://localhost:1350/api/mcp
 ```
 
 Speaks the MCP Streamable HTTP transport (JSON-RPC over POST/GET/DELETE
@@ -25,7 +25,7 @@ token.
 ### Option A — Custom token (least privilege, recommended)
 
 1. Start Strapi: `yarn --cwd server develop`.
-2. Open the admin UI at `http://localhost:1340/admin`.
+2. Open the admin UI at `http://localhost:1350/admin`.
 3. **Settings → API Tokens → Create new API Token**.
    - **Name:** `claude-desktop`
    - **Token duration:** Unlimited
@@ -83,7 +83,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`
       "args": [
         "-y",
         "mcp-remote",
-        "http://localhost:1340/api/mcp",
+        "http://localhost:1350/api/mcp",
         "--header",
         "Authorization: Bearer YOUR_TOKEN_HERE"
       ]
@@ -109,7 +109,7 @@ MCP config:
   "mcpServers": {
     "yt-knowledge-base": {
       "type": "http",
-      "url": "http://localhost:1340/api/mcp",
+      "url": "http://localhost:1350/api/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_TOKEN_HERE"
       }
@@ -121,7 +121,7 @@ MCP config:
 ## MCP Inspector (for debugging)
 
 ```bash
-npx @modelcontextprotocol/inspector http://localhost:1340/api/mcp
+npx @modelcontextprotocol/inspector http://localhost:1350/api/mcp
 ```
 
 In the inspector UI, set the bearer under **Authentication → Bearer

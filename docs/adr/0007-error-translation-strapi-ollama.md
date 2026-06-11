@@ -20,7 +20,7 @@ The pattern was the same everywhere: services and route loaders swallowed failur
 
 ### Strapi: `friendlyBackendError(status, raw)` in `client/src/lib/services/videos.ts`
 
-- `status === 0` → `"Backend unreachable. Check that Strapi is running on port 1340."`
+- `status === 0` → `"Backend unreachable. Check that Strapi is running on port 1350."`
 - `status >= 500` → `"Backend error. Strapi is up but rejected the request — check its console for details."`
 - otherwise → raw message passes through.
 

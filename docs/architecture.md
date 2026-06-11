@@ -26,6 +26,12 @@ Deep dive into how yt-knowledge-base is wired. Covers data model, generation pip
 > - **Boundary-layer error translation** (Strapi unreachable / Ollama down → recovery hints, not raw stack traces) — see [ADR 0007](./adr/0007-error-translation-strapi-ollama.md).
 > - **Per-video transcript search** (substring filter + highlight + click-to-seek on the Learn page transcript tab).
 
+> **Post-audit refactor note (2026-06-10):** the [2026-06-10 architecture audit](./architecture-audit-2026-06-10.md) landed four deepenings. Flows below are unchanged; these are the new homes:
+> - **Hybrid retrieval fusion** (dense cosine + BM25 + RRF merge, `RRF_K`/`BM25_WEIGHT`) → `client/src/lib/services/retrieval-fusion.ts`, shared by `relatedVideos`, `semanticSearchVideos`, `searchLibraryPassages`, and `ask-library.ts` (was four inline copies).
+> - **Unified score writer** (`applyVideoScoreUpdateService` in `videos.ts`) — the only partial-score write surface; derives `finalScore` internally for every kind of update. `updateVideoSummaryService` derives it for the full-summary write. Callers never compute `finalScore`.
+> - **Generation spine seams** (`learning.ts`) — `resolveTranscriptForGeneration`, `saveSummaryWithScores`, `refreshVideoEmbeddings` are named steps composed by `generateVideoSummary`.
+> - **Chat SSE transport** (`chat-stream.ts`) now carries `citations` events, owns `friendlyOllamaError` translation + non-OK body extraction, and surfaces `RUN_ERROR` frames as thrown errors; all four streaming consumers (`VideoChat`, `DigestChat`, `useLibraryChat`, `NoteComposer`) parse through it.
+
 ---
 
 ## 1. System overview
@@ -376,7 +382,7 @@ Chunks that surface across multiple phrasings rise to the top. Handles score-sca
 
 ### 6.2 Streaming endpoint
 
-> The server-side framing uses TanStack AI's `toServerSentEventsResponse(stream)`. Client-side parsing of the AG-UI event stream into a typed `StreamEvent` union (`text | tool_start | tool_end`) lives in `client/src/lib/services/chat-stream.ts` and is shared by both `VideoChat.tsx` and `DigestChat.tsx`.
+> The server-side framing uses TanStack AI's `toServerSentEventsResponse(stream)`. Client-side parsing of the AG-UI event stream into a typed `StreamEvent` union (`text | tool_start | tool_end | citations`) lives in `client/src/lib/services/chat-stream.ts` and is the single transport for every streaming consumer (`VideoChat.tsx`, `DigestChat.tsx`, `useLibraryChat`, `NoteComposer`). The parser owns transport-level error handling: non-OK responses throw with the upstream body detail, and `RUN_ERROR` frames throw a `friendlyOllamaError`-translated error instead of being silently dropped.
 
 `client/src/routes/api.chat.tsx` is a TanStack Start file-based route that returns an **AG-UI-format** SSE stream:
 
@@ -610,9 +616,10 @@ client/src/
 │   ├── notes.ts                   — Strapi service for Note collection
 │   ├── ollama-errors.ts           — friendlyOllamaError (recovery hint translation)
 │   ├── reader.ts                  — readableArticle generation pipeline
+│   ├── retrieval-fusion.ts        — hybrid dense+BM25+RRF fusion primitive
 │   ├── strapi-client.ts           — strapiFetch + StrapiQuery (auth, populate, filters)
 │   ├── transcript.ts              — clean, chunk, BM25, grounding
-│   ├── videos.ts                  — Strapi service + finalScore + WithStatus helpers
+│   ├── videos.ts                  — Strapi service + unified score writer + WithStatus helpers
 │   ├── web-search.ts              — DDG HTML scraper
 │   └── youtube-transcript.ts      — youtubei.js wrapper
 ├── lib/validations/
@@ -656,7 +663,7 @@ Three score fields per video:
 - `signalScore` (0–100) — programmatic composite of five signals (filler density, lexical density, gzip compression ratio, speaking pace, sponsor presence) in `client/src/lib/services/content-signals.ts`.
 - `finalScore` (0–100) — `0.6 × signalScore + 0.4 × valueScore` (`FINAL_SCORE_WEIGHTS` in `videos.ts`). **The canonical user-visible "Content score."** Drives feed sort (`?sort=score`), threshold filter (`?minScore=70`), card chip, learn-page primary chip.
 
-Three writers update these (summary save in `learning.ts`, verdict-only re-rate `regenerateVideoVerdict`, signal-only recompute `regenerateVideoSignals`); a Settings backfill recomputes for older rows. **All three writers must write `finalScore` consistently** — guarded by `content-signals.test.ts`.
+All partial score updates (verdict-only re-rate, derived-value backfill, signal-only recompute, finalScore re-derive) go through **one writer** — `applyVideoScoreUpdateService` in `videos.ts` — which derives `finalScore` internally; the full-summary save (`updateVideoSummaryService`) derives it the same way. Callers never compute or pass `finalScore`. The invariant is guarded by `videos.score-writer.test.ts`.
 
 See [ADR 0005](./adr/0005-hybrid-content-score-llm-plus-programmatic.md) for the why and the deferred Phase 3 calibration.
 
