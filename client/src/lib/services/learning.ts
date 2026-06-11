@@ -2,7 +2,6 @@ import { chat } from '@tanstack/ai';
 import { createOllamaChat } from '@tanstack/ai-ollama';
 import { z } from 'zod';
 import {
-  computeFinalScore,
   createTranscriptService,
   fetchTranscriptByVideoIdService,
   fetchVideoByVideoIdService,
@@ -772,6 +771,272 @@ async function generateSummaryWithAI(
 }
 
 // -----------------------------------------------------------------------------
+// Generation pipeline steps. Each named step below is a seam: the spine in
+// `generateVideoSummary` composes them, and partial paths (verdict-only,
+// signal-only re-rates) reuse the pieces they need instead of carrying
+// parallel mini-pipelines.
+// -----------------------------------------------------------------------------
+
+type ResolvedTranscript = {
+  // The Strapi Transcript row, when one exists or could be persisted.
+  // Null only when a fresh fetch succeeded but the row save failed —
+  // generation continues with the in-memory transcript.
+  row: StrapiTranscript | null;
+  transcript: TranscriptData;
+  source: 'relation' | 'by-id' | 'fetch';
+};
+
+// Transcript source-of-truth resolution. Three cases:
+//
+//   1. Video already links to a Transcript row (the common regen case):
+//      use it directly, UI shows "using existing transcript".
+//   2. No link yet, but a Transcript row exists for this youtubeVideoId
+//      (e.g. previous run created the transcript but AI crashed before
+//      linking): reuse it, link the Video to it, UI shows "using existing
+//      transcript (found by id)".
+//   3. No Transcript anywhere: fetch from youtubei.js, CREATE the
+//      Transcript row FIRST, then link the Video. UI shows "creating
+//      transcript". This ordering matters: if AI generation later
+//      crashes, the Transcript survives so retry #1 or #2 kicks in.
+//
+// `metaPromise` is the caller's in-flight oEmbed fetch — only awaited in
+// case 3 (the persisted row wants title/author/thumbnail), so transcript
+// and meta keep loading in parallel. It never rejects (fetchYouTubeMeta
+// returns {} on failure).
+async function resolveTranscriptForGeneration(
+  video: StrapiVideo,
+  videoId: string,
+  opts: { forceRefetch?: boolean; metaPromise: Promise<VideoMeta> },
+): Promise<ServiceResult<ResolvedTranscript>> {
+  let transcriptRow: StrapiTranscript | null =
+    !opts.forceRefetch && video.transcript
+      ? video.transcript
+      : null;
+
+  if (!transcriptRow && !opts.forceRefetch) {
+    const byId = await fetchTranscriptByVideoIdService(videoId);
+    if (byId) {
+      transcriptRow = byId;
+      // Link the Video to the existing Transcript so future lookups
+      // populate via the relation and skip the by-id query.
+      await linkVideoToTranscriptService(video.documentId, byId.documentId);
+      logPhase(videoId, 'transcript ↳ found existing row by youtubeVideoId', {
+        documentId: byId.documentId,
+      });
+    }
+  }
+
+  const source: ResolvedTranscript['source'] = transcriptRow
+    ? video.transcript
+      ? 'relation'
+      : 'by-id'
+    : 'fetch';
+
+  logPhase(videoId, 'transcript → resolving', { transcriptSource: source });
+  setGenerationStep(
+    videoId,
+    'transcript',
+    transcriptRow ? 'using existing transcript' : 'creating transcript',
+  );
+
+  const fetched =
+    transcriptRow &&
+    transcriptRow.rawSegments &&
+    transcriptRow.rawSegments.length > 0
+      ? await loadTranscriptFromStrapi(videoId, transcriptRow)
+      : await fetchTranscript(videoId);
+  if (!fetched.success) return fetched;
+
+  // Case 3 resolution: we just fetched from YouTube. Persist the Transcript
+  // row NOW — before AI generation — so a crash mid-summary leaves the
+  // transcript safely cached for next retry.
+  if (!transcriptRow) {
+    const meta = await opts.metaPromise;
+    const created = await createTranscriptService({
+      youtubeVideoId: videoId,
+      title: fetched.data.upstreamTitle ?? meta.title,
+      author: meta.author,
+      thumbnailUrl: meta.thumbnailUrl,
+      language: fetched.data.language,
+      durationSec: fetched.data.durationSec,
+      rawSegments: (fetched.data.segments ?? []).map((s) => ({
+        text: s.text,
+        startMs: s.startMs,
+        endMs: s.endMs,
+      })),
+      rawText: fetched.data.transcript,
+    });
+    if (created.success) {
+      transcriptRow = created.transcript;
+      await linkVideoToTranscriptService(video.documentId, created.transcript.documentId);
+      logPhase(videoId, 'transcript ✓ created + linked', {
+        documentId: created.transcript.documentId,
+      });
+    } else {
+      // Non-fatal: we still have the transcript in memory for this run.
+      // Next retry will re-fetch (or the Strapi race settled already).
+      logPhase(videoId, 'transcript ✗ save failed (continuing with in-memory)', {
+        error: created.error,
+      });
+    }
+  }
+
+  return {
+    success: true,
+    data: { row: transcriptRow, transcript: fetched.data, source },
+  };
+}
+
+// Score-and-save: given the sanitized AI summary plus the cleaned/grounded
+// transcript artifacts, compute the programmatic signal scores and write
+// the canonical summary state in ONE update. finalScore is derived inside
+// updateVideoSummaryService — this step (like every score path) never
+// computes it.
+async function saveSummaryWithScores(args: {
+  videoId: string;
+  video: StrapiVideo;
+  safe: GeneratedSummary;
+  finalSections: Array<{ heading: string; body: string; timeSec?: number }>;
+  transcriptSegments: StoredTranscriptIndex;
+  rawTranscript: string;
+  cleaned: string;
+  prepared: PreparedTranscript | null;
+  durationSec: number | null;
+}): Promise<ServiceResult<StrapiVideo>> {
+  const { videoId, video, safe } = args;
+
+  // Programmatic content-quality signals — deterministic, no LLM, runs
+  // in <100ms over the cleaned transcript. Stored alongside the LLM's
+  // valueScore for hybrid ranking. See content-signals.ts for the
+  // per-signal methodology.
+  const wordCount = args.prepared
+    ? args.prepared.wordStartMs.length
+    : (args.cleaned.match(/\b[\w'-]+\b/g) ?? []).length;
+  const signalScores = computeSignalScores({
+    rawText: args.rawTranscript,
+    cleanedText: args.cleaned,
+    wordCount,
+    durationSec: args.durationSec,
+  });
+  const signalScore = aggregateSignalScore(signalScores);
+  logPhase(videoId, 'signals ✓ computed', { signalScore, signalScores });
+
+  setGenerationStep(videoId, 'saving');
+  const saveStart = performance.now();
+  logPhase(videoId, 'db → saving summary');
+  const updated = await updateVideoSummaryService({
+    documentId: video.documentId,
+    summaryTitle: safe.title,
+    summaryDescription: safe.description,
+    summaryOverview: safe.overview,
+    watchVerdict: safe.watchVerdict,
+    verdictSummary: safe.verdictSummary,
+    verdictReason: safe.verdictReason,
+    valueScore: safe.valueScore,
+    valueScoreSource: 'model',
+    signalScores,
+    signalScore,
+    aiModel: SUMMARY_MODEL,
+    transcriptSegments: args.transcriptSegments,
+    keyTakeaways: safe.keyTakeaways,
+    sections: args.finalSections,
+    actionSteps: safe.actionSteps,
+  });
+  if (!updated.success) {
+    logPhase(videoId, '✗ db save failed', {
+      error: updated.error,
+      took: ms(saveStart),
+    });
+    return { success: false, error: updated.error };
+  }
+  logPhase(videoId, 'db ✓ saved', {
+    finalScore: updated.video.finalScore ?? null,
+  });
+  return { success: true, data: updated.video };
+}
+
+// Best-effort embedding refresh: Tier-1 summary vector + Tier-2 passage
+// index. The contract is "log but never fail" — Ollama down, model not
+// pulled, or empty content must not sink an otherwise-successful summary;
+// the user can retry embeddings alone from the learn page or /settings.
+async function refreshVideoEmbeddings(
+  videoId: string,
+  video: StrapiVideo,
+  transcriptSegments: StoredTranscriptIndex,
+): Promise<void> {
+  try {
+    const embStart = performance.now();
+    const { computeVideoEmbedding } = await import('#/lib/services/embeddings');
+    const { updateVideoEmbeddingService } = await import('#/lib/services/videos');
+    const computed = await computeVideoEmbedding(video);
+    const saved = await updateVideoEmbeddingService({
+      documentId: video.documentId,
+      embedding: computed.embedding,
+      model: computed.model,
+      version: computed.version,
+      generatedAt: computed.generatedAt,
+    });
+    if (!saved.success) {
+      logPhase(videoId, '⚠ embedding save failed', {
+        error: saved.error,
+        took: ms(embStart),
+      });
+    } else {
+      logPhase(videoId, 'embedding ✓ saved', {
+        dims: computed.embedding.length,
+        model: computed.model,
+        version: computed.version,
+        took: ms(embStart),
+      });
+    }
+  } catch (err) {
+    logPhase(videoId, '⚠ embedding skipped', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+
+  // Tier-2 passage embeddings for moment search. Same best-effort stance:
+  // N embedding calls (one per ~60s chunk) can fail individually without
+  // blocking the summary. Skipped silently if the transcript segments
+  // aren't available (shouldn't happen for a freshly-generated summary).
+  try {
+    const passStart = performance.now();
+    const segments = transcriptSegments.rawSegments ?? [];
+    if (segments.length === 0) {
+      logPhase(videoId, '⚠ passages skipped — no raw segments');
+    } else {
+      const { computePassageIndex } = await import('#/lib/services/embeddings');
+      const { updateVideoPassagesService } = await import('#/lib/services/videos');
+      const passages = await computePassageIndex({
+        video,
+        segments,
+      });
+      const saved = await updateVideoPassagesService({
+        documentId: video.documentId,
+        passageEmbeddings: passages,
+      });
+      if (!saved.success) {
+        logPhase(videoId, '⚠ passages save failed', {
+          error: saved.error,
+          took: ms(passStart),
+        });
+      } else {
+        logPhase(videoId, 'passages ✓ saved', {
+          chunks: passages.chunks.length,
+          model: passages.model,
+          version: passages.version,
+          took: ms(passStart),
+        });
+      }
+    }
+  } catch (err) {
+    logPhase(videoId, '⚠ passages skipped', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Orchestration: look up the Video row by videoId, fetch transcript, run AI,
 // and UPDATE the Video row with the summary fields + transcript cache. The
 // Video row must already exist (created by the share flow). Called from the
@@ -798,107 +1063,28 @@ export async function generateVideoSummary(
     return { success: true, data: video };
   }
 
-  // Transcript source-of-truth lookup. Three cases:
-  //
-  //   1. Video already links to a Transcript row (the common regen case):
-  //      use it directly, UI shows "using existing transcript".
-  //   2. No link yet, but a Transcript row exists for this youtubeVideoId
-  //      (e.g. previous run created the transcript but AI crashed before
-  //      linking): reuse it, link the Video to it, UI shows "using existing
-  //      transcript (found by id)".
-  //   3. No Transcript anywhere: fetch from youtubei.js, CREATE the
-  //      Transcript row FIRST, then link the Video. UI shows "creating
-  //      transcript". This ordering matters: if AI generation later
-  //      crashes, the Transcript survives so retry #1 or #2 kicks in.
-  let transcriptRow: StrapiTranscript | null =
-    !options.forceRefetch && video.transcript
-      ? video.transcript
-      : null;
-
-  if (!transcriptRow && !options.forceRefetch) {
-    const byId = await fetchTranscriptByVideoIdService(videoId);
-    if (byId) {
-      transcriptRow = byId;
-      // Link the Video to the existing Transcript so future lookups
-      // populate via the relation and skip the by-id query.
-      await linkVideoToTranscriptService(video.documentId, byId.documentId);
-      logPhase(videoId, 'transcript ↳ found existing row by youtubeVideoId', {
-        documentId: byId.documentId,
-      });
-    }
-  }
-
-  const transcriptSource: 'relation' | 'by-id' | 'fetch' = transcriptRow
-    ? video.transcript
-      ? 'relation'
-      : 'by-id'
-    : 'fetch';
-
-  logPhase(videoId, 'meta + transcript → fetching in parallel', {
-    transcriptSource,
+  // Transcript + meta resolution. The oEmbed fetch starts first and runs
+  // in parallel with whichever path resolution takes; the resolver awaits
+  // it only when it must persist a freshly-fetched row (case 3).
+  const metaPromise = fetchYouTubeMeta(videoId);
+  const resolved = await resolveTranscriptForGeneration(video, videoId, {
+    forceRefetch: options.forceRefetch,
+    metaPromise,
   });
-  setGenerationStep(
-    videoId,
-    'transcript',
-    transcriptRow ? 'using existing transcript' : 'creating transcript',
-  );
-
-  let transcriptResult: ServiceResult<TranscriptData>;
-  const [fetched, meta] = await Promise.all([
-    transcriptRow &&
-    transcriptRow.rawSegments &&
-    transcriptRow.rawSegments.length > 0
-      ? loadTranscriptFromStrapi(videoId, transcriptRow)
-      : fetchTranscript(videoId),
-    fetchYouTubeMeta(videoId),
-  ]);
-  transcriptResult = fetched;
-
+  const meta = await metaPromise;
   logPhase(videoId, 'meta ✓ oembed', {
     title: meta.title ?? null,
     author: meta.author ?? null,
   });
-  if (!transcriptResult.success) {
+  if (!resolved.success) {
     await markSummaryFailedService(video.documentId);
     logPhase(videoId, '✗ generation failed at transcript', {
       took: ms(runStart),
-      error: transcriptResult.error,
+      error: resolved.error,
     });
-    return transcriptResult;
+    return resolved;
   }
-
-  // Case 3 resolution: we just fetched from YouTube. Persist the Transcript
-  // row NOW — before AI generation — so a crash mid-summary leaves the
-  // transcript safely cached for next retry.
-  if (!transcriptRow) {
-    const created = await createTranscriptService({
-      youtubeVideoId: videoId,
-      title: transcriptResult.data.upstreamTitle ?? meta.title,
-      author: meta.author,
-      thumbnailUrl: meta.thumbnailUrl,
-      language: transcriptResult.data.language,
-      durationSec: transcriptResult.data.durationSec,
-      rawSegments: (transcriptResult.data.segments ?? []).map((s) => ({
-        text: s.text,
-        startMs: s.startMs,
-        endMs: s.endMs,
-      })),
-      rawText: transcriptResult.data.transcript,
-    });
-    if (created.success) {
-      transcriptRow = created.transcript;
-      await linkVideoToTranscriptService(video.documentId, created.transcript.documentId);
-      logPhase(videoId, 'transcript ✓ created + linked', {
-        documentId: created.transcript.documentId,
-      });
-    } else {
-      // Non-fatal: we still have the transcript in memory for this run.
-      // Next retry will re-fetch (or the Strapi race settled already).
-      logPhase(videoId, 'transcript ✗ save failed (continuing with in-memory)', {
-        error: created.error,
-      });
-    }
-  }
+  const transcriptData = resolved.data.transcript;
 
   // Clean the transcript before any model sees it — strips fillers, stage
   // directions, and caption duplication. Typically 15-25% char reduction.
@@ -907,14 +1093,14 @@ export async function generateVideoSummary(
   // segment so each surviving word keeps its real millisecond start time.
   // That lets the chunker assign exact timecodes instead of linear-interp
   // estimates. Fall back to string-only cleaning when segments are missing.
-  const rawChars = transcriptResult.data.transcript.length;
+  const rawChars = transcriptData.transcript.length;
   let prepared: PreparedTranscript | null = null;
   let cleaned: string;
-  if (transcriptResult.data.segments && transcriptResult.data.segments.length > 0) {
-    prepared = prepareSegmentedTranscript(transcriptResult.data.segments);
+  if (transcriptData.segments && transcriptData.segments.length > 0) {
+    prepared = prepareSegmentedTranscript(transcriptData.segments);
     cleaned = prepared.cleanedText;
   } else {
-    cleaned = cleanTranscript(transcriptResult.data.transcript);
+    cleaned = cleanTranscript(transcriptData.transcript);
   }
   logPhase(videoId, 'transcript ✓ cleaned', {
     rawChars,
@@ -924,7 +1110,7 @@ export async function generateVideoSummary(
     wordCount: prepared ? prepared.wordStartMs.length : undefined,
   });
   const cleanedTranscript: TranscriptData = {
-    ...transcriptResult.data,
+    ...transcriptData,
     transcript: cleaned,
     prepared,
   };
@@ -1041,136 +1227,23 @@ export async function generateVideoSummary(
     groundings: sectionGroundings,
   });
 
-  // Programmatic content-quality signals — deterministic, no LLM, runs
-  // in <100ms over the cleaned transcript. Stored alongside the LLM's
-  // valueScore for hybrid ranking. See content-signals.ts for the
-  // per-signal methodology.
-  const wordCount = prepared
-    ? prepared.wordStartMs.length
-    : (cleaned.match(/\b[\w'-]+\b/g) ?? []).length;
-  const signalScores = computeSignalScores({
-    rawText: transcriptResult.data.transcript,
-    cleanedText: cleaned,
-    wordCount,
-    durationSec: transcriptResult.data.durationSec,
-  });
-  const signalScore = aggregateSignalScore(signalScores);
-  // Hybrid score — both component scores are present in this code path
-  // (model-produced valueScore + freshly-computed signalScore), so the
-  // blend is straightforward. Helper handles the null fallbacks for
-  // partial-update paths.
-  const finalScore =
-    computeFinalScore(safe.valueScore, signalScore) ?? signalScore;
-  logPhase(videoId, 'signals ✓ computed', { signalScore, finalScore, signalScores });
-
-  setGenerationStep(videoId, 'saving');
-  const saveStart = performance.now();
-  logPhase(videoId, 'db → saving summary');
-  const updated = await updateVideoSummaryService({
-    documentId: video.documentId,
-    summaryTitle: safe.title,
-    summaryDescription: safe.description,
-    summaryOverview: safe.overview,
-    watchVerdict: safe.watchVerdict,
-    verdictSummary: safe.verdictSummary,
-    verdictReason: safe.verdictReason,
-    valueScore: safe.valueScore,
-    valueScoreSource: 'model',
-    signalScores,
-    signalScore,
-    finalScore,
-    aiModel: SUMMARY_MODEL,
+  const updated = await saveSummaryWithScores({
+    videoId,
+    video,
+    safe,
+    finalSections,
     transcriptSegments,
-    keyTakeaways: safe.keyTakeaways,
-    sections: finalSections,
-    actionSteps: safe.actionSteps,
+    rawTranscript: transcriptData.transcript,
+    cleaned,
+    prepared,
+    durationSec: transcriptData.durationSec,
   });
-  if (!updated.success) {
-    logPhase(videoId, '✗ db save failed', {
-      error: updated.error,
-      took: ms(saveStart),
-    });
-    return updated;
-  }
-  logPhase(videoId, 'db ✓ saved');
+  if (!updated.success) return updated;
 
-  // Embed the new summary. Best-effort — failure here (Ollama down, model
-  // not pulled, empty content) logs and returns the summary successfully.
-  // The user can retry the embedding alone from the regenerate button on
-  // the learn page; no reason to fail the whole summary over it.
-  try {
-    const embStart = performance.now();
-    const { computeVideoEmbedding } = await import('#/lib/services/embeddings');
-    const { updateVideoEmbeddingService } = await import('#/lib/services/videos');
-    const computed = await computeVideoEmbedding(updated.video);
-    const saved = await updateVideoEmbeddingService({
-      documentId: updated.video.documentId,
-      embedding: computed.embedding,
-      model: computed.model,
-      version: computed.version,
-      generatedAt: computed.generatedAt,
-    });
-    if (!saved.success) {
-      logPhase(videoId, '⚠ embedding save failed', {
-        error: saved.error,
-        took: ms(embStart),
-      });
-    } else {
-      logPhase(videoId, 'embedding ✓ saved', {
-        dims: computed.embedding.length,
-        model: computed.model,
-        version: computed.version,
-        took: ms(embStart),
-      });
-    }
-  } catch (err) {
-    logPhase(videoId, '⚠ embedding skipped', {
-      error: err instanceof Error ? err.message : 'unknown',
-    });
-  }
-
-  // Tier-2 passage embeddings for moment search. Same best-effort stance:
-  // N embedding calls (one per ~60s chunk) can fail individually without
-  // blocking the summary. Skipped silently if the transcript segments
-  // aren't available (shouldn't happen for a freshly-generated summary).
-  try {
-    const passStart = performance.now();
-    const segments = transcriptSegments.rawSegments ?? [];
-    if (segments.length === 0) {
-      logPhase(videoId, '⚠ passages skipped — no raw segments');
-    } else {
-      const { computePassageIndex } = await import('#/lib/services/embeddings');
-      const { updateVideoPassagesService } = await import('#/lib/services/videos');
-      const passages = await computePassageIndex({
-        video: updated.video,
-        segments,
-      });
-      const saved = await updateVideoPassagesService({
-        documentId: updated.video.documentId,
-        passageEmbeddings: passages,
-      });
-      if (!saved.success) {
-        logPhase(videoId, '⚠ passages save failed', {
-          error: saved.error,
-          took: ms(passStart),
-        });
-      } else {
-        logPhase(videoId, 'passages ✓ saved', {
-          chunks: passages.chunks.length,
-          model: passages.model,
-          version: passages.version,
-          took: ms(passStart),
-        });
-      }
-    }
-  } catch (err) {
-    logPhase(videoId, '⚠ passages skipped', {
-      error: err instanceof Error ? err.message : 'unknown',
-    });
-  }
+  await refreshVideoEmbeddings(videoId, updated.data, transcriptSegments);
 
   logPhase(videoId, '✓ generation complete', { took: ms(runStart) });
-  return { success: true, data: updated.video };
+  return { success: true, data: updated.data };
 }
 
 // -----------------------------------------------------------------------------

@@ -1,35 +1,21 @@
 // Library-wide retrieval + synthesis helpers.
 //
-// `retrievePassagesForQuery` is the shared core that both /search (listing)
-// and /api/ask (synthesis) use. Extracting it out of the server function
-// keeps the two paths aligned — any retrieval tuning that helps moment
-// search also helps the ask-library answer quality.
+// `retrievePassagesForQuery` is the retrieval core behind /api/ask and the
+// library chat tools. /search runs the sibling `searchLibraryPassages`
+// server function; the two stay aligned because both rank through the
+// shared fusion primitive in retrieval-fusion.ts — any retrieval tuning
+// there helps moment search and ask-library answer quality alike.
 //
 // The synthesis prompt lives here too so the API route and any future
 // MCP tool share the same grounding rules.
 
-import {
-  buildBM25Index,
-  searchBM25,
-  tokenize,
-  type TranscriptChunk,
-} from './transcript';
-import {
-  cosineSimilarity,
-  embedText,
-  passageStatus,
-} from './embeddings';
+import { tokenize } from './transcript';
+import { embedText, passageStatus } from './embeddings';
+import { fuseHybridRankings } from './retrieval-fusion';
 import {
   listAllVideosForEmbeddingService,
   type StrapiVideo,
 } from './videos';
-
-// Keep in sync with the constants used in server-functions/videos.ts —
-// these control the hybrid retrieval behavior. Duplicated here because
-// the server function module has other server-only imports we don't
-// want to pull into code paths that might run in different contexts.
-const RRF_K = 60;
-const BM25_WEIGHT = 2.5;
 
 // Parent-document retrieval config. Instead of letting 15 scattered
 // passages across 8+ videos compete for Gemma's attention, we pick the
@@ -99,47 +85,27 @@ export async function retrievePassagesForQuery(
   }
   if (flat.length === 0) return [];
 
-  // Dense cosine.
-  const cosineScores = flat.map((p) => cosineSimilarity(qVec, p.embedding));
-  const denseOrder = cosineScores
-    .map((score, i) => ({ i, score }))
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.i);
+  // Fused dense+BM25 ranking over passage text with parent-video metadata
+  // prepended — same shaping as searchLibraryPassages, same reason: proper
+  // nouns often live only in the video title.
+  const fusion = fuseHybridRankings(
+    qVec,
+    query,
+    flat.map((p) => {
+      const titleLine = [p.video.videoTitle, p.video.videoAuthor]
+        .filter(Boolean)
+        .join(' ');
+      return {
+        embedding: p.embedding,
+        text: titleLine ? `${titleLine}\n${p.text}` : p.text,
+      };
+    }),
+  );
 
-  // BM25 over passage text with parent-video metadata prepended.
-  const bm25Chunks: TranscriptChunk[] = flat.map((p, i) => {
-    const titleLine = [p.video.videoTitle, p.video.videoAuthor]
-      .filter(Boolean)
-      .join(' ');
-    return {
-      id: i,
-      text: titleLine ? `${titleLine}\n${p.text}` : p.text,
-      startWord: 0,
-      timeSec: p.startSec,
-    };
-  });
-  const bm25Index = buildBM25Index(bm25Chunks);
-  const bm25Hits = searchBM25(bm25Index, query, flat.length);
-  const bm25Order = bm25Hits.map((c) => c.id);
-
-  // RRF merge with BM25 weight.
-  const rrf = new Map<number, number>();
-  denseOrder.forEach((id, rank) => {
-    rrf.set(id, (rrf.get(id) ?? 0) + 1 / (rank + 1 + RRF_K));
-  });
-  bm25Order.forEach((id, rank) => {
-    rrf.set(id, (rrf.get(id) ?? 0) + BM25_WEIGHT / (rank + 1 + RRF_K));
-  });
-
-  // Step 1: rank passages by RRF (descending) and filter by cosine floor.
-  const rankedPassages = Array.from(rrf.entries())
-    .map(([i, rrfScore]) => ({
-      i,
-      rrfScore,
-      cosineScore: cosineScores[i],
-    }))
-    .filter((x) => x.cosineScore >= minScore)
-    .sort((a, b) => b.rrfScore - a.rrfScore);
+  // Step 1: take the fused ranking and filter by cosine floor.
+  const rankedPassages = fusion.ranked.filter(
+    (x) => x.cosineScore >= minScore,
+  );
 
   // Step 2: group by video. Each video's score = its BEST passage's RRF
   // score. This correctly identifies the most topically-relevant videos —
