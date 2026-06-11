@@ -41,7 +41,7 @@ All run from the **repo root** unless noted.
 ### Tests
 
 ```bash
-yarn --cwd client test                         # full vitest suite (~275 tests)
+yarn --cwd client test                         # full vitest suite (~290 tests)
 yarn --cwd client test path/to/file.test.ts    # single file
 yarn --cwd client test -t "name fragment"      # filter by test name
 yarn --cwd client test:e2e                     # Playwright smoke (needs stack up)
