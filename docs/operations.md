@@ -2,7 +2,7 @@
 
 Things that go wrong and how to fix them. Organized by symptom — when something breaks, search for what you're seeing.
 
-The general escalation pattern: check Strapi (`http://localhost:1340`), check Ollama (`http://localhost:11434/api/version`), check the client console, then start invalidating caches / backfilling. Don't reach for `rm -rf .tmp/data.db` until you've ruled out everything else.
+The general escalation pattern: check Strapi (`http://localhost:1350`), check Ollama (`http://localhost:11434/api/version`), check the client console, then start invalidating caches / backfilling. Don't reach for `rm -rf .tmp/data.db` until you've ruled out everything else.
 
 ## Symptom: "Backend unreachable" panel everywhere
 
@@ -11,16 +11,16 @@ The general escalation pattern: check Strapi (`http://localhost:1340`), check Ol
 **Diagnose:**
 
 ```bash
-curl -sf http://localhost:1340/_health || echo "Strapi down"
-lsof -ti :1340                                # is something holding the port?
+curl -sf http://localhost:1350/_health || echo "Strapi down"
+lsof -ti :1350                                # is something holding the port?
 ```
 
 **Likely causes & fixes:**
 
 - **Strapi just hasn't started.** `yarn dev` starts it asynchronously; the client may have loaded before the wait-on completed. Wait 10–20s, hit Retry.
-- **Orphan node process holding :1340.** A previous run didn't clean up. `start.sh` kills these pre-flight; if you're running `yarn dev` directly, do it yourself:
+- **Orphan node process holding :1350.** A previous run didn't clean up. `start.sh` kills these pre-flight; if you're running `yarn dev` directly, do it yourself:
   ```bash
-  lsof -ti :1340 | xargs kill -9
+  lsof -ti :1350 | xargs kill -9
   ```
 - **SQLite file locked.** `yarn seed` was run while Strapi was up (it shouldn't be — see "Seed corrupted DB" below).
 - **Strapi crashed during boot.** Check the terminal for stack traces. Usually a schema validation error after editing a `schema.json` or component without restarting.
@@ -96,7 +96,7 @@ If the **`BackendErrorPanel` isn't showing** but you see "Nothing here yet", the
 **Diagnose:**
 
 - Are filters set in the URL? `?q=`, `?tag=`, `?minScore=70`, `?mode=semantic`. Clear them.
-- Strapi admin: `http://localhost:1340/admin` → Content Manager → Video. Are rows there?
+- Strapi admin: `http://localhost:1350/admin` → Content Manager → Video. Are rows there?
 
 If rows exist in Strapi but don't appear on the feed, check that they have `summaryStatus` set — the feed shows pending+generated+failed but a row with `null` status would be unusual (the share path defaults it to `pending`).
 
@@ -125,12 +125,12 @@ Three separate issues; check which one applies.
 
 The Refresh-scores backfill is fast (~50ms per video, no AI). The AI re-rate is slow (5–15s per video, sequential). Bulk AI re-rate runs from `/settings` → Advanced section.
 
-## Symptom: "Address already in use" on `:1340` or `:3005`
+## Symptom: "Address already in use" on `:1350` or `:3015`
 
 Orphan processes from a previous run. `start.sh` already handles this; if you're running `yarn dev` directly:
 
 ```bash
-lsof -ti :1340 -ti :3005 | xargs kill -9
+lsof -ti :1350 -ti :3015 | xargs kill -9
 ```
 
 Then re-run.
@@ -174,6 +174,32 @@ git commit
 The export is **unencrypted** (`--no-encrypt`) so it's git-diffable. **Don't commit a real personal library** — the file contains every transcript, every note, and every chat-derived note title.
 
 `yarn seed` replaces matching collections — it's a wipe-and-reimport, not a merge.
+
+## Local SQLite ↔ Neon
+
+The app deliberately runs **two independent databases**, picked by `NODE_ENV` in `server/config/database.ts`:
+
+- **`strapi develop`** (NODE_ENV=development) → a local **SQLite** file (`server/.tmp/music-kb.db`, override with `DATABASE_FILENAME`). Offline, never touches the cloud.
+- **`strapi start`** (NODE_ENV=production) → **Neon Postgres** (the `DATABASE_*` env vars).
+
+This is **not** sync — there's no per-row merge. Data moves between the two only when you run an export/import, and **import wipes the destination first** (whole-DB, last-writer-wins). So work in one place at a time and propagate deliberately:
+
+```bash
+# Back up either database to server/exports/ (timestamped, unencrypted)
+yarn db:dump:local            # dumps the dev SQLite
+yarn db:dump:neon             # dumps Neon (boots Strapi in prod mode)
+
+# Load a dump INTO a database (DESTRUCTIVE — wipes the target first).
+# Stop the app first. Path is relative to server/.
+yarn db:load:neon exports/local-20260601-101500.tar.gz    # push dev work up to Neon
+yarn db:load:local exports/neon-20260601-101500.tar.gz    # seed local dev from Neon
+```
+
+Notes:
+- Dev opens the existing `server/.tmp/music-kb.db` if present (your prior local data). To refresh it from Neon, run `yarn db:dump:neon` then `yarn db:load:local <file>`.
+- Exports are engine-agnostic (logical data, not a SQL dump), so SQLite ↔ Postgres round-trips cleanly, and they include media files + schema.
+- They're **unencrypted** and contain everything — don't commit or share them (`server/exports/` is git-ignored).
+- `strapi transfer` (instance→instance over HTTP, needs a running destination + transfer token) is an alternative to the file dance; the export/import flow above is simpler for a single machine.
 
 ## Performance tuning
 
@@ -219,7 +245,7 @@ The pending screen polls for 10 minutes (200 × 3s). Beyond that, polling stops 
 ```bash
 # Full restart, kills orphans, restarts Ollama, fresh start
 pkill -9 ollama
-lsof -ti :1340 -ti :3005 | xargs kill -9
+lsof -ti :1350 -ti :3015 | xargs kill -9
 yarn start:fresh
 ```
 

@@ -54,3 +54,6 @@ server/public/uploads/*
 *.sqlite3
 *.sql
 *.db
+
+# Local DB backups (snapshots + dumps) — never commit
+backups/

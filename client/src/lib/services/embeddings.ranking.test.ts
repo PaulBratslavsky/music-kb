@@ -256,9 +256,22 @@ describe('embeddings — retrieval quality', () => {
 
     // Dense should rank the Gemma passage (mentions "local inference",
     // "consumer hardware", "Ollama") at or near the top — the conceptual
-    // bridge query BM25 can't make.
-    const topTwoIds = cosine.slice(0, 2).map((c) => c.id);
-    expect(topTwoIds).toContain('gemma');
+    // bridge query BM25 can't make. The exact ordering among the AI docs
+    // (gemma/kimi/qwen/rust) is a model-judgment near-tie and flips between
+    // embedding-model updates, so don't assert it. The regression this test
+    // guards (task prefix dropped → relevance collapses into the filler
+    // cluster) shows up as gemma falling OUT of the AI cluster instead.
+    const gemmaRank = cosine.findIndex((c) => c.id === 'gemma');
+    expect(gemmaRank).toBeGreaterThanOrEqual(0);
+    expect(gemmaRank).toBeLessThan(4);
+    const gemmaScore = cosine[gemmaRank].score;
+    const nonAiIds = MODEL_CORPUS.map((d) => d.id).filter(
+      (id) => id.startsWith('filler-') || id === 'content-strategy',
+    );
+    for (const id of nonAiIds) {
+      const doc = cosine.find((c) => c.id === id)!;
+      expect(gemmaScore).toBeGreaterThan(doc.score);
+    }
   }, 60_000);
 
   it('unrelated query "fitness" doesn\'t cluster at 0.5 across tech content', async () => {

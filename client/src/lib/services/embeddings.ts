@@ -74,6 +74,9 @@ export async function embedText(
       model: CURRENT_EMBEDDING_MODEL,
       prompt: body,
     }),
+    // Generous: batch paths (embedBatch, passage indexing) legitimately queue
+    // behind map-reduce generation when OLLAMA_NUM_PARALLEL=1.
+    signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');

@@ -29,6 +29,8 @@ import {
 import { MarkdownEditor } from './MarkdownEditor';
 import { listSkills, type Skill } from '#/lib/skills';
 import { createNote, updateNote, deleteNote } from '#/data/server-functions/notes';
+import { streamChatSSE } from '#/lib/services/chat-stream';
+import { friendlyOllamaError } from '#/lib/services/ollama-errors';
 import type { StrapiNote } from '#/lib/services/notes';
 
 type Props = {
@@ -39,6 +41,10 @@ type Props = {
   onSaved: () => void;
 };
 
+// Issue the compose request and yield text deltas. Wire framing +
+// AG-UI parsing (including non-OK body extraction and RUN_ERROR
+// translation) live in `chat-stream.ts`; this wrapper owns only the
+// request shape for the note-composer endpoint.
 async function* streamCompose(input: {
   videoId: string;
   prompt: string;
@@ -50,36 +56,8 @@ async function* streamCompose(input: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`compose failed (${res.status}): ${text || 'request failed'}`);
-  }
-  if (!res.body) throw new Error('compose: empty body');
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    // SSE: events are separated by blank lines. `data: <json>\n\n`.
-    let idx = buffer.indexOf('\n\n');
-    while (idx !== -1) {
-      const frame = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 2);
-      idx = buffer.indexOf('\n\n');
-      if (!frame.startsWith('data:')) continue;
-      const payload = frame.slice(5).trim();
-      if (payload === '[DONE]') return;
-      try {
-        const ev = JSON.parse(payload) as { type?: string; delta?: string };
-        if (ev.type === 'TEXT_MESSAGE_CONTENT' && ev.delta) {
-          yield ev.delta;
-        }
-      } catch {
-        // Non-JSON frame (run-start/end/etc.) — ignore.
-      }
-    }
+  for await (const event of streamChatSSE(res)) {
+    if (event.kind === 'text') yield event.delta;
   }
 }
 
@@ -150,7 +128,11 @@ export function NoteComposer({
       // Keep the prompt so the user can edit + run again; they can
       // clear it manually if they want a fresh direction.
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Compose failed');
+      // Stream failed (Ollama died, model missing, …) — surface the
+      // error and leave the existing draft untouched: `acc` only
+      // reaches the editor after the stream completes successfully.
+      const raw = err instanceof Error ? err.message : 'Compose failed';
+      setError(friendlyOllamaError(raw));
     } finally {
       setStreaming(false);
     }

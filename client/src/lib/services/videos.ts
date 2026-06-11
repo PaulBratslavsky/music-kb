@@ -564,10 +564,6 @@ export type UpdateVideoSummaryInput = {
   };
   /** Composite weighted aggregate of `signalScores`. */
   signalScore: number;
-  /** Hybrid blend of `valueScore` + `signalScore` (see `computeFinalScore`).
-   * Always derivable from the other two fields — caller computes and
-   * passes it. Storing avoids client-side post-processing for sort. */
-  finalScore: number;
   aiModel: string;
   transcriptSegments?: StoredTranscriptIndex;
   keyTakeaways: Array<{ text: string }>;
@@ -586,6 +582,13 @@ export async function updateVideoSummaryService(
       body: {
         data: {
           ...rest,
+          // The hybrid finalScore is derived HERE, never passed in — the
+          // writer owns the "all three score fields stay consistent"
+          // invariant. Both components are fresh in this path, so the
+          // null fallbacks in computeFinalScore are just belt-and-braces.
+          finalScore:
+            computeFinalScore(input.valueScore, input.signalScore) ??
+            input.signalScore,
           summaryStatus: 'generated' as SummaryStatus,
           summaryGeneratedAt: new Date().toISOString(),
         },
@@ -714,68 +717,123 @@ export async function updateVideoTypeService(
   return result.data;
 }
 
-// Partial-update path for the verdict-only fields (regenerate-verdict
-// surface). Touches ONLY the four verdict-shaped fields — leaves
-// summaryTitle / sections / takeaways / actionSteps / transcriptSegments
-// alone. Used by per-video "Regenerate verdict" and the Settings bulk.
-export async function updateVideoVerdictService(input: {
-  documentId: string;
-  watchVerdict: WatchVerdict;
-  verdictSummary: string;
-  verdictReason: string;
-  valueScore: number;
-  /** Recomputed hybrid score. Caller is expected to derive this from the
-   * new valueScore + the row's existing signalScore via
-   * `computeFinalScore` and pass it here so we keep all three fields
-   * in sync after a verdict-only regen. */
-  finalScore: number;
-}): Promise<{ success: true } | { success: false; error: string }> {
-  const result = await strapiFetch<StrapiVideo>(
-    'PUT',
-    `/api/videos/${input.documentId}`,
-    {
-      body: {
-        data: {
-          watchVerdict: input.watchVerdict,
-          verdictSummary: input.verdictSummary,
-          verdictReason: input.verdictReason,
-          valueScore: input.valueScore,
-          valueScoreSource: 'model',
-          finalScore: input.finalScore,
-        },
-      },
-    },
-  );
-  return result.ok ? { success: true } : { success: false, error: result.error };
-}
+// =============================================================================
+// Unified partial score writer.
+//
+// Responsibility: given a partial score change for a Video — verdict-only,
+// derived-value-only, signal-only, or "re-derive from what's stored" — write
+// the row so all three score fields (valueScore, signalScore, finalScore)
+// end up consistent. Callers NEVER compute or pass finalScore; the
+// derivation invariant lives here and only here. The full-summary path
+// (updateVideoSummaryService) holds the same invariant for its single PUT.
+// =============================================================================
 
-// Partial-update path for the signal-score fields (programmatic content
-// signals). Touches ONLY the two signal fields — verdict + summary
-// fields stay untouched. Used by the Settings signal-scores backfill.
-export async function updateVideoSignalScoresService(input: {
-  documentId: string;
-  signalScores: NonNullable<StrapiVideo['signalScores']>;
-  signalScore: number;
-  /** Recomputed hybrid score. Caller derives this from the new
-   * signalScore + the row's existing valueScore via
-   * `computeFinalScore` and passes it here. Keeps all three fields in
-   * sync after a signal-only regen. */
-  finalScore: number;
-}): Promise<{ success: true } | { success: false; error: string }> {
+export type VideoScoreUpdate =
+  | {
+      // Verdict regen: the four verdict-shaped fields, model-produced.
+      kind: 'verdict';
+      watchVerdict: WatchVerdict;
+      verdictSummary: string;
+      verdictReason: string;
+      valueScore: number;
+    }
+  | {
+      // Value-only write (verdict→score backfill for pre-valueScore rows).
+      kind: 'value';
+      valueScore: number;
+      // 'derived' marks a placeholder mapped from the verdict band, so UI
+      // surfaces can show "needs upgrade" vs a real model score.
+      valueScoreSource: 'model' | 'derived';
+    }
+  | {
+      // Signal recompute/backfill: programmatic sub-scores + composite.
+      kind: 'signals';
+      signalScores: NonNullable<StrapiVideo['signalScores']>;
+      signalScore: number;
+    }
+  | {
+      // Recompute finalScore from the stored components (finalScore
+      // backfill). No-op success when both components are null.
+      kind: 'rederive';
+    };
+
+export async function applyVideoScoreUpdateService(
+  documentId: string,
+  update: VideoScoreUpdate,
+  // The untouched component(s) needed to derive finalScore. Pass the row
+  // when the caller already holds it (backfill loops); omit to have the
+  // writer fetch the two component fields itself.
+  prior?: Pick<StrapiVideo, 'valueScore' | 'signalScore'>,
+): Promise<
+  | { success: true; finalScore: number | null }
+  | { success: false; error: string }
+> {
+  let existing = prior;
+  if (!existing) {
+    const read = await strapiFetch<StrapiVideo>(
+      'GET',
+      `/api/videos/${documentId}`,
+      { query: { fields: ['valueScore', 'signalScore'] } },
+    );
+    if (!read.ok) return { success: false, error: read.error };
+    existing = read.data;
+  }
+
+  let data: Record<string, unknown>;
+  let finalScore: number | null;
+  switch (update.kind) {
+    case 'verdict': {
+      finalScore =
+        computeFinalScore(update.valueScore, existing.signalScore) ??
+        update.valueScore;
+      data = {
+        watchVerdict: update.watchVerdict,
+        verdictSummary: update.verdictSummary,
+        verdictReason: update.verdictReason,
+        valueScore: update.valueScore,
+        valueScoreSource: 'model',
+        finalScore,
+      };
+      break;
+    }
+    case 'value': {
+      finalScore =
+        computeFinalScore(update.valueScore, existing.signalScore) ??
+        update.valueScore;
+      data = {
+        valueScore: update.valueScore,
+        valueScoreSource: update.valueScoreSource,
+        finalScore,
+      };
+      break;
+    }
+    case 'signals': {
+      finalScore =
+        computeFinalScore(existing.valueScore, update.signalScore) ??
+        update.signalScore;
+      data = {
+        signalScores: update.signalScores,
+        signalScore: update.signalScore,
+        finalScore,
+      };
+      break;
+    }
+    case 'rederive': {
+      finalScore = computeFinalScore(existing.valueScore, existing.signalScore);
+      if (finalScore === null) return { success: true, finalScore: null };
+      data = { finalScore };
+      break;
+    }
+  }
+
   const result = await strapiFetch<StrapiVideo>(
     'PUT',
-    `/api/videos/${input.documentId}`,
-    {
-      body: {
-        data: {
-          signalScores: input.signalScores,
-          signalScore: input.signalScore,
-          finalScore: input.finalScore,
-        },
-      },
-    },
+    `/api/videos/${documentId}`,
+    { body: { data } },
   );
-  return result.ok ? { success: true } : { success: false, error: result.error };
+  return result.ok
+    ? { success: true, finalScore }
+    : { success: false, error: result.error };
 }
 
 // Manually set the timeSec of a single section on a Video row. Strapi's

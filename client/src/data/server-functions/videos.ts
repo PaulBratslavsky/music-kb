@@ -1,8 +1,8 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import {
+  applyVideoScoreUpdateService,
   backfillScoreFromVerdict,
-  computeFinalScore,
   createVideoService,
   fetchFeedService,
   fetchVideoByDocumentIdWithStatusService,
@@ -17,10 +17,8 @@ import {
   stripVideoForClient,
   updateVideoEmbeddingService,
   updateVideoPassagesService,
-  updateVideoSignalScoresService,
   updateVideoSongContentService,
   updateVideoTypeService,
-  updateVideoVerdictService,
   type PaginatedVideos,
   type StrapiTag,
   type StrapiVideo,
@@ -60,14 +58,15 @@ import {
   getLiveState,
 } from '#/lib/services/generation-state';
 import {
-  buildBM25Index,
   extractCitationsWithEvidence,
   loadStoredIndex,
-  searchBM25,
   tokenize,
   type EvidenceCitation,
-  type TranscriptChunk,
 } from '#/lib/services/transcript';
+import {
+  fuseHybridRankings,
+  rankByFusedScore,
+} from '#/lib/services/retrieval-fusion';
 import {
   CreateVideoInputSchema,
   GenerationModeSchema,
@@ -810,33 +809,22 @@ export const relatedVideos = createServerFn({ method: 'GET' })
       return { status: 'ok', results: [], reason: 'no-candidates' };
     }
 
-    // Dense order.
-    const cosineScores = candidates.map((v) =>
-      cosineSimilarity(targetVec, v.summaryEmbedding as number[]),
-    );
-    const denseOrder = cosineScores
-      .map((score, i) => ({ i, score }))
-      .sort((a, b) => b.score - a.score)
-      .map((x) => x.i);
-
-    // BM25 order — target's topical text as the "query" over the
-    // candidate corpus. Cap to the 15 highest-IDF terms: doc-as-query
+    // Fused dense+BM25 ranking — target's topical text as the "query" over
+    // the candidate corpus. Cap to the 15 highest-IDF terms: doc-as-query
     // naturally expands to hundreds of tokens that dilute BM25 into
     // noise. 15 keeps the target's most distinctive signals (product
     // names, speakers, domain terms) and drops the generic dev-content
     // shared with half the library.
-    const targetQuery = buildVideoSearchText(target);
-    const bm25Chunks: TranscriptChunk[] = candidates.map((v, i) => ({
-      id: i,
-      text: buildVideoSearchText(v),
-      startWord: 0,
-      timeSec: 0,
-    }));
-    const bm25Index = buildBM25Index(bm25Chunks);
-    const bm25Hits = searchBM25(bm25Index, targetQuery, candidates.length, {
-      maxQueryTerms: 15,
-    });
-    const bm25Order = bm25Hits.map((c) => c.id);
+    const fusion = fuseHybridRankings(
+      targetVec,
+      buildVideoSearchText(target),
+      candidates.map((v) => ({
+        embedding: v.summaryEmbedding as number[],
+        text: buildVideoSearchText(v),
+      })),
+      { maxQueryTerms: 15 },
+    );
+    const { cosineScores, denseOrder, bm25Order } = fusion;
 
     // Two explicit boost signals that encode user-intuition-level
     // relatedness, applied on top of cosine + BM25 RRF:
@@ -865,19 +853,13 @@ export const relatedVideos = createServerFn({ method: 'GET' })
     const targetTags = new Set((target.tags ?? []).map((t) => t.slug));
     const targetTitleTokens = new Set(
       tokenize(target.videoTitle ?? '').filter((t) => {
-        const idf = bm25Index.idf[t];
+        const idf = fusion.bm25Index.idf[t];
         return idf !== undefined && idf >= 1.5;
       }),
     );
 
-    // RRF merge.
-    const rrf = new Map<number, number>();
-    denseOrder.forEach((id, rank) => {
-      rrf.set(id, (rrf.get(id) ?? 0) + 1 / (rank + 1 + RRF_K));
-    });
-    bm25Order.forEach((id, rank) => {
-      rrf.set(id, (rrf.get(id) ?? 0) + BM25_WEIGHT / (rank + 1 + RRF_K));
-    });
+    // Boosts layer on top of the fused base scores; re-rank afterwards.
+    const rrf = fusion.rrfScores;
     // Apply tag-overlap boost per candidate.
     const tagBoosts = new Map<number, { count: number; tags: string[] }>();
     candidates.forEach((v, i) => {
@@ -911,9 +893,7 @@ export const relatedVideos = createServerFn({ method: 'GET' })
       }
     });
 
-    const preFilter = Array.from(rrf.entries())
-      .map(([i, rrfScore]) => ({ i, rrfScore, cosineScore: cosineScores[i] }))
-      .sort((a, b) => b.rrfScore - a.rrfScore);
+    const preFilter = rankByFusedScore(rrf, cosineScores);
 
     // Diagnostic — same shape as the other hybrid server functions so we
     // can spot "target's rare tokens got filtered and BM25 had nothing
@@ -1011,41 +991,20 @@ export const semanticSearchVideos = createServerFn({ method: 'GET' })
     );
     if (candidates.length === 0) return { status: 'ok', hits: [] };
 
-    // Dense order: cosine against each video's summary embedding.
-    const cosineScores = candidates.map((v) =>
-      cosineSimilarity(qVec, v.summaryEmbedding as number[]),
-    );
-    const denseOrder = cosineScores
-      .map((score, i) => ({ i, score }))
-      .sort((a, b) => b.score - a.score)
-      .map((x) => x.i);
-
-    // BM25 order: build a corpus from each video's topical surface
-    // (title + author + description + overview + takeaways + tags) —
-    // same bag of fields the embedding already sees. BM25 catches exact
+    // Fused dense+BM25 ranking. The BM25 corpus is each video's topical
+    // surface (title + author + description + overview + takeaways + tags)
+    // — same bag of fields the embedding already sees. BM25 catches exact
     // tokens in the title and surface text that dense can miss.
-    const bm25Chunks: TranscriptChunk[] = candidates.map((v, i) => ({
-      id: i,
-      text: buildVideoSearchText(v),
-      startWord: 0,
-      timeSec: 0,
-    }));
-    const bm25Index = buildBM25Index(bm25Chunks);
-    const bm25Hits = searchBM25(bm25Index, data.query, candidates.length);
-    const bm25Order = bm25Hits.map((c) => c.id);
-
-    // RRF merge — same math as passage search.
-    const rrf = new Map<number, number>();
-    denseOrder.forEach((id, rank) => {
-      rrf.set(id, (rrf.get(id) ?? 0) + 1 / (rank + 1 + RRF_K));
-    });
-    bm25Order.forEach((id, rank) => {
-      rrf.set(id, (rrf.get(id) ?? 0) + BM25_WEIGHT / (rank + 1 + RRF_K));
-    });
-
-    const finalRanked = Array.from(rrf.entries())
-      .map(([i, rrfScore]) => ({ i, rrfScore, cosineScore: cosineScores[i] }))
-      .sort((a, b) => b.rrfScore - a.rrfScore);
+    const fusion = fuseHybridRankings(
+      qVec,
+      data.query,
+      candidates.map((v) => ({
+        embedding: v.summaryEmbedding as number[],
+        text: buildVideoSearchText(v),
+      })),
+    );
+    const { cosineScores, denseOrder, bm25Order } = fusion;
+    const finalRanked = fusion.ranked;
 
     // Diagnostic — top-10 from each retriever before the minScore filter.
     // eslint-disable-next-line no-console
@@ -1276,19 +1235,8 @@ export type SearchLibraryPassagesResult =
   | { status: 'error'; error: string };
 
 // Hybrid passage search: dense cosine + BM25, merged with Reciprocal Rank
-// Fusion (RRF_K=60). Dense catches synonyms and intent; BM25 catches exact
-// rare tokens (proper nouns like "Qwen", "Kimi", "MCP") that dense vectors
-// systematically under-weight. Either alone fails on real user queries —
-// the combination is the standard retrieval pattern.
-const RRF_K = 60;
-// BM25 weight in the merge. Standard RRF uses 1:1. We bump BM25 because
-// exact-token matches for rare proper-noun queries are far more reliable
-// than dense similarity — and without the bump, the "what is qwen" case
-// still lets generic "what is X" cosine matches tie-break the Qwen-specific
-// result. 2.5x is the lowest value that consistently surfaces the proper-
-// noun video at rank 1 in our tests without over-boosting common terms.
-const BM25_WEIGHT = 2.5;
-
+// Fusion. The fusion math (and the RRF_K / BM25_WEIGHT tuning rationale)
+// lives in lib/services/retrieval-fusion.ts, shared by every hybrid surface.
 export const searchLibraryPassages = createServerFn({ method: 'GET' })
   .inputValidator((data: z.input<typeof SearchLibraryPassagesSchema>) =>
     SearchLibraryPassagesSchema.parse(data),
@@ -1333,17 +1281,7 @@ export const searchLibraryPassages = createServerFn({ method: 'GET' })
     }
     if (flat.length === 0) return { status: 'ok', hits: [] };
 
-    // Dense ranking — cosine against every passage. Store scores so we can
-    // render a meaningful "% match" in the UI after re-ranking.
-    const cosineScores = flat.map((p) => cosineSimilarity(qVec, p.embedding));
-    const denseOrder = cosineScores
-      .map((score, i) => ({ i, score }))
-      .sort((a, b) => b.score - a.score)
-      .map((x) => x.i);
-
-    // BM25 ranking — reuse the existing infra by adapting passages to the
-    // TranscriptChunk shape. `id` carries the global flat index so we can
-    // map BM25 results back to FlatPassage entries.
+    // Fused dense+BM25 ranking over the flattened passage corpus.
     //
     // The BM25 text includes the parent VIDEO's title + author, not just
     // the passage text. Proper nouns like "Qwen" or "Kimi" often appear
@@ -1351,35 +1289,21 @@ export const searchLibraryPassages = createServerFn({ method: 'GET' })
     // phonetically wrong ("Quinn", "keemi") or the speaker shows them on
     // screen without saying them. Without this, searching for "qwen"
     // matches zero passages in the Qwen video itself.
-    const bm25Chunks: TranscriptChunk[] = flat.map((p, i) => {
-      const titleLine = [p.video.videoTitle, p.video.videoAuthor]
-        .filter(Boolean)
-        .join(' ');
-      return {
-        id: i,
-        text: titleLine ? `${titleLine}\n${p.text}` : p.text,
-        startWord: 0,
-        timeSec: p.startSec,
-      };
-    });
-    const bm25Index = buildBM25Index(bm25Chunks);
-    const bm25Hits = searchBM25(bm25Index, data.query, flat.length);
-    const bm25Order = bm25Hits.map((c) => c.id);
-
-    // RRF merge: sum 1/(rank+K) across the two rankings. A passage that
-    // appears only in one retriever still scores (half-credit); a passage
-    // strong in both wins comfortably.
-    const rrf = new Map<number, number>();
-    denseOrder.forEach((id, rank) => {
-      rrf.set(id, (rrf.get(id) ?? 0) + 1 / (rank + 1 + RRF_K));
-    });
-    bm25Order.forEach((id, rank) => {
-      rrf.set(id, (rrf.get(id) ?? 0) + BM25_WEIGHT / (rank + 1 + RRF_K));
-    });
-
-    const preFilter = Array.from(rrf.entries())
-      .map(([i, rrfScore]) => ({ i, rrfScore, cosineScore: cosineScores[i] }))
-      .sort((a, b) => b.rrfScore - a.rrfScore);
+    const fusion = fuseHybridRankings(
+      qVec,
+      data.query,
+      flat.map((p) => {
+        const titleLine = [p.video.videoTitle, p.video.videoAuthor]
+          .filter(Boolean)
+          .join(' ');
+        return {
+          embedding: p.embedding,
+          text: titleLine ? `${titleLine}\n${p.text}` : p.text,
+        };
+      }),
+    );
+    const { cosineScores, denseOrder, bm25Order } = fusion;
+    const preFilter = fusion.ranked;
 
     // Diagnostic — top-10 from each retriever and the RRF merge, before
     // the minScore filter. Helps spot "BM25 found it, cosine didn't, and
@@ -1583,7 +1507,9 @@ export const backfillValueScores = createServerFn({ method: 'POST' })
             watchVerdict: { $notNull: true },
             valueScore: { $null: true },
           },
-          fields: ['documentId', 'watchVerdict'],
+          // signalScore rides along so the unified writer can blend the
+          // hybrid finalScore against the row's existing signal component.
+          fields: ['documentId', 'watchVerdict', 'signalScore'],
           pagination: { page, pageSize: PAGE_SIZE, withCount: true },
         },
       });
@@ -1594,23 +1520,14 @@ export const backfillValueScores = createServerFn({ method: 'POST' })
       for (const row of rows) {
         if (!row.watchVerdict || !row.documentId) continue;
         const score = backfillScoreFromVerdict(row.watchVerdict);
-        const finalScore = computeFinalScore(score, row.signalScore) ?? score;
-        const write = await strapiFetch<StrapiVideo>(
-          'PUT',
-          `/api/videos/${row.documentId}`,
-          {
-            body: {
-              data: {
-                valueScore: score,
-                // Tag the source so UI surfaces can treat this as a
-                // "needs upgrade" placeholder vs a real model score.
-                valueScoreSource: 'derived',
-                finalScore,
-              },
-            },
-          },
+        // 'derived' tags the source so UI surfaces can treat this as a
+        // "needs upgrade" placeholder vs a real model score.
+        const write = await applyVideoScoreUpdateService(
+          row.documentId,
+          { kind: 'value', valueScore: score, valueScoreSource: 'derived' },
+          row,
         );
-        if (write.ok) updated += 1;
+        if (write.success) updated += 1;
       }
       const pageCount = result.meta?.pagination?.pageCount ?? 1;
       if (page >= pageCount) break;
@@ -1655,19 +1572,19 @@ export const regenerateVideoVerdict = createServerFn({ method: 'POST' })
       return { status: 'error', error: 'Video not found after regen' };
     }
 
-    // Recompute the hybrid finalScore against the row's existing
-    // signalScore (which we don't touch in the verdict-only path).
-    const finalScore =
-      computeFinalScore(generation.data.valueScore, video.signalScore) ??
-      generation.data.valueScore;
-    const write = await updateVideoVerdictService({
-      documentId: video.documentId,
-      watchVerdict: generation.data.watchVerdict,
-      verdictSummary: generation.data.verdictSummary,
-      verdictReason: generation.data.verdictReason,
-      valueScore: generation.data.valueScore,
-      finalScore,
-    });
+    // The unified writer blends the hybrid finalScore against the row's
+    // existing signalScore (untouched by the verdict-only path).
+    const write = await applyVideoScoreUpdateService(
+      video.documentId,
+      {
+        kind: 'verdict',
+        watchVerdict: generation.data.watchVerdict,
+        verdictSummary: generation.data.verdictSummary,
+        verdictReason: generation.data.verdictReason,
+        valueScore: generation.data.valueScore,
+      },
+      video,
+    );
     if (!write.success) {
       return { status: 'error', error: write.error };
     }
@@ -1736,6 +1653,27 @@ type StrapiVideoWithTranscript = StrapiVideo & {
   transcript?: { rawText?: string | null } | null;
 };
 
+// Deterministic signal computation from a cached raw transcript — shared
+// by the single-video regenerate and the bulk backfill. (The full summary
+// pipeline computes its own variant with segment-aware word counts.)
+function signalsFromRawTranscript(
+  rawText: string,
+  durationSec: number | null,
+): {
+  signalScores: NonNullable<StrapiVideo['signalScores']>;
+  signalScore: number;
+} {
+  const cleanedText = cleanTranscript(rawText);
+  const wordCount = (cleanedText.match(/\b[\w'-]+\b/g) ?? []).length;
+  const signalScores = computeSignalScores({
+    rawText,
+    cleanedText,
+    wordCount,
+    durationSec,
+  });
+  return { signalScores, signalScore: aggregateSignalScore(signalScores) };
+}
+
 export const countMissingSignalScores = createServerFn({ method: 'GET' })
   .handler(async (): Promise<{ missing: number }> => {
     const result = await strapiFetch<StrapiVideo[]>('GET', '/api/videos', {
@@ -1797,28 +1735,22 @@ export const regenerateVideoSignals = createServerFn({ method: 'POST' })
         error: 'No cached transcript yet — full Regenerate first.',
       };
     }
-    const cleaned = cleanTranscript(rawText);
-    const wordCount = (cleaned.match(/\b[\w'-]+\b/g) ?? []).length;
     const durationSec =
       (row.transcript as { durationSec?: number | null } | null | undefined)
         ?.durationSec ?? null;
-    const scores = computeSignalScores({
+    const { signalScores, signalScore } = signalsFromRawTranscript(
       rawText,
-      cleanedText: cleaned,
-      wordCount,
       durationSec,
-    });
-    const composite = aggregateSignalScore(scores);
-    // Recompute hybrid finalScore against the row's existing valueScore.
-    const finalScore = computeFinalScore(row.valueScore, composite) ?? composite;
-    const write = await updateVideoSignalScoresService({
-      documentId: row.documentId,
-      signalScores: scores,
-      signalScore: composite,
-      finalScore,
-    });
+    );
+    // The unified writer blends finalScore against the row's existing
+    // valueScore.
+    const write = await applyVideoScoreUpdateService(
+      row.documentId,
+      { kind: 'signals', signalScores, signalScore },
+      row,
+    );
     if (!write.success) return { status: 'error', error: write.error };
-    return { status: 'ok', signalScore: composite };
+    return { status: 'ok', signalScore };
   });
 
 export const backfillSignalScores = createServerFn({ method: 'POST' })
@@ -1854,26 +1786,18 @@ export const backfillSignalScores = createServerFn({ method: 'POST' })
           skipped += 1;
           continue;
         }
-        const cleaned = cleanTranscript(rawText);
-        const wordCount = (cleaned.match(/\b[\w'-]+\b/g) ?? []).length;
         const durationSec =
           (row.transcript as { durationSec?: number | null } | null | undefined)
             ?.durationSec ?? null;
-        const scores = computeSignalScores({
+        const { signalScores, signalScore } = signalsFromRawTranscript(
           rawText,
-          cleanedText: cleaned,
-          wordCount,
           durationSec,
-        });
-        const composite = aggregateSignalScore(scores);
-        const finalScore =
-          computeFinalScore(row.valueScore, composite) ?? composite;
-        const write = await updateVideoSignalScoresService({
-          documentId: row.documentId,
-          signalScores: scores,
-          signalScore: composite,
-          finalScore,
-        });
+        );
+        const write = await applyVideoScoreUpdateService(
+          row.documentId,
+          { kind: 'signals', signalScores, signalScore },
+          row,
+        );
         if (write.success) updated += 1;
         else skipped += 1;
       }
@@ -1948,14 +1872,14 @@ export const backfillFinalScores = createServerFn({ method: 'POST' })
       if (rows.length === 0) break;
       for (const row of rows) {
         if (!row.documentId) continue;
-        const finalScore = computeFinalScore(row.valueScore, row.signalScore);
-        if (finalScore === null) continue;
-        const write = await strapiFetch<StrapiVideo>(
-          'PUT',
-          `/api/videos/${row.documentId}`,
-          { body: { data: { finalScore } } },
+        // 'rederive' recomputes finalScore from the stored components and
+        // no-ops (finalScore: null) when both are missing.
+        const write = await applyVideoScoreUpdateService(
+          row.documentId,
+          { kind: 'rederive' },
+          row,
         );
-        if (write.ok) updated += 1;
+        if (write.success && write.finalScore !== null) updated += 1;
       }
       const pageCount = result.meta?.pagination?.pageCount ?? 1;
       if (page >= pageCount) break;

@@ -12,18 +12,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { friendlyOllamaError } from '#/lib/services/ollama-errors';
+import { streamChatSSE, type Citation } from '#/lib/services/chat-stream';
 
-export type Citation = {
-  index: number;
-  videoDocumentId: string;
-  youtubeVideoId: string;
-  videoTitle: string | null;
-  videoAuthor: string | null;
-  videoThumbnailUrl: string | null;
-  startSec: number;
-  endSec: number;
-  text: string;
-};
+// The citation wire shape lives with the SSE transport; re-exported so
+// existing consumers (LibraryChat) keep importing it from the hook.
+export type { Citation };
 
 export type ChatMessage = {
   id: string;
@@ -71,10 +64,10 @@ function newId(): string {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// The streamer: handles the SSE fetch + parsing + setState-side updates.
-// Returned mutation resolves when the stream completes (or rejects on
-// error/abort). The mutation's `isPending` mirrors "a question is in
-// flight", which is what the UI cares about.
+// The streamer: issues the /api/ask fetch and maps typed stream events
+// onto message state. Returned mutation resolves when the stream
+// completes (or rejects on error/abort). The mutation's `isPending`
+// mirrors "a question is in flight", which is what the UI cares about.
 async function streamAsk(
   question: string,
   handlers: {
@@ -90,59 +83,31 @@ async function streamAsk(
     body: JSON.stringify({ question }),
     signal,
   });
-  if (!res.ok || !res.body) {
-    // Pull the body so the upstream message survives — previously this
-    // collapsed every non-OK response to "Request failed: 500", which
-    // hid the actual cause (Ollama down, retrieval errored, etc).
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `Request failed: ${res.status}`);
-  }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  // Wire framing + AG-UI parsing live in `chat-stream.ts` — including
+  // non-OK body extraction and RUN_ERROR translation. This loop only
+  // maps typed events onto message state.
   let accumulated = '';
   let citations: Citation[] = [];
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split('\n\n');
-    buffer = frames.pop() ?? '';
-    for (const frame of frames) {
-      const line = frame.trim();
-      if (!line.startsWith('data:')) continue;
-      const payload = line.slice(5).trim();
-      if (payload === '[DONE]') continue;
-      try {
-        const event = JSON.parse(payload) as {
-          type: string;
-          citations?: Citation[];
-          delta?: string;
-        };
-        if (event.type === 'CITATIONS' && event.citations) {
-          citations = event.citations;
-          setState((s) => ({
-            ...s,
-            messages: s.messages.map((m) =>
-              m.id === assistantId ? { ...m, citations } : m,
-            ),
-          }));
-        } else if (event.type === 'TEXT_MESSAGE_CONTENT' && event.delta) {
-          accumulated += event.delta;
-          setState((s) => ({
-            ...s,
-            messages: s.messages.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: accumulated, status: 'streaming' }
-                : m,
-            ),
-          }));
-        }
-      } catch {
-        // Non-JSON frame; ignore.
-      }
+  for await (const event of streamChatSSE(res)) {
+    if (event.kind === 'citations') {
+      citations = event.citations;
+      setState((s) => ({
+        ...s,
+        messages: s.messages.map((m) =>
+          m.id === assistantId ? { ...m, citations } : m,
+        ),
+      }));
+    } else if (event.kind === 'text') {
+      accumulated += event.delta;
+      setState((s) => ({
+        ...s,
+        messages: s.messages.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: accumulated, status: 'streaming' }
+            : m,
+        ),
+      }));
     }
   }
 

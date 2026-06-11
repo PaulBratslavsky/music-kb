@@ -176,7 +176,7 @@ export interface ContentTakeaway extends Struct.ComponentSchema {
     displayName: 'Takeaway';
   };
   attributes: {
-    text: Schema.Attribute.String &
+    text: Schema.Attribute.Text &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 280;

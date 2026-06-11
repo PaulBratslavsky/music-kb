@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { streamChatSSE, type StreamEvent } from './chat-stream';
+import { streamChatSSE, type Citation, type StreamEvent } from './chat-stream';
+import { friendlyOllamaError } from './ollama-errors';
 
 // Build a Response whose body streams the given byte chunks one-by-one
 // (so the parser sees realistic split-across-reads behaviour, not a
@@ -142,6 +143,116 @@ describe('streamChatSSE', () => {
       ]),
     );
     expect(events).toEqual([]);
+  });
+
+  it('yields a citations event for the CITATIONS frame (/api/ask)', async () => {
+    const citation: Citation = {
+      index: 0,
+      videoDocumentId: 'doc1',
+      youtubeVideoId: 'yt1',
+      videoTitle: 'Modal interchange',
+      videoAuthor: 'Author',
+      videoThumbnailUrl: null,
+      startSec: 12,
+      endSec: 30,
+      text: 'borrowed chords come from the parallel minor',
+    };
+    const events = await collect(
+      streamingResponse([
+        // `model` rides along on the wire frame but is informational —
+        // the typed event carries citations only.
+        `data: ${JSON.stringify({ type: 'CITATIONS', citations: [citation], model: 'gemma3' })}\n\n`,
+        'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"answer [1]"}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+    );
+    expect(events).toEqual([
+      { kind: 'citations', citations: [citation] },
+      { kind: 'text', delta: 'answer [1]' },
+    ]);
+  });
+
+  it('skips a CITATIONS frame whose citations field is not an array', async () => {
+    const events = await collect(
+      streamingResponse([
+        'data: {"type":"CITATIONS","citations":"oops"}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+    );
+    expect(events).toEqual([]);
+  });
+
+  it('joins multi-line data: frames into one payload', async () => {
+    // SSE allows one event to span several `data:` lines; the inline
+    // parsers this module replaced dropped everything after the first.
+    const events = await collect(
+      streamingResponse([
+        'data: {"type":"TEXT_MESSAGE_CONTENT",\ndata: "delta":"multi"}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+    );
+    expect(events).toEqual([{ kind: 'text', delta: 'multi' }]);
+  });
+
+  it('throws a translated error on a RUN_ERROR frame', async () => {
+    // RUN_ERROR is what @tanstack/ai emits when e.g. Ollama dies
+    // mid-stream. It must throw — not silently end the stream.
+    await expect(
+      collect(
+        streamingResponse([
+          'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"partial"}\n\n',
+          'data: {"type":"RUN_ERROR","error":{"message":"fetch failed"}}\n\n',
+        ]),
+      ),
+    ).rejects.toThrow('AI server unreachable. Is Ollama running on port 11434?');
+  });
+
+  it('passes a RUN_ERROR message matching no Ollama pattern through unchanged', async () => {
+    await expect(
+      collect(
+        streamingResponse([
+          'data: {"type":"RUN_ERROR","error":{"message":"tool exploded"}}\n\n',
+        ]),
+      ),
+    ).rejects.toThrow('tool exploded');
+  });
+
+  it('throws a fallback message when RUN_ERROR carries no detail', async () => {
+    await expect(
+      collect(streamingResponse(['data: {"type":"RUN_ERROR"}\n\n'])),
+    ).rejects.toThrow('AI run failed');
+  });
+
+  it('RUN_ERROR translation is idempotent at consumer catch sites', async () => {
+    // Consumers (VideoChat, DigestChat, useLibraryChat, NoteComposer)
+    // run caught errors through friendlyOllamaError again — the already
+    // translated message must survive the second pass unchanged.
+    let caught = '';
+    try {
+      await collect(
+        streamingResponse([
+          'data: {"type":"RUN_ERROR","error":{"message":"ECONNREFUSED 127.0.0.1:11434"}}\n\n',
+        ]),
+      );
+    } catch (err) {
+      caught = err instanceof Error ? err.message : '';
+    }
+    expect(caught).toBe('AI server unreachable. Is Ollama running on port 11434?');
+    expect(friendlyOllamaError(caught)).toBe(caught);
+  });
+
+  it('throws the response body text on a non-OK response', async () => {
+    const res = new Response('retrieval failed: index not built', {
+      status: 500,
+    });
+    await expect(collect(res)).rejects.toThrow(
+      'retrieval failed: index not built',
+    );
+  });
+
+  it('falls back to the status code when a non-OK response has no body', async () => {
+    const res = new Response(null, { status: 503 });
+    await expect(collect(res)).rejects.toThrow('Request failed: 503');
   });
 
   it('throws when the response has no body', async () => {

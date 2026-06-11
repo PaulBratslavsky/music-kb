@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite'
 import { devtools } from '@tanstack/devtools-vite'
 
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -7,16 +7,13 @@ import { nitro } from 'nitro/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+// Unit-test config lives in vitest.config.ts (which vitest prefers over this
+// file). Keeping the app plugins out of the test pipeline avoids the vite 8
+// vs vitest-bundled vite 7 type clash and stops nitro/devtools servers from
+// holding the vitest process open after the run.
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [devtools(), tailwindcss(), tanstackStart(), nitro(), viteReact()],
-  // Vitest (unit) owns src/**. Playwright (e2e) owns e2e/** and uses
-  // *.spec.ts — exclude it here so vitest's default glob doesn't try to
-  // run browser specs in node.
-  test: {
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
-  },
 })
 
 export default config

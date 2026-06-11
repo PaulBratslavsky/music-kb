@@ -210,10 +210,12 @@ Full walkthrough (Claude Code, Cursor, MCP Inspector, auth rotation) in [`docs/m
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama endpoint (the `/v1` suffix is stripped for the TanStack AI adapter, but kept for env-file portability) |
 | `OLLAMA_MODEL` | `gemma4-kb:latest` | Summary generation model |
 | `OLLAMA_CHAT_MODEL` | *(inherits `OLLAMA_MODEL`)* | Separate model for chat Q&A if you want one |
+| `OLLAMA_SYNTHESIS_MODEL` | *(inherits `OLLAMA_CHAT_MODEL`)* | Optional bigger model for library-wide synthesis (`/api/ask`, note compose) |
 | `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model for related-videos + semantic search. Any Ollama embedding model works — swap + bump `EMBEDDING_VERSION` to force reindex. |
-| `EMBEDDING_VERSION` | `1` | Compound invalidation key alongside `OLLAMA_EMBEDDING_MODEL`. Bump when the text-builder in `client/src/lib/services/embeddings.ts` changes (different fields concatenated, different ordering). Any stored `embeddingVersion` that doesn't match is flagged stale. |
 | `MAP_CONCURRENCY` | `1` | Parallel map-step chunks on long videos. Bump to 2-4 if you have RAM headroom. Must match `OLLAMA_NUM_PARALLEL` on the server side. |
 | `TRANSCRIPT_PROXY_URL` | *(empty)* | Residential proxy for the YouTube caption fetch — only needed if your IP hits a bot wall |
+
+`EMBEDDING_VERSION` is not a client env var — it's a code constant in `client/src/lib/env.ts` (currently `2`), the compound invalidation key alongside `OLLAMA_EMBEDDING_MODEL`. Bump it by editing that file when the text-builder in `client/src/lib/services/embeddings.ts` changes (different fields concatenated, different ordering); any stored `embeddingVersion` that doesn't match is flagged stale.
 
 ### Ollama environment (via `launchctl setenv` on macOS)
 
