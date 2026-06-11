@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Music-flavored note templates and tag taxonomy
 - An interactive **theory companion panel** on each learn page (piano, guitar, Ableton Push, tab, sheet music) backed by the `tonal` library — ported from the standalone `instrument-visualizer` project
-- (Planned) music-aware AI extraction: chords, keys, techniques, referenced songs surface as structured fields on each video and feed cross-video discovery
+- Music-aware AI extraction: chords, key, techniques, and referenced songs extracted from the transcript into `Video.musicExtraction` (`client/src/lib/services/music-extraction.ts`) — runs best-effort after summary generation, manually triggerable from the Theory tab, timecodes BM25-grounded per ADR 0004. (Planned phase 2: feed extraction into the embedding text-builder for cross-video discovery — needs an `EMBEDDING_VERSION` bump.)
 
 The base architecture below carries over from the parent project unchanged unless noted.
 
@@ -41,7 +41,7 @@ All run from the **repo root** unless noted.
 ### Tests
 
 ```bash
-yarn --cwd client test                         # full vitest suite (~275 tests)
+yarn --cwd client test                         # full vitest suite (~290 tests)
 yarn --cwd client test path/to/file.test.ts    # single file
 yarn --cwd client test -t "name fragment"      # filter by test name
 yarn --cwd client test:e2e                     # Playwright smoke (needs stack up)
@@ -112,7 +112,7 @@ Single-pass for short transcripts; long ones split into 2500-word windows (50-wo
 
 ### MCP server lives in Strapi
 
-`server/src/mcp/` exposes 14 tools (videos, transcripts, tags, notes) over Streamable HTTP at `/api/mcp` with bearer-token auth. **Tools are defined once here** — the in-app Ollama chat does not use MCP, and reusing tool implementations across the two worlds is intentionally avoided to keep local inference protocol-free. See `docs/mcp.md`.
+`server/src/mcp/` exposes 23 tools (videos, transcripts, tags, notes, music data) over Streamable HTTP at `/api/mcp` with bearer-token auth. **Tools are defined once here** — the in-app Ollama chat does not use MCP, and reusing tool implementations across the two worlds is intentionally avoided to keep local inference protocol-free. See `docs/mcp.md`.
 
 ## Routing and aliases
 

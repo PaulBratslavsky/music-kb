@@ -65,6 +65,7 @@ config, and deleting the old one.
 | `saveSummary` | Persist a frontier-model-generated summary to a Video |
 | `listTags` / `tagVideo` / `untagVideo` | Tag CRUD |
 | `saveNote` | Attach a short note to a video |
+| `getMusicData` | AI-extracted music data (key, chords, techniques, referenced songs; transcript-grounded timecodes) + the video's saved practice loops |
 
 The server also exposes one resource — `strapi://tools/guide` — which
 returns a markdown catalog of the above (useful for clients that don't
@@ -93,7 +94,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`
 ```
 
 Restart Claude Desktop. The `yt-knowledge-base` server should appear in
-the tools menu with ~14 tools available.
+the tools menu with 23 tools available.
 
 > Why `mcp-remote`? Claude Desktop's built-in client supports stdio
 > transports; `mcp-remote` bridges a stdio client to our Streamable HTTP

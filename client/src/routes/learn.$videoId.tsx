@@ -33,8 +33,10 @@ import {
 } from '#/data/server-functions/loops';
 import { RelatedVideos } from '#/components/RelatedVideos';
 import { GenerationModeSelect } from '#/components/GenerationModeSelect';
+import { MusicExtractionPanel } from '#/components/MusicExtractionPanel';
 import {
   clearSummaryFailure,
+  extractVideoMusic,
   getGenerationProgress,
   getVideoByVideoId,
   regenerateSummary,
@@ -289,7 +291,7 @@ function LearnLayout({
   const [theoryOverrideState, setTheoryOverrideState] =
     useState<AppState | null>(null);
 
-  const handleUseAsKey = (key: KeySig) => {
+  const handleUseAsKey = (key: KeySig, opts?: { preferFlats?: boolean }) => {
     setCandidateKey(key);
     setTheoryOverrideState({
       mode: 'scale',
@@ -299,10 +301,58 @@ function LearnLayout({
       scale: { root: key.root as any, type: key.type as any },
       singleNote: key.root as any,
       scalePosition: 'all',
-      preferFlats: false,
+      preferFlats: opts?.preferFlats ?? false,
       chordDepth: 'triad',
     });
     setTheoryNonce((n) => n + 1);
+  };
+
+  // ---- AI music extraction (Theory tab panel) ----------------------------
+  // Route-level state like the page's other regenerate flows: the panel is
+  // purely presentational, the analyze round-trip + inline error live here.
+  const router = useRouter();
+  const [musicAnalyzing, setMusicAnalyzing] = useState(false);
+  const [musicError, setMusicError] = useState<string | null>(null);
+
+  const handleAnalyzeMusic = async () => {
+    if (musicAnalyzing) return;
+    setMusicAnalyzing(true);
+    setMusicError(null);
+    try {
+      const result = await extractVideoMusic({ data: { videoId } });
+      if (result.status === 'error') {
+        setMusicError(friendlyOllamaError(result.error));
+        return;
+      }
+      // Loader re-reads the video row, so the panel re-renders with the
+      // freshly stored extraction — same pattern as the regenerate flows.
+      await router.invalidate();
+    } catch (err) {
+      setMusicError(
+        friendlyOllamaError(
+          err instanceof Error ? err.message : 'Music analysis failed',
+        ),
+      );
+    } finally {
+      setMusicAnalyzing(false);
+    }
+  };
+
+  // "Load into visualizer" — same hydration as picking a key by hand, with
+  // one twist: the extraction sanitizer allows flat roots ('Bb'), but the
+  // visualizer's PitchClass vocabulary is sharps-only ('A#'). Normalize and
+  // flag preferFlats so the key keeps its flat spelling on screen.
+  const FLAT_TO_SHARP: Record<string, string> = {
+    Db: 'C#',
+    Eb: 'D#',
+    Gb: 'F#',
+    Ab: 'G#',
+    Bb: 'A#',
+  };
+  const handleLoadExtractedKey = (key: { root: string; type: string }) => {
+    const isFlat = key.root in FLAT_TO_SHARP;
+    const root = FLAT_TO_SHARP[key.root] ?? key.root;
+    handleUseAsKey({ root, type: key.type }, { preferFlats: isFlat });
   };
 
   // When the user changes the visualizer scale via SelectionBar (instead of
@@ -446,6 +496,15 @@ function LearnLayout({
               />
             ) : view === 'theory' ? (
               <>
+                <MusicExtractionPanel
+                  extraction={video.musicExtraction}
+                  analyzing={musicAnalyzing}
+                  error={musicError}
+                  onAnalyze={() => void handleAnalyzeMusic()}
+                  onDismissError={() => setMusicError(null)}
+                  onSeek={seekTo}
+                  onLoadKey={handleLoadExtractedKey}
+                />
                 <LoopBuilder
                   lastFocusedPC={lastFocusedPC}
                   onUseAsKey={handleUseAsKey}

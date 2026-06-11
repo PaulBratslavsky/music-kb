@@ -1242,6 +1242,34 @@ export async function generateVideoSummary(
 
   await refreshVideoEmbeddings(videoId, updated.data, transcriptSegments);
 
+  // (music-kb) Best-effort music extraction — same "log but never fail"
+  // contract as the embedding refresh. Lazy import keeps the base pipeline
+  // free of the music layer. Skips rows whose stored extraction is current.
+  try {
+    const { extractMusicForVideo, musicExtractionStatus } = await import(
+      '#/lib/services/music-extraction'
+    );
+    if (musicExtractionStatus(updated.data.musicExtraction) !== 'current') {
+      const extracted = await extractMusicForVideo(videoId);
+      logPhase(
+        videoId,
+        extracted.success ? 'music ✓ extracted' : 'music ⚠ skipped',
+        extracted.success
+          ? {
+              key: extracted.data.key
+                ? `${extracted.data.key.root} ${extracted.data.key.type}`
+                : null,
+              chords: extracted.data.chords.length,
+            }
+          : { reason: extracted.error },
+      );
+    }
+  } catch (err) {
+    logPhase(videoId, 'music ⚠ skipped', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+
   logPhase(videoId, '✓ generation complete', { took: ms(runStart) });
   return { success: true, data: updated.data };
 }

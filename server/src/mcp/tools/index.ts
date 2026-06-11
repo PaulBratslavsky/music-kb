@@ -19,6 +19,8 @@ import { saveSummaryTool } from './save-summary';
 import { listTagsTool, tagVideoTool, untagVideoTool } from './tags';
 import { saveNoteTool } from './save-note';
 
+import { getMusicDataTool } from './get-music-data';
+
 import { aggregateByTagTool } from './aggregate-by-tag';
 import { listUntaggedTool } from './list-untagged';
 import { crossSearchTranscriptsTool } from './cross-search-transcripts';
@@ -54,6 +56,9 @@ export function registerAllTools(): void {
   registerTool(tagVideoTool);
   registerTool(untagVideoTool);
   registerTool(saveNoteTool);
+
+  // Music layer — extracted music data + practice loops.
+  registerTool(getMusicDataTool);
 
   // Aggregators — cross-video workflows (reason over many rows in one call).
   registerTool(aggregateByTagTool);

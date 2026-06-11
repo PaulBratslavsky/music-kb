@@ -9,6 +9,17 @@ function normalizeTagName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+// Derive the required `slug` uid from a normalized name. Strapi's content
+// API does NOT auto-generate uid fields (only the admin UI does), so a
+// REST create that sends just `name` would 400 with "slug must be defined".
+function slugifyTagName(name: string): string {
+  return name
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-');
+}
+
 export default {
   register({ strapi }: { strapi: Core.Strapi }) {
     strapi.documents.use(async (context, next) => {
@@ -56,7 +67,10 @@ export default {
         }
       }
 
-      // Rule 2: tag.create — normalize name for consistent dedupe.
+      // Rule 2: tag.create — normalize name for consistent dedupe, and
+      // derive the required slug when the client didn't send one (REST
+      // clients send only `name`; without this, on-the-fly tag creation
+      // from the share flow 400s — see videos.smoke.test.ts).
       if (
         context.uid === 'api::tag.tag' &&
         context.action === 'create'
@@ -65,6 +79,9 @@ export default {
         const raw = data.name as string | undefined;
         if (typeof raw === 'string') {
           data.name = normalizeTagName(raw);
+          if (!data.slug) {
+            data.slug = slugifyTagName(data.name as string);
+          }
         }
         (context.params as WithData).data = data;
       }

@@ -22,7 +22,8 @@
     "slug": {
       "type": "uid",
       "targetField": "name",
-      "required": true
+      "required": false,
+      "description": "Derived from the normalized name by the tag.create rule in src/index.ts when the client omits it. Not schema-required because input validation runs before that rule can inject it — REST clients send only `name`. Every persisted row still gets a slug."
     },
     "videos": {
       "type": "relation",
