@@ -67,7 +67,8 @@ describe('videos service — smoke', () => {
       // Expected on re-runs — Rule 1 in server middleware.
       expect(body.error?.message ?? '').toMatch(/already exists/i);
     } else {
-      expect(res.status).toBe(200);
+      // Strapi 5 returns 201 Created on REST create.
+      expect(res.status).toBe(201);
     }
   });
 
@@ -92,7 +93,8 @@ describe('videos service — smoke', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data: { name } }),
     });
-    expect(res.status).toBe(200);
+    // Strapi 5 returns 201 Created on REST create.
+    expect(res.status).toBe(201);
     const json = (await res.json()) as { data?: { name?: string } };
     // Server middleware Rule 2 normalizes → lowercase + trimmed.
     expect(json.data?.name).toBe(name.toLowerCase());
