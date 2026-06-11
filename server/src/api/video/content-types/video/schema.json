@@ -175,6 +175,10 @@
       "type": "json",
       "description": "Tier-2 passage-level embeddings for moment search. Self-contained blob holding the chunker output: { model, version, generatedAt, chunks: [{ text, startSec, endSec, embedding }] }. Independent from summaryEmbedding — different invalidation key and chunker."
     },
+    "musicExtraction": {
+      "type": "json",
+      "description": "AI-extracted music data. Self-contained versioned blob: { version, model, generatedAt, key, chords, techniques, songs }. key/chord shapes match the Loop collection's key/progression JSON so the theory panel seeds from either. timeSec values are BM25-grounded against the transcript, never model-emitted (ADR 0004). See client lib/services/music-extraction.ts."
+    },
     "keyTakeaways": {
       "type": "component",
       "repeatable": true,

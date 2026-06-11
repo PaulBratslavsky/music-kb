@@ -109,6 +109,12 @@ Used for moment-level semantic search (e.g. "find the exact moment they explain 
 |---|---|
 | `transcriptSegments` (json) | Coalesced chunks of the transcript with metadata + BM25 stats. Built at summary-generation time. **This is the per-video chat retrieval index** (see ADR 0003), not a copy of the raw transcript. Raw segments live on `Transcript.rawSegments`. |
 
+### Music extraction (music-kb fork)
+
+| Field | Notes |
+|---|---|
+| `musicExtraction` (json) | AI-extracted music data, self-contained versioned blob: `{ version, model, generatedAt, key, chords, techniques, songs }`. `key` / chord `{ root, quality }` shapes match the Loop collection's `key`/`progression` JSON so the theory panel seeds from either. `timeSec` values are BM25-grounded against `transcriptSegments` (ADR 0004 — never model-emitted). Written only by `updateVideoMusicExtractionService`; `MUSIC_EXTRACTION_VERSION`/model mismatch ⇒ stale. An empty blob means "analyzed, no music found" (prevents re-running the model every regeneration). |
+
 ### Relations
 
 | Relation | Notes |

@@ -126,6 +126,41 @@ export function computeFinalScore(
   );
 }
 
+/** (music-kb fork) Stored shape of `Video.musicExtraction`. Declared here
+ * (not in music-extraction.ts) because StrapiVideo carries it — the
+ * extraction service imports from this module, not the other way around.
+ * `key` matches the Loop collection's `key` JSON; chord `{ root, quality }`
+ * matches a Loop `progression` entry. */
+export type ExtractedMusicData = {
+  /** MUSIC_EXTRACTION_VERSION at write time — bump in music-extraction.ts
+   * when the prompt/sanitizer changes meaning; mismatch ⇒ stale. */
+  version: number;
+  model: string;
+  generatedAt: string;
+  /** Null when the model couldn't determine one (or none applies). */
+  key: { root: string; type: string; confidence: 'high' | 'medium' | 'low' } | null;
+  chords: Array<{
+    root: string;
+    quality: string;
+    /** Short transcript phrase where the chord is taught/used — the BM25
+     * grounding query that produced `timeSec`. */
+    context: string;
+    timeSec?: number;
+  }>;
+  techniques: Array<{
+    name: string;
+    description: string;
+    context: string;
+    timeSec?: number;
+  }>;
+  songs: Array<{
+    title: string;
+    artist: string | null;
+    context: string;
+    timeSec?: number;
+  }>;
+};
+
 export type StrapiVideo = {
   id: number;
   documentId: string;
@@ -211,6 +246,15 @@ export type StrapiVideo = {
       embedding: number[];
     }>;
   } | null;
+  /** (music-kb fork) AI-extracted music data — self-contained versioned
+   * blob, same invalidation pattern as `passageEmbeddings`. `key` and
+   * chord `{ root, quality }` reuse the Loop collection's JSON shapes so
+   * the theory panel can seed from either source. `timeSec` values are
+   * BM25-grounded against the transcript (ADR 0004) — never trusted from
+   * the model. Written only by `updateVideoMusicExtractionService`;
+   * populated best-effort after summary generation or via the manual
+   * "Analyze music" trigger. */
+  musicExtraction: ExtractedMusicData | null;
   keyTakeaways: StrapiTakeaway[] | null;
   sections: StrapiSection[] | null;
   actionSteps: StrapiActionStep[] | null;
@@ -636,6 +680,21 @@ export async function updateVideoPassagesService(input: {
     'PUT',
     `/api/videos/${input.documentId}`,
     { body: { data: { passageEmbeddings: input.passageEmbeddings } } },
+  );
+  return result.ok ? { success: true } : { success: false, error: result.error };
+}
+
+// Dedicated writer for the AI music-extraction blob. Isolated from the
+// summary write path (like the embedding writers) so the extraction layer
+// can evolve without touching summary code.
+export async function updateVideoMusicExtractionService(input: {
+  documentId: string;
+  musicExtraction: ExtractedMusicData;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const result = await strapiFetch<StrapiVideo>(
+    'PUT',
+    `/api/videos/${input.documentId}`,
+    { body: { data: { musicExtraction: input.musicExtraction } } },
   );
   return result.ok ? { success: true } : { success: false, error: result.error };
 }

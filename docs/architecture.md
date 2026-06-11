@@ -734,3 +734,14 @@ Cross-video moment search is a separate question — Tier 2 embeddings (Section 
 ### 11.9 Progression Composer (music-kb fork)
 
 The **Compose** tab on `/theory` — a Hookpad-style 8-bar sketchpad for chord progression + melody + bass, expressed entirely in scale degrees over a 128-tick (16th-note) grid so changing the key transposes the whole piece. Saved to a Strapi `composition` content type as one versioned JSON blob. Pure domain (`client/src/lib/music/compose/`: model, span ops, degree→MIDI resolution, schedule) is split from the React UI (`client/src/components/compose/`: presentational memoized lanes, shared `useSpanDrag`, a reducer for edit state). Full deep-dive — model, the monophonic invariant, playback clock, voices, persistence/versioning, constraints + extension points — in [`./composer.md`](./composer.md).
+
+### 11.10 AI music extraction (music-kb fork, 2026-06-11)
+
+The structured layer the fork was made for: per-video **key, chords, techniques, referenced songs**, extracted by the local model from the cached transcript. `client/src/lib/services/music-extraction.ts`.
+
+- **Pipeline**: cached transcript → cheap regex gate (`looksLikeMusicInstruction`; the manual trigger forces past it) → one-shot `chat()` with a zod output schema (mirrors the verdict-only mini-pipeline) → `sanitizeMusicExtraction` (pitch-class normalization, dedupe, clamps — schema-valid output is still content-untrusted) → **BM25 grounding** → write via the dedicated `updateVideoMusicExtractionService`.
+- **ADR 0004 applies**: the model emits a short verbatim `context` phrase per item, never a timestamp. `groundMusicExtraction` resolves each context against the video's **stored** BM25 index (`transcriptSegments`); items that don't clear the score floor simply have no `timeSec`.
+- **Storage**: one self-contained versioned blob on `Video.musicExtraction` (the `passageEmbeddings` invalidation pattern — `MUSIC_EXTRACTION_VERSION` + model; mismatch ⇒ stale). A non-music verdict writes an **empty blob** so the background path doesn't re-burn an Ollama call every regeneration.
+- **Triggers**: best-effort after summary generation (same "log but never fail" contract as the embedding refresh), and a forced manual pass via the `extractVideoMusic` server function from the learn page's Theory tab.
+- **Consumers**: the Theory tab panel (key/chord/technique chips, seek via grounded timecodes, "load into visualizer" — the extracted `key`/chord shapes deliberately match the Loop collection's JSON so the panel seeds from either source) and the `getMusicData` MCP tool (extraction + saved Loops).
+- **Deferred (phase 2)**: feeding extraction into the embedding text-builder (requires an `EMBEDDING_VERSION` bump) so cross-video discovery can answer "videos in E minor" / "videos teaching travis picking".

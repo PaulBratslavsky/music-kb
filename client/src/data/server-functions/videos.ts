@@ -19,10 +19,12 @@ import {
   updateVideoPassagesService,
   updateVideoSongContentService,
   updateVideoTypeService,
+  type ExtractedMusicData,
   type PaginatedVideos,
   type StrapiTag,
   type StrapiVideo,
 } from '#/lib/services/videos';
+import { extractMusicForVideo } from '#/lib/services/music-extraction';
 import {
   aggregateSignalScore,
   computeSignalScores,
@@ -1696,6 +1698,26 @@ export type BackfillSignalScoresResult = {
   skipped: number;
   total: number;
 };
+
+// =============================================================================
+// (music-kb) Manual music-extraction trigger — the "Analyze music" button on
+// the learn page's Theory tab. Forces past the heuristic gate (the user is
+// explicitly asking), unlike the best-effort post-generation pass.
+// =============================================================================
+
+export type ExtractVideoMusicResult =
+  | { status: 'ok'; extraction: ExtractedMusicData }
+  | { status: 'error'; error: string };
+
+export const extractVideoMusic = createServerFn({ method: 'POST' })
+  .inputValidator((data: z.input<typeof VideoIdSchema>) =>
+    VideoIdSchema.parse(data),
+  )
+  .handler(async ({ data }): Promise<ExtractVideoMusicResult> => {
+    const result = await extractMusicForVideo(data.videoId, { force: true });
+    if (!result.success) return { status: 'error', error: result.error };
+    return { status: 'ok', extraction: result.data };
+  });
 
 // Single-video signal regenerate. Used by the "Generate score" button on
 // the VideoCard — the bulk backfill is overkill for one row, and the

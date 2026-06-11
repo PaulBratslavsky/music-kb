@@ -664,7 +664,7 @@ export interface ApiTagTag extends Struct.CollectionTypeSchema {
         minLength: 1;
       }>;
     publishedAt: Schema.Attribute.DateTime;
-    slug: Schema.Attribute.UID<'name'> & Schema.Attribute.Required;
+    slug: Schema.Attribute.UID<'name'>;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -778,6 +778,7 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
       Schema.Attribute.Private;
     loops: Schema.Attribute.Relation<'oneToMany', 'api::loop.loop'>;
     lyricsContent: Schema.Attribute.Text;
+    musicExtraction: Schema.Attribute.JSON;
     notes: Schema.Attribute.Relation<'manyToMany', 'api::note.note'>;
     passageEmbeddings: Schema.Attribute.JSON;
     publishedAt: Schema.Attribute.DateTime;
