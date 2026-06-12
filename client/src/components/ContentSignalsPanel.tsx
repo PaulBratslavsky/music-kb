@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from '@tanstack/react-router';
 import { Button } from '#/components/ui/button';
 import {
@@ -44,7 +44,10 @@ export function ContentSignalsPanel() {
     | { kind: 'done'; ok: number; failed: number; total: number }
     | { kind: 'cancelled'; ok: number; failed: number; total: number }
   >({ kind: 'idle' });
-  const [aiCancelRequested, setAiCancelRequested] = useState(false);
+  // Ref, not state: the running loop's closure captures a state value once
+  // and never sees the Cancel click — with useState the button did nothing.
+  const aiCancelRequested = useRef(false);
+  const [aiCancelPending, setAiCancelPending] = useState(false);
   const [aiVisible, setAiVisible] = useState(false);
 
   const refresh = async () => {
@@ -91,7 +94,8 @@ export function ContentSignalsPanel() {
 
   const handleAiRegenerate = async () => {
     if (aiState.kind === 'running') return;
-    setAiCancelRequested(false);
+    aiCancelRequested.current = false;
+    setAiCancelPending(false);
     const videos = await listRegenerableVideos();
     const total = videos.length;
     if (total === 0) {
@@ -102,7 +106,7 @@ export function ContentSignalsPanel() {
     let failed = 0;
     setAiState({ kind: 'running', current: 0, total, lastVideo: null });
     for (let i = 0; i < videos.length; i += 1) {
-      if (aiCancelRequested) {
+      if (aiCancelRequested.current) {
         setAiState({ kind: 'cancelled', ok, failed, total });
         return;
       }
@@ -237,10 +241,13 @@ export function ContentSignalsPanel() {
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => setAiCancelRequested(true)}
-                  disabled={aiCancelRequested}
+                  onClick={() => {
+                    aiCancelRequested.current = true;
+                    setAiCancelPending(true);
+                  }}
+                  disabled={aiCancelPending}
                 >
-                  {aiCancelRequested ? 'Stopping…' : 'Cancel'}
+                  {aiCancelPending ? 'Stopping…' : 'Cancel'}
                 </Button>
               ) : (
                 <Button
