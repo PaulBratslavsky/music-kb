@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   applyVideoScoreUpdateService,
   backfillScoreFromVerdict,
+  buildMusicExtractionText,
   createVideoService,
   fetchFeedService,
   fetchVideoByDocumentIdWithStatusService,
@@ -24,7 +25,10 @@ import {
   type StrapiTag,
   type StrapiVideo,
 } from '#/lib/services/videos';
-import { extractMusicForVideo } from '#/lib/services/music-extraction';
+import {
+  extractMusicForVideo,
+  musicExtractionStatus,
+} from '#/lib/services/music-extraction';
 import {
   aggregateSignalScore,
   computeSignalScores,
@@ -1067,6 +1071,11 @@ function buildVideoSearchText(v: StrapiVideo): string {
   if (v.tags && v.tags.length > 0) {
     parts.push(v.tags.map((t) => t.name).join(' '));
   }
+  // (music-kb) Music-extraction terms — mirrors the embedding text-builder
+  // (v3) so the lexical leg sees the same music vocabulary the dense leg
+  // does ("travis picking", song titles, key names).
+  const music = buildMusicExtractionText(v.musicExtraction);
+  if (music) parts.push(music);
   return parts.join(' ');
 }
 
@@ -1295,7 +1304,14 @@ export const searchLibraryPassages = createServerFn({ method: 'GET' })
       qVec,
       data.query,
       flat.map((p) => {
-        const titleLine = [p.video.videoTitle, p.video.videoAuthor]
+        // Compact music terms ride along with the title line for the same
+        // reason the title does: a technique/song often exists only in the
+        // video-level extraction, not in any single chunk's text.
+        const titleLine = [
+          p.video.videoTitle,
+          p.video.videoAuthor,
+          buildMusicExtractionText(p.video.musicExtraction, { compact: true }),
+        ]
           .filter(Boolean)
           .join(' ');
         return {
@@ -1717,6 +1733,51 @@ export const extractVideoMusic = createServerFn({ method: 'POST' })
     const result = await extractMusicForVideo(data.videoId, { force: true });
     if (!result.success) return { status: 'error', error: result.error };
     return { status: 'ok', extraction: result.data };
+  });
+
+// List the videos whose music extraction is missing or stale. The Settings
+// bulk-analyze loop lives CLIENT-side (one extractVideoMusic call per
+// video, ~90s each) — same shape as the bulk verdict re-rate: progress is
+// naturally visible and the run is cancellable.
+export type MusicExtractionCoverage = {
+  total: number;
+  candidates: Array<{
+    videoId: string;
+    videoTitle: string | null;
+    status: 'missing' | 'stale';
+  }>;
+};
+
+export const listMusicExtractionCandidates = createServerFn({ method: 'GET' })
+  .handler(async (): Promise<MusicExtractionCoverage> => {
+    const candidates: MusicExtractionCoverage['candidates'] = [];
+    let total = 0;
+    const PAGE_SIZE = 100;
+    for (let page = 1; page <= 50; page += 1) {
+      const result = await strapiFetch<StrapiVideo[]>('GET', '/api/videos', {
+        query: {
+          filters: { summaryStatus: { $eq: 'generated' } },
+          fields: ['documentId', 'youtubeVideoId', 'videoTitle', 'musicExtraction'],
+          pagination: { page, pageSize: PAGE_SIZE, withCount: true },
+        },
+      });
+      if (!result.ok) break;
+      const rows = result.data ?? [];
+      total = result.meta?.pagination?.total ?? total;
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        const status = musicExtractionStatus(row.musicExtraction);
+        if (status === 'current') continue;
+        candidates.push({
+          videoId: row.youtubeVideoId,
+          videoTitle: row.videoTitle,
+          status,
+        });
+      }
+      const pageCount = result.meta?.pagination?.pageCount ?? 1;
+      if (page >= pageCount) break;
+    }
+    return { total, candidates };
   });
 
 // Single-video signal regenerate. Used by the "Generate score" button on

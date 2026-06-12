@@ -13,6 +13,7 @@ import { tokenize } from './transcript';
 import { embedText, passageStatus } from './embeddings';
 import { fuseHybridRankings } from './retrieval-fusion';
 import {
+  buildMusicExtractionText,
   listAllVideosForEmbeddingService,
   type StrapiVideo,
 } from './videos';
@@ -92,7 +93,14 @@ export async function retrievePassagesForQuery(
     qVec,
     query,
     flat.map((p) => {
-      const titleLine = [p.video.videoTitle, p.video.videoAuthor]
+      // Compact music terms ride with the title line — a technique/song
+      // often exists only in the video-level extraction, not in any single
+      // chunk's text. Mirrors searchLibraryPassages.
+      const titleLine = [
+        p.video.videoTitle,
+        p.video.videoAuthor,
+        buildMusicExtractionText(p.video.musicExtraction, { compact: true }),
+      ]
         .filter(Boolean)
         .join(' ');
       return {

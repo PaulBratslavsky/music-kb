@@ -1,6 +1,6 @@
 # MCP tool: auto-rewrite drifted citations
 
-**Status:** Planned. Not started.
+**Status:** Shipped 2026-06-12 — option A (server-side duplicate of `verifyTimecodesInText` in `server/src/services/bm25-search.ts`; tool at `server/src/mcp/tools/verify-citations.ts`, includes `ungrounded` per decision #3).
 **Created:** 2026-05-05.
 **Origin:** Architecture review candidate [#6 Citation Grounding](./architecture-review/06-citation-grounding.md) — `verifyTimecodesInText` in `client/src/lib/services/transcript.ts:812` was found to be unused production code. Kept on purpose because of this planned feature.
 

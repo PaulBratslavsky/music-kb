@@ -98,3 +98,127 @@ export function formatTimecode(sec: number): string {
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
+
+// -----------------------------------------------------------------------------
+// Citation verification — server-side duplicate of `verifyTimecodesInText`
+// in client/src/lib/services/transcript.ts (option A of
+// docs/mcp-citation-rewrite-plan.md: duplicate, same precedent as the BM25
+// primitive above). Powers the `verifyCitations` MCP tool. Scoring math
+// must stay in lockstep with the client copy.
+// -----------------------------------------------------------------------------
+
+export type TranscriptEvidence = {
+  /** Real caption-segment start time in seconds. */
+  timeSec: number;
+  /** The transcript chunk's raw text — shows WHY we landed there. */
+  snippet: string;
+  /** BM25 relevance score. Higher = stronger match. */
+  score: number;
+};
+
+// BM25 top-1 lookup for a claim/quote. Returns null when nothing clears
+// `minScore` — the caller should then trust the model's original value.
+export function findEvidenceForQuote(
+  quote: string,
+  index: BM25Index,
+  minScore = 1.0,
+): TranscriptEvidence | null {
+  const [hit] = searchBM25(index, quote, 1);
+  if (!hit || hit.score < minScore) return null;
+  return {
+    timeSec: hit.chunk.timeSec,
+    snippet: hit.chunk.text,
+    score: hit.score,
+  };
+}
+
+// Parse a `mm:ss` or `h:mm:ss` string into seconds.
+function parseTcStringToSeconds(tc: string): number {
+  const parts = tc.split(':').map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return parts[0] * 60 + parts[1];
+}
+
+export type CitationOverride = {
+  /** Original timecode the model emitted. */
+  from: string;
+  /** Corrected timecode (transcript-grounded). */
+  to: string;
+  /** First 80 chars of the surrounding claim. */
+  context: string;
+};
+
+export type UngroundedCitation = {
+  /** The timecode as the model wrote it. */
+  timecode: string;
+  /** First 80 chars of the surrounding claim. */
+  context: string;
+};
+
+// Scan a text for model-emitted `[mm:ss]` / `(mm:ss)` / bare mm:ss citations.
+// For each, extract the surrounding context (~±200 chars) and verify the
+// cited timecode matches where that content actually lives in the transcript.
+// If the best chunk is >`toleranceSec` from the cited value AND the match
+// confidence clears `minScore`, swap the citation for the correct one.
+// Preserves wrapper style (brackets / parens / bare). Citations with no
+// confident transcript anchor are left untouched and reported in
+// `ungrounded` so the caller can decide what to do with them.
+export function verifyTimecodesInText(
+  text: string,
+  index: BM25Index,
+  opts: { toleranceSec?: number; minScore?: number } = {},
+): {
+  text: string;
+  overrides: CitationOverride[];
+  ungrounded: UngroundedCitation[];
+} {
+  const tolerance = opts.toleranceSec ?? 30;
+  const minScore = opts.minScore ?? 1.5;
+  const overrides: CitationOverride[] = [];
+  const ungrounded: UngroundedCitation[] = [];
+
+  // Three-alternative pattern — matches preserved so we can swap only the
+  // number while keeping punctuation intact.
+  const pattern = new RegExp(
+    [
+      '\\[(\\d{1,2}:\\d{2}(?::\\d{2})?)\\]',
+      '\\((\\d{1,2}:\\d{2}(?::\\d{2})?)\\)',
+      '\\b(\\d{1,2}:\\d{2}(?::\\d{2})?)\\b',
+    ].join('|'),
+    'g',
+  );
+
+  const corrected = text.replace(pattern, (match, bracketed, parens, bare, offset: number) => {
+    const tc: string | undefined = bracketed ?? parens ?? bare;
+    if (!tc) return match;
+    const cited = parseTcStringToSeconds(tc);
+
+    // Context window: ~200 chars before and after the citation, enough to
+    // BM25-score reliably without running over neighboring sections.
+    const before = text.slice(Math.max(0, offset - 200), offset);
+    const after = text.slice(offset + match.length, offset + match.length + 200);
+    const context = `${before} ${after}`.replace(/\s+/g, ' ').trim();
+    if (context.length < 20) {
+      // Not enough content to verify — surface it rather than guessing.
+      ungrounded.push({ timecode: tc, context: context.slice(0, 80) });
+      return match;
+    }
+
+    const hit = findEvidenceForQuote(context, index, minScore);
+    if (!hit) {
+      ungrounded.push({ timecode: tc, context: context.slice(0, 80) });
+      return match;
+    }
+
+    if (Math.abs(hit.timeSec - cited) <= tolerance) return match;
+
+    const newTc = formatTimecode(hit.timeSec);
+    overrides.push({ from: tc, to: newTc, context: context.slice(0, 80) });
+
+    if (bracketed) return `[${newTc}]`;
+    if (parens) return `(${newTc})`;
+    return newTc;
+  });
+
+  return { text: corrected, overrides, ungrounded };
+}

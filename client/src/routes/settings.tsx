@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { ContentSignalsPanel } from '#/components/ContentSignalsPanel';
 import { EmbeddingCoveragePanel } from '#/components/EmbeddingCoveragePanel';
+import { MusicExtractionCoveragePanel } from '#/components/MusicExtractionCoveragePanel';
 
 // App-level settings + infrastructure panels. Currently just embeddings;
 // future homes for MCP config, data export, API tokens, prefs.
@@ -21,6 +22,7 @@ function SettingsPage() {
 
       <div className="grid gap-4">
         <ContentSignalsPanel />
+        <MusicExtractionCoveragePanel />
         <EmbeddingCoveragePanel />
       </div>
     </main>

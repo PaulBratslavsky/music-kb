@@ -9,6 +9,7 @@ import { getTranscriptTool } from './get-transcript';
 import { searchTranscriptTool } from './search-transcript';
 import { findTranscriptsTool } from './find-transcripts';
 import { fetchTranscriptTool } from './fetch-transcript';
+import { verifyCitationsTool } from './verify-citations';
 
 import { listVideosTool } from './list-videos';
 import { getVideoTool } from './get-video';
@@ -43,6 +44,7 @@ export function registerAllTools(): void {
   registerTool(searchTranscriptTool);
   registerTool(findTranscriptsTool);
   registerTool(fetchTranscriptTool);
+  registerTool(verifyCitationsTool);
 
   // Video / KB tools — catalog-level.
   registerTool(listVideosTool);

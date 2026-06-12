@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Music-flavored note templates and tag taxonomy
 - An interactive **theory companion panel** on each learn page (piano, guitar, Ableton Push, tab, sheet music) backed by the `tonal` library — ported from the standalone `instrument-visualizer` project
-- Music-aware AI extraction: chords, key, techniques, and referenced songs extracted from the transcript into `Video.musicExtraction` (`client/src/lib/services/music-extraction.ts`) — runs best-effort after summary generation, manually triggerable from the Theory tab, timecodes BM25-grounded per ADR 0004. (Planned phase 2: feed extraction into the embedding text-builder for cross-video discovery — needs an `EMBEDDING_VERSION` bump.)
+- Music-aware AI extraction: chords, key, techniques, and referenced songs extracted from the transcript into `Video.musicExtraction` (`client/src/lib/services/music-extraction.ts`) — runs best-effort after summary generation, manually triggerable from the Theory tab or in bulk from `/settings`, timecodes BM25-grounded per ADR 0004. The extraction feeds every retrieval surface (embedding text-builder v3 + the BM25 legs), so "videos in E minor" works on `/feed` semantic search and `/api/ask`; each extraction re-embeds its video to keep the vector in sync.
 
 The base architecture below carries over from the parent project unchanged unless noted.
 

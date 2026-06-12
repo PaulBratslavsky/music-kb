@@ -32,8 +32,10 @@ import {
   getLoop as getLoopServerFn,
 } from '#/data/server-functions/loops';
 import { RelatedVideos } from '#/components/RelatedVideos';
+import { scoreColorClass } from '#/components/VideoCard';
 import { GenerationModeSelect } from '#/components/GenerationModeSelect';
 import { MusicExtractionPanel } from '#/components/MusicExtractionPanel';
+import { VideoNotesEditor } from '#/components/VideoNotesEditor';
 import {
   clearSummaryFailure,
   extractVideoMusic,
@@ -728,6 +730,10 @@ function SummaryContent({
           </ol>
         </section>
       )}
+      {/* Per-video scratchpad (notes-section plan #42) — below the summary
+          content, above the generation-mode footer. Persisted as a Note
+          row, so it also appears in the Notes tab. */}
+      <VideoNotesEditor videoDocumentId={video.documentId} />
       <footer className="mt-12 border-t border-[var(--line)] pt-5 text-xs text-[var(--ink-muted)]">
         <h3 className="mb-3 text-sm font-medium text-[var(--ink)]">
           Generation mode
@@ -797,12 +803,12 @@ function VerdictBlock({ video }: Readonly<{ video: StrapiVideo }>) {
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {typeof video.finalScore === 'number' && (
             <span
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-[var(--ink-muted)]"
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider ${scoreColorClass(video.finalScore)}`}
               title="Content score (0–100). Hybrid blend: 60% programmatic signals + 40% LLM judgement. Sub-scores below."
               aria-label={`Content score: ${video.finalScore} out of 100`}
             >
               <span>Content score</span>
-              <span className="text-[var(--ink)]">{video.finalScore}</span>
+              <span className="font-bold">{video.finalScore}</span>
             </span>
           )}
           {typeof video.signalScore === 'number' && (

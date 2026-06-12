@@ -2,7 +2,16 @@
 
 Per-video freeform notes on the learn page. Rich-text editing via Tiptap, persisted as markdown in Strapi, autosaved on change.
 
-Status: **parked**. Schema + service layer are done; editor component and page integration are not built yet.
+Status: **shipped** (2026-06-12). Tasks #41 and #42 are implemented — `client/src/components/VideoNotesEditor.tsx`, mounted in `routes/learn.$videoId.tsx` on the Summary tab between the Action Steps section and the generation-mode footer.
+
+Implementation notes — where the shipped code deviates from the plan below (the plan's "current state" predated the notes schema that actually landed):
+
+- **Persistence is a Note row, not a Video field.** `video.notes` shipped as a many-to-many relation to `api::note.note` (there is no `notes: richtext` field on Video, and `updateVideoNotesService` was never built). The scratchpad persists as one dedicated Note row per video — `source: 'manual'`, `author: 'scratchpad'`, title "Your notes" — through the existing note CRUD server functions (`listNotesForVideo` / `createNote` / `updateNote` / `deleteNote`). No new endpoints or schema changes. Bonus: the scratchpad shows up in the Notes tab alongside chat/MCP notes, rendered with timecode chips via `TimecodeMarkdown`.
+- **"Persist empty as null" became "delete the row"** — `body` is required on the note schema, and an empty scratchpad shouldn't leave a blank card in the Notes tab.
+- **No new dependencies.** `@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-link`, and `tiptap-markdown` were already in `client/package.json` (used by `MarkdownEditor.tsx`). `@tiptap/extension-placeholder` was not added — the placeholder is a CSS overlay inside the component instead.
+- **Current-time access uses `usePlayerControl()`** (the player Module's documented consumer idiom) instead of the `onCurrentVideoTime` prop specced below; the only prop is `videoDocumentId`.
+- Autosave (800ms debounce, serialized saves, idle/saving/saved/error indicator), the insert-timecode toolbar button, and the unmount/`beforeunload` flush shipped as specced.
+- One caveat vs. the test plan: tiptap-markdown's serializer escapes square brackets, so the stored markdown may contain `\[01:23\]` rather than the literal `[01:23]`; react-markdown unescapes on render, so timecode chips still work.
 
 ---
 

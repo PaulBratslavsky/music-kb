@@ -24,7 +24,7 @@ import {
   EMBEDDING_VERSION,
   PASSAGE_EMBEDDING_VERSION,
 } from '#/lib/env';
-import type { StrapiVideo } from './videos';
+import { buildMusicExtractionText, type StrapiVideo } from './videos';
 import { chunkForPassages, type TimedTextSegment } from './transcript';
 
 export const CURRENT_EMBEDDING_MODEL = OLLAMA_EMBEDDING_MODEL;
@@ -143,6 +143,11 @@ export function buildEmbeddingText(video: StrapiVideo): string {
   if (video.tags && video.tags.length > 0) {
     parts.push(`Tags: ${video.tags.map((t) => t.name).join(', ')}`);
   }
+  // (music-kb) AI music extraction — key/chords/techniques/songs. This is
+  // what makes "videos in E minor" / "videos teaching travis picking"
+  // semantic queries land. v3 of the text-builder.
+  const music = buildMusicExtractionText(video.musicExtraction);
+  if (music) parts.push(music);
   return parts.join('\n\n');
 }
 

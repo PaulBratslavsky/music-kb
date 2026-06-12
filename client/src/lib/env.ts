@@ -46,7 +46,11 @@ const OLLAMA_EMBEDDING_MODEL =
 //      nomic-embed-text; old v1 vectors have no prefix and produce wrong
 //      similarity scores against query-side vectors (baseline ~0.5 for
 //      anything English).
-const EMBEDDING_VERSION = 2;
+// v3 — (music-kb) text-builder appends the AI music-extraction block
+//      (key, chords, techniques, referenced songs) so cross-video semantic
+//      search answers "videos in E minor" / "videos teaching travis
+//      picking". Mirror the bump in server/src/mcp/utils/embeddings.ts.
+const EMBEDDING_VERSION = 3;
 
 // Separate invalidation key for passage embeddings (Tier 2 moment search).
 // Bump when the passage chunker's parameters change (target/max window size,

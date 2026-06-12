@@ -161,6 +161,43 @@ export type ExtractedMusicData = {
   }>;
 };
 
+/** Render a musicExtraction blob as text for retrieval surfaces.
+ *
+ * Full form feeds the Tier-1 embedding text-builder and the video-level
+ * BM25 bag (the two must stay aligned — same reason buildVideoSearchText
+ * mirrors buildEmbeddingText). Compact form (key + technique names + song
+ * titles only) is prepended to passage-level BM25 text, where a long block
+ * on every chunk would dilute per-chunk scores.
+ *
+ * Empty blob (analyzed, non-music) and null both render '' — they carry
+ * no retrieval signal. */
+export function buildMusicExtractionText(
+  blob: ExtractedMusicData | null | undefined,
+  opts: { compact?: boolean } = {},
+): string {
+  if (!blob) return '';
+  const parts: string[] = [];
+  if (blob.key) parts.push(`Key: ${blob.key.root} ${blob.key.type}`);
+  if (!opts.compact && blob.chords.length > 0) {
+    const chordNames = blob.chords.map((c) => `${c.root} ${c.quality}`);
+    parts.push(`Chords: ${chordNames.join(', ')}`);
+  }
+  if (blob.techniques.length > 0) {
+    const names = blob.techniques.map((t) =>
+      opts.compact ? t.name : `${t.name} — ${t.description}`,
+    );
+    parts.push(`Techniques: ${names.join(opts.compact ? ', ' : '; ')}`);
+  }
+  if (blob.songs.length > 0) {
+    parts.push(
+      `Songs: ${blob.songs
+        .map((s) => (s.artist ? `${s.title} by ${s.artist}` : s.title))
+        .join(', ')}`,
+    );
+  }
+  return parts.join('\n');
+}
+
 export type StrapiVideo = {
   id: number;
   documentId: string;

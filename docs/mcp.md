@@ -56,6 +56,7 @@ config, and deleting the old one.
 | `listTranscripts` | Paged list of stored transcripts |
 | `getTranscript` | Full transcript (or chunked / time-range slice) by videoId |
 | `searchTranscript` | BM25 top-k passages inside a single video |
+| `verifyCitations` | BM25-ground `[mm:ss]` citations in a draft text against a video's transcript; rewrites drifted ones, reports ungrounded ones |
 | `findTranscripts` | Cross-transcript substring search with previews |
 | `fetchTranscript` | Fetch from YouTube + upsert; acts as "regenerate" with `force=true` |
 | `listVideos` | Paged video catalog |
@@ -94,7 +95,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`
 ```
 
 Restart Claude Desktop. The `yt-knowledge-base` server should appear in
-the tools menu with 23 tools available.
+the tools menu with 24 tools available.
 
 > Why `mcp-remote`? Claude Desktop's built-in client supports stdio
 > transports; `mcp-remote` bridges a stdio client to our Streamable HTTP
