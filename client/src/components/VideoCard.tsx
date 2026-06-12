@@ -70,7 +70,9 @@ function VerdictBlock({ video }: Readonly<{ video: StrapiVideo }>) {
 // `content-signals.ts`. Tuned to match the watchVerdict bands so the
 // chip's color reinforces the verdict badge without being identical
 // (the verdict badge is the LLM's call; this is the programmatic one).
-function scoreColorClass(score: number): string {
+// Exported: the learn page's chip shares these tiers so the two chips
+// read identically (value-score-ui-followups item 3).
+export function scoreColorClass(score: number): string {
   if (score >= 70) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400';
   if (score >= 50) return 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-400';
   if (score >= 30) return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400';
