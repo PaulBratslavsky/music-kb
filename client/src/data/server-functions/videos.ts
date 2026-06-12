@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   applyVideoScoreUpdateService,
   backfillScoreFromVerdict,
+  buildMusicExtractionText,
   createVideoService,
   fetchFeedService,
   fetchVideoByDocumentIdWithStatusService,
@@ -1067,6 +1068,11 @@ function buildVideoSearchText(v: StrapiVideo): string {
   if (v.tags && v.tags.length > 0) {
     parts.push(v.tags.map((t) => t.name).join(' '));
   }
+  // (music-kb) Music-extraction terms — mirrors the embedding text-builder
+  // (v3) so the lexical leg sees the same music vocabulary the dense leg
+  // does ("travis picking", song titles, key names).
+  const music = buildMusicExtractionText(v.musicExtraction);
+  if (music) parts.push(music);
   return parts.join(' ');
 }
 
@@ -1295,7 +1301,14 @@ export const searchLibraryPassages = createServerFn({ method: 'GET' })
       qVec,
       data.query,
       flat.map((p) => {
-        const titleLine = [p.video.videoTitle, p.video.videoAuthor]
+        // Compact music terms ride along with the title line for the same
+        // reason the title does: a technique/song often exists only in the
+        // video-level extraction, not in any single chunk's text.
+        const titleLine = [
+          p.video.videoTitle,
+          p.video.videoAuthor,
+          buildMusicExtractionText(p.video.musicExtraction, { compact: true }),
+        ]
           .filter(Boolean)
           .join(' ');
         return {

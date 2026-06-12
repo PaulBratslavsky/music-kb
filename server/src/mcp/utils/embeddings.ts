@@ -16,13 +16,13 @@ const OLLAMA_HOST = (process.env.OLLAMA_HOST ?? 'http://localhost:11434').replac
 );
 const OLLAMA_EMBEDDING_MODEL =
   process.env.OLLAMA_EMBEDDING_MODEL ?? 'nomic-embed-text';
-// v2 default matches the client — v2 introduced task prefixes
-// (`search_query: / search_document:`) which materially change the
-// produced vectors. Keep server + client defaults aligned so MCP-driven
-// reindex produces the same embeddings as the in-app reindex.
+// v3 default matches the client — v2 introduced task prefixes
+// (`search_query: / search_document:`), v3 added the music-extraction
+// block to the text-builder. Keep server + client defaults aligned so
+// MCP-driven reindex produces the same embeddings as the in-app reindex.
 const EMBEDDING_VERSION = (() => {
-  const parsed = parseInt(process.env.EMBEDDING_VERSION ?? '2', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+  const parsed = parseInt(process.env.EMBEDDING_VERSION ?? '3', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
 })();
 
 export const CURRENT_EMBEDDING_MODEL = OLLAMA_EMBEDDING_MODEL;
@@ -93,7 +93,36 @@ export type VideoForEmbed = {
   keyTakeaways?: Array<{ text: string }> | null;
   sections?: Array<{ heading: string }> | null;
   tags?: Array<{ name: string }> | null;
+  musicExtraction?: {
+    key?: { root: string; type: string } | null;
+    chords?: Array<{ root: string; quality: string }>;
+    techniques?: Array<{ name: string; description: string }>;
+    songs?: Array<{ title: string; artist: string | null }>;
+  } | null;
 };
+
+// Mirrors `buildMusicExtractionText` (full form) in the client's videos.ts.
+function buildMusicText(blob: VideoForEmbed['musicExtraction']): string {
+  if (!blob) return '';
+  const parts: string[] = [];
+  if (blob.key) parts.push(`Key: ${blob.key.root} ${blob.key.type}`);
+  if (blob.chords && blob.chords.length > 0) {
+    const chordNames = blob.chords.map((c) => `${c.root} ${c.quality}`);
+    parts.push(`Chords: ${chordNames.join(', ')}`);
+  }
+  if (blob.techniques && blob.techniques.length > 0) {
+    const names = blob.techniques.map((t) => `${t.name} — ${t.description}`);
+    parts.push(`Techniques: ${names.join('; ')}`);
+  }
+  if (blob.songs && blob.songs.length > 0) {
+    parts.push(
+      `Songs: ${blob.songs
+        .map((s) => (s.artist ? `${s.title} by ${s.artist}` : s.title))
+        .join(', ')}`,
+    );
+  }
+  return parts.join('\n');
+}
 
 export function buildEmbeddingText(video: VideoForEmbed): string {
   const parts: string[] = [];
@@ -115,6 +144,10 @@ export function buildEmbeddingText(video: VideoForEmbed): string {
   if (video.tags && video.tags.length > 0) {
     parts.push(`Tags: ${video.tags.map((t) => t.name).join(', ')}`);
   }
+  // (music-kb) v3: music-extraction block — keep aligned with the client
+  // text-builder or vectors written by the two reindex paths diverge.
+  const music = buildMusicText(video.musicExtraction);
+  if (music) parts.push(music);
   return parts.join('\n\n');
 }
 

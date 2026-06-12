@@ -386,6 +386,37 @@ export async function extractMusicForVideo(
     return { success: false, error: written.error };
   }
 
+  // The extraction feeds the Tier-1 embedding text (v3), so the stored
+  // vector is out of sync the moment the blob lands — version/model checks
+  // can't see data-level drift. Refresh it best-effort, same "log but
+  // never fail" stance as the post-generation embedding step.
+  try {
+    const { computeVideoEmbedding } = await import('#/lib/services/embeddings');
+    const { updateVideoEmbeddingService } = await import('#/lib/services/videos');
+    const computed = await computeVideoEmbedding({
+      ...video,
+      musicExtraction: grounded,
+    });
+    const saved = await updateVideoEmbeddingService({
+      documentId: video.documentId,
+      embedding: computed.embedding,
+      model: computed.model,
+      version: computed.version,
+      generatedAt: computed.generatedAt,
+    });
+    if (!saved.success) {
+      logPhase(videoId, 'extract ⚠ re-embed save failed', { error: saved.error });
+    } else {
+      logPhase(videoId, 'extract ✓ embedding refreshed', {
+        version: computed.version,
+      });
+    }
+  } catch (err) {
+    logPhase(videoId, 'extract ⚠ re-embed skipped', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+
   logPhase(videoId, 'extract ✓ done', {
     took: `${Math.round(performance.now() - started)}ms`,
     isMusic: object.isMusicInstruction,
