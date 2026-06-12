@@ -1,0 +1,46 @@
+# Minimal CI — the two static gates from CLAUDE.md: client typecheck and
+# the vitest suite. Both live-backend test families self-skip headless:
+# videos.smoke.test.ts probes Strapi and embeddings.ranking.test.ts probes
+# Ollama, so neither needs services here.
+#
+# This week motivated the job twice over: 6 type errors sat unnoticed in
+# vite.config.ts, and a broken-since-fork tag-creation bug hid behind the
+# smoke test silently skipping on every local run.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: client/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: npx tsc --noEmit
+      - run: yarn test
+
+  server-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: server/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: npx tsc --noEmit
