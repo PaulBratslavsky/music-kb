@@ -1,6 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import { errors } from '@strapi/utils';
 import { registerAllTools } from './mcp/tools';
+import { registerOfficialMcpTools } from './mcp-official';
 
 type WithData = { data?: Record<string, unknown> };
 
@@ -21,7 +22,7 @@ function slugifyTagName(name: string): string {
 }
 
 export default {
-  register({ strapi }: { strapi: Core.Strapi }) {
+  async register({ strapi }: { strapi: Core.Strapi }) {
     strapi.documents.use(async (context, next) => {
       // Rule 1: video.create — require youtubeVideoId and enforce dedupe.
       // The client also pre-checks, but this is the authoritative gate.
@@ -122,6 +123,12 @@ export default {
     // before the first request arrives.
     // -------------------------------------------------------------------
     registerAllTools();
+
+    // OFFICIAL Strapi MCP server (5.47+) — register music-kb's domain tools
+    // on it too, behind custom admin permissions. Runs alongside the
+    // hand-rolled server above during the migration; phase 4 retires the
+    // custom one. Must happen in register() (before the MCP server starts).
+    await registerOfficialMcpTools(strapi);
   },
 
   async bootstrap({ strapi }: { strapi: Core.Strapi }) {
