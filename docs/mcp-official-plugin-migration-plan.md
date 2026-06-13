@@ -121,7 +121,15 @@ strapi.ai.mcp.registerTool({
 
 Non-negotiables (verified):
 
-- **`z` from `@strapi/utils`**, never the `zod` package.
+- **`z` from `@strapi/utils`, never the `zod` package — and this is not
+  cosmetic in music-kb.** Verified versions: the app's `zod` is **4.3.6**,
+  `@strapi/utils`'s bundled zod is **3.25.67**. A zod-4 schema object handed
+  to the official API (zod-3) breaks schema conversion. Consequence for the
+  port: each tool's `execute` body is reusable as-is (it operates on plain
+  parsed args + `strapi`), but **every input/output schema must be
+  re-declared with `@strapi/utils` z (zod-3)** — the legacy `def.schema`
+  (zod-4) cannot be passed through. The adapter reuses `execute`; schemas
+  are hand-written in z3.
 - **Handler takes one object `{ args, extra }`** — not a positional `input`.
   `args` is `never` when there's no input schema (omit it).
 - **Return is a strict discriminated union.** Success: `{ content,
