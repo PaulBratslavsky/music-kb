@@ -78,38 +78,74 @@ Custom tools live in a **local plugin** (`server/src/plugins/music-kb-mcp/`)
 and register during the plugin's `register()`/`bootstrap()` phase — tools
 lock when the MCP server starts; late registration is silently useless.
 
+Custom tools register during the plugin's `register()`/`bootstrap()` phase
+via `strapi.ai.mcp.registerTool` — tools lock when `strapi.ai.mcp.start()`
+runs, and registering after throws. Prefer `bootstrap()` for any tool that
+touches synced content-types, permissions, or DB state.
+
+> **Authoritative API** — verified against the installed build
+> `@strapi/types/dist/modules/mcp.d.ts` (Strapi 5.48, MCP SDK 1.29.0), not
+> just the blog. The blog's prose is right in spirit but the handler/return
+> shapes below are stricter than it shows.
+
 ```ts
+import { z } from '@strapi/utils'; // NOT the `zod` package — version-mismatch foot-gun
+
 strapi.ai.mcp.registerTool({
   name: 'search_transcript',
   title: 'Search a video transcript',
   description: '…when-to-use guidance, same care as today…',
-  resolveInputSchema: () => z.object({ videoId: z.string(), query: z.string() }),
-  resolveOutputSchema: () => z.object({ /* REQUIRED — see workload note */ }),
+  resolveInputSchema: (ctx) => z.object({ videoId: z.string(), query: z.string() }),
+  // REQUIRED, and must be a z.ZodObject (top-level object). Tools that
+  // return a top-level array today (libraryStats lists, search hits) must
+  // wrap: z.object({ results: z.array(...) }).
+  resolveOutputSchema: (ctx) => z.object({ /* … */ }),
+  // Access is a discriminated union: EITHER devModeOnly:true (dev-only,
+  // gated by `autoReload` = `strapi develop`) OR auth with ≥1 policy.
   auth: { policies: [{ action: 'plugin::content-manager.explorer.read' }] },
-  createHandler: (strapi) => async (input) => ({
-    content: [{ type: 'text', text: JSON.stringify(result) }],
-    structuredContent: result,
-  }),
+  createHandler: (strapi, ctx) => async ({ args, extra }) => {
+    // ctx.userAbility — enforce field/entity perms like an HTTP controller.
+    // ctx.user.id    — for setCreatorFields on write tools.
+    // args is typed from resolveInputSchema; `never` (omit it) if no input.
+    return {
+      content: [{ type: 'text', text: JSON.stringify(result) }],
+      structuredContent: result, // REQUIRED on success
+    };
+    // Error path is a SEPARATE branch of the union:
+    //   return { content: [{ type: 'text', text: msg }], isError: true };
+    // success → structuredContent present, isError absent;
+    // error   → isError:true present, structuredContent ABSENT. Not optional.
+  },
 })
 ```
 
-Non-negotiables from the guide:
+Non-negotiables (verified):
 
-- **`z` from `@strapi/utils`**, never the `zod` package (version-mismatch
-  foot-gun).
-- **`resolveOutputSchema` is required.** Our current tools return loose
-  JSON; writing output zod schemas for the ~13 ported tools is the bulk of
-  the migration effort. Budget it; don't hand-wave it.
-- **Plugin loads from `dist/`** — `npm run build` after source changes; a
-  stale build silently serves old tools.
-- `auth.policies` entries are **OR**, not AND; action strings must be exact
-  (`plugin::content-manager.explorer.read` / `.create` / `.update` …).
+- **`z` from `@strapi/utils`**, never the `zod` package.
+- **Handler takes one object `{ args, extra }`** — not a positional `input`.
+  `args` is `never` when there's no input schema (omit it).
+- **Return is a strict discriminated union.** Success: `{ content,
+  structuredContent }`. Error: `{ content, isError: true }`. You cannot
+  carry `structuredContent` on an error or omit it on success.
+- **`resolveOutputSchema` is required and must be a `z.ZodObject`.** Writing
+  these for the ~13 ported tools is the bulk of the work; top-level arrays
+  must be wrapped in an object. Budget it; don't hand-wave it.
+- **Enable via `server.mcp.enabled: true`** in `config/server.ts`. Endpoint
+  is `/mcp`. Tunables: `server.mcp.connectTimeoutMs` (5s default),
+  `server.mcp.requestTimeoutMs` (60s default) — fine for our fast retrieval
+  tools; the slow extraction path is in-app only and never an MCP tool.
+- **Plugin loads from `dist/`** — `yarn build` (server) after source changes;
+  a stale build silently serves old tools.
+- `auth.policies` is a **non-empty tuple**, evaluated **OR**; action strings
+  must be exact (`plugin::content-manager.explorer.read` / `.create` / …).
 - Permission gating is strict: the admin token's permissions decide which
-  tools even *appear* in `tools/list`. Mint a scoped token rather than a
-  full-access one once parity is proven.
-- **No mechanism to disable built-in tools.** If a built-in is dangerous in
-  our setup (e.g. `delete_video`), gate it by *omitting that permission
-  from the token*, not by code.
+  tools even *appear* in `tools/list`. Mint a scoped token once parity is
+  proven.
+- **No mechanism to disable built-in tools.** Gate a dangerous built-in
+  (e.g. `delete_video`) by *omitting that permission from the token*.
+- The service also exposes **`registerPrompt` and `registerResource`** — so
+  the custom server's "usage instructions" (risk #4 below) can move into a
+  registered prompt/resource instead of being lost. Reconsider that risk.
 - Media upload not supported via MCP; dynamic zones arrive untyped (we use
   neither in the tool surface — confirm in phase 1).
 
@@ -128,17 +164,51 @@ still serving.
   derivation) fire through built-in creates.
 - Exit: built-ins proven; disposition table corrections recorded here.
 
-### Phase 2 — local plugin with ported tools
-- Scaffold `server/src/plugins/music-kb-mcp` (plugin boilerplate +
-  `config/plugins.ts` entry per the blog).
-- Port the ~13 tools: move `execute` bodies, add output schemas, choose
-  `auth.policies` per tool (reads → `.read`, writers like `saveSummary` →
-  `.update`), snake_case names to match built-in convention.
-- Keep shared helpers (`bm25-search.ts`, `mcp/utils/embeddings.ts`) — they
-  move under the plugin or stay in `src/services/`; they are not
-  MCP-coupled.
+### Phase 2 — register ported tools (app-level, NOT a local plugin)
+**Decision (revised after studying the reference impl, see below): register
+at the app level in `server/src/index.ts`, not as a separate local plugin.**
+The reference demonstrates both; app-level is right for us because (a) we
+already own `src/index.ts` `register()` (the documents middleware lives
+there), (b) no plugin scaffold / `strapi-plugin build` / duplicated
+`node_modules` overhead, and (c) the tool-module array pattern ports our
+existing `server/src/mcp/tools/` registry almost 1:1.
+
+- New `server/src/mcp-tools/` (or keep `mcp/tools/`, dropping the
+  transport/registry siblings): one module per tool exporting
+  `{ register(registerTool, strapi) }`, collected in an `index.ts` array,
+  looped from `register()` guarded by `strapi.ai.mcp.isEnabled()`.
+- **Register custom admin permissions first** (the step the blog glosses):
+  `strapi.service('admin::permission').actionProvider.registerMany([...])`
+  with `section: 'settings'` (app) — action ids like
+  `api::music-kb-mcp.transcript.read`. Each tool's `auth.policies` then
+  references its own action, grantable per token. (The reference's plugin
+  variant uses `section: 'plugins', pluginName` → `plugin::<name>.x.read`;
+  app-level uses `settings`/`api::`.) Don't default to
+  `plugin::content-manager.explorer.read` — mint purpose-built actions so
+  token scoping is meaningful.
+- Port the ~13 tools: move `execute` bodies into
+  `createHandler: (strapi) => async ({ args }) => ({ content, structuredContent })`,
+  write `resolveOutputSchema` ZodObjects (wrap top-level arrays), snake_case
+  names to match built-in convention.
+- Keep shared helpers (`bm25-search.ts`, `mcp/utils/embeddings.ts`) in
+  `src/services/` — not MCP-coupled.
+- The "usage instructions" the custom server sends can ship as a
+  `get_*_guide` tool returning a `?raw`-imported markdown file (the
+  reference's `get_article_authoring_guide` pattern), or a `registerPrompt`.
 - Exit: `tools/list` on `/mcp` shows built-ins + ported tools; spot-check
   each ported tool from Claude Code.
+
+> **Reference implementation** — verified working on Strapi 5.48 at
+> `/Users/paul/work/temp/test-mcp-post/my-app` (Paul's own demo for the
+> blog). Proven shapes mirrored above:
+> - `config/server.ts` → `mcp: { enabled: true }`; tools registered in app
+>   `register()` behind `if (!strapi.ai.mcp.isEnabled()) return;`.
+> - `createHandler: (strapi) => async ({ args }) => ({ content: [{type:'text',
+>   text: JSON.stringify(payload)}], structuredContent: payload })`.
+> - `resolveOutputSchema: () => z.object({ count: z.number()…, articles:
+>   z.array(z.object({…})) })` — top-level object, arrays nested.
+> - Custom permission via `actionProvider.registerMany` is a real,
+>   required step.
 
 ### Phase 3 — client cutover
 - Update Claude Desktop (`mcp-remote` + Authorization header per the blog)
