@@ -645,7 +645,8 @@ server/src/
 │   ├── transcript/                — immutable Transcript cache
 │   └── video/                     — main Video content type
 ├── components/content/             — repeatable component schemas (section, takeaway, etc)
-├── mcp/                            — MCP server, tools, transport
+├── mcp/                            — MCP tool implementations (served via the official server)
+├── mcp-official/                   — adapter: registers the tools on Strapi's official MCP server
 └── index.ts                       — Strapi bootstrap, middleware, role grants
 ```
 
@@ -714,7 +715,7 @@ Code in `client/src/lib/services/notes.ts`, `client/src/components/NotesPane.tsx
 
 ### 11.6 MCP server
 
-`server/src/mcp/` exposes 14 tools (videos, transcripts, tags, notes) over Streamable HTTP at `/api/mcp` with bearer-token auth. Drives the knowledge base from Claude Desktop / Code / Cursor when you want a frontier model. **Tools are defined once in Strapi** — the in-app Ollama chat does not use MCP. See [`./mcp.md`](./mcp.md) and [ADR 0001](./adr/0001-local-first-no-cloud-ai.md).
+24 tools (videos, transcripts, tags, notes, music data) served by the **official Strapi MCP server** (built into 5.47+) at `/mcp`, gated by admin API tokens. Registered from `server/src/index.ts` via the adapter in `server/src/mcp-official/`, reusing the tool bodies in `server/src/mcp/tools/`. Drives the knowledge base from Claude Desktop / Code / Cursor when you want a frontier model. **Tool implementations are defined once** — the in-app Ollama chat does not use MCP. The hand-rolled `/api/mcp` server was retired ([ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md)). See [`./mcp.md`](./mcp.md).
 
 ### 11.7 Boundary-layer error translation
 

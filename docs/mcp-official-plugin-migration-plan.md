@@ -1,6 +1,6 @@
 # Migration plan: hand-rolled MCP server → official Strapi MCP plugin
 
-**Status:** Planned. Created 2026-06-12.
+**Status:** ✅ COMPLETE (2026-06-14). All phases shipped — Strapi 5.48, official `/mcp` enabled, all 24 tools ported app-level and verified live (read + write round-trip), client docs updated, hand-rolled `/api/mcp` retired. Decision recorded in [ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md). Plan retained below as the execution record. (Created 2026-06-12.)
 **Source guide:** Paul's own write-up — [`strapi-mcp-demo-and-tool-extension/BLOG-strapi-mcp-custom-tools.md`](https://github.com/PaulBratslavsky/strapi-mcp-demo-and-tool-extension/blob/main/BLOG-strapi-mcp-custom-tools.md) — plus the [official docs](https://docs.strapi.io/cms/features/strapi-mcp-server).
 
 ## Why migrate
