@@ -1,6 +1,5 @@
 import type { Core } from '@strapi/strapi';
 import { errors } from '@strapi/utils';
-import { registerAllTools } from './mcp/tools';
 import { registerOfficialMcpTools } from './mcp-official';
 
 type WithData = { data?: Record<string, unknown> };
@@ -94,40 +93,18 @@ export default {
     // MCP (Model Context Protocol).
     //
     // Exposes the knowledge base (videos, transcripts, summaries, tags,
-    // notes) as MCP tools so Claude Desktop / Claude Code / Cursor can
-    // drive the app with a frontier model. The in-app chat path stays
-    // local (Ollama) — this is the "bring the KB to a bigger brain"
+    // notes, music data) as MCP tools so Claude Desktop / Claude Code /
+    // Cursor can drive the app with a frontier model. The in-app chat path
+    // stays local (Ollama) — this is the "bring the KB to a bigger brain"
     // surface.
     //
-    // ROUTE: mounted at POST|GET|DELETE /api/mcp via the standard
-    // content-API filesystem discovery at `src/api/mcp/routes/mcp.ts`.
-    // Strapi wires up the corresponding handler in
-    // `src/api/mcp/controllers/mcp.ts` (→ handleMcpRequest).
-    //
-    // Why filesystem discovery and not `strapi.server.routes()` in
-    // register()? Because routes under `src/api/<name>/routes/` are the
-    // only ones Strapi's Admin → Settings → API Tokens → Custom picker
-    // can see — the picker walks `strapi.contentApi.routes`, which is
-    // populated from the filesystem. Routes added via
-    // `strapi.server.routes()` (or plugin register hooks) are invisible
-    // to the token scope UI and force you to use a Full Access token
-    // for anything custom. Putting the MCP route here instead lets the
-    // user create a Custom token scoped to just `Mcp → handle`.
-    //
-    // AUTH: handled natively by Strapi's content-API auth middleware.
-    // The token must exist in `admin::api-token`; if it's a Custom
-    // token, its scope list must include `api::mcp.mcp.handle`. Full
-    // Access tokens skip the scope check.
-    //
-    // All `register()` has to do here is populate the tool registry
-    // before the first request arrives.
+    // Served by the OFFICIAL Strapi MCP server (5.47+) at /mcp, gated by
+    // admin API tokens. We register our 24 domain tools on it here, behind
+    // custom admin permissions, via the adapter in `src/mcp-official/`
+    // (which reuses the tool bodies in `src/mcp/tools/`). The hand-rolled
+    // server that used to serve /api/mcp was retired — see ADR 0008. Must
+    // run in register(), before the MCP server starts.
     // -------------------------------------------------------------------
-    registerAllTools();
-
-    // OFFICIAL Strapi MCP server (5.47+) — register music-kb's domain tools
-    // on it too, behind custom admin permissions. Runs alongside the
-    // hand-rolled server above during the migration; phase 4 retires the
-    // custom one. Must happen in register() (before the MCP server starts).
     await registerOfficialMcpTools(strapi);
   },
 

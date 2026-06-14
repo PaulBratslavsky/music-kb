@@ -22,3 +22,4 @@ ADRs are append-only history. If a decision is replaced, write a new ADR that su
 | [0005](./0005-hybrid-content-score-llm-plus-programmatic.md) | Hybrid Content score: LLM judgement + programmatic signals | Accepted |
 | [0006](./0006-digest-upsert-by-video-set-key.md) | Digest identity is the source-video set, not a serial id | Accepted |
 | [0007](./0007-error-translation-strapi-ollama.md) | Boundary-layer error translation for Strapi + Ollama | Accepted |
+| [0008](./0008-official-strapi-mcp-over-hand-rolled.md) | Official Strapi MCP server over the hand-rolled one | Accepted |

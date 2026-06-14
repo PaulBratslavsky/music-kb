@@ -1,34 +1,26 @@
 import { z } from 'zod';
 import type { Core } from '@strapi/strapi';
 
+// Shape of a music-kb domain tool. Originally the interface of the
+// hand-rolled MCP server (retired — see ADR 0008); now just the input
+// contract that the `src/mcp-official/` adapter wraps onto the official
+// Strapi MCP server. The tool bodies in `./tools/*` are authored against
+// this type; the adapter supplies the official title/auth/output-schema
+// around each `execute`.
+
 export type ToolContext = {
   strapi: Core.Strapi;
 };
 
 export type ToolDef<Input = unknown, Output = unknown> = {
-  /** camelCase identifier — what Claude Desktop / Claude Code will call. */
+  /** camelCase identifier — the tool name exposed to MCP clients. */
   name: string;
-  /** User-facing description. Include when to use vs. not use. */
+  /** User-facing description. Includes when to use vs. not use. */
   description: string;
-  /** Zod schema for the tool input. Converted to JSON Schema for MCP. */
+  /** Zod (v4) schema for the tool input. The adapter re-declares the
+   * equivalent in @strapi/utils zod-3 for the official server; this stays
+   * for the execute body's parsed-arg typing. */
   schema: z.ZodType<Input>;
-  /** The handler. Return a string or JSON-serializable object. */
+  /** The handler. Returns a string or JSON-serializable object. */
   execute: (args: Input, ctx: ToolContext) => Promise<Output>;
 };
-
-const registry = new Map<string, ToolDef<any, any>>();
-
-export function registerTool<I, O>(tool: ToolDef<I, O>): void {
-  if (registry.has(tool.name)) {
-    throw new Error(`MCP tool "${tool.name}" already registered`);
-  }
-  registry.set(tool.name, tool);
-}
-
-export function getTools(): ToolDef<any, any>[] {
-  return Array.from(registry.values());
-}
-
-export function getTool(name: string): ToolDef<any, any> | undefined {
-  return registry.get(name);
-}
