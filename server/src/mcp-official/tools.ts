@@ -221,7 +221,7 @@ export const portedTools: PortedTool[] = [
   {
     legacy: addVideoTool,
     title: 'Add a video',
-    access: 'write',
+    access: 'maintenance',
     input: z.object({
       url: z.string().url().describe('Full YouTube URL (watch, youtu.be, or shorts).'),
       caption: z.string().max(500).optional(),
@@ -290,7 +290,7 @@ export const portedTools: PortedTool[] = [
   {
     legacy: fetchTranscriptTool,
     title: 'Fetch a transcript from YouTube',
-    access: 'write',
+    access: 'maintenance',
     input: z.object({
       videoId: z.string().min(1).describe('11-char YouTube video id.'),
       force: z.boolean().default(false).describe('Re-fetch and overwrite if one exists.'),
@@ -300,7 +300,7 @@ export const portedTools: PortedTool[] = [
   {
     legacy: reindexEmbeddingsTool,
     title: 'Reindex topical embeddings',
-    access: 'write',
+    access: 'maintenance',
     input: z.object({
       scope: z.enum(['missing', 'stale', 'all']).default('missing').describe('Which videos to (re)embed.'),
     }),
@@ -308,7 +308,7 @@ export const portedTools: PortedTool[] = [
   {
     legacy: generateDigestTool,
     title: 'Generate a digest',
-    access: 'write',
+    access: 'maintenance',
     input: z.object({
       videoIds: z
         .array(z.string().min(1).max(64))

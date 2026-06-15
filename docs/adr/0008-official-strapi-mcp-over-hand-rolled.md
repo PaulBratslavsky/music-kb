@@ -29,10 +29,14 @@ official server instead, at the app level.**
 - **Enable** the official server: `server.mcp.enabled` in
   `config/server.ts` (env `MCP_ENABLED`, default on).
 - **Register** the 24 tools in `src/index.ts` `register()` via
-  `strapi.ai.mcp.registerTool`, behind two custom admin permissions
-  (`api::music-kb-mcp.read` / `.write`) so a token's scope decides which
-  tools it sees. Code lives in `src/mcp-official/` (permissions, adapter,
-  tool list).
+  `strapi.ai.mcp.registerTool`, behind three custom admin permissions so a
+  token's scope decides which tools it sees: `api::music-kb-mcp.read` (16
+  read tools), `.write` (ordinary mutations — saveSummary, tag/untag,
+  saveNote), and `.maintenance` (the expensive / external-side-effect /
+  hard-to-undo tools — addVideo, fetchTranscript, reindexEmbeddings,
+  generateDigest). The maintenance tier exists so a browse-and-annotate
+  token can't trigger a reindex, a YouTube fetch, or an LLM digest. Code
+  lives in `src/mcp-official/` (permissions, adapter, tool list).
 - **Reuse, don't rewrite, the tool bodies.** `src/mcp-official/adapter.ts`
   wraps each existing `ToolDef`'s `execute(args, { strapi })` into an
   official `registerTool` call. The tool implementations in

@@ -22,8 +22,11 @@ export type PortedTool = {
   legacy: ToolDef<any, any>;
   /** Short human title (official API requires it; legacy had only name). */
   title: string;
-  /** Permission tier → which custom admin action gates the tool. */
-  access: 'read' | 'write';
+  /** Permission tier → which custom admin action gates the tool.
+   * read = no mutation; write = ordinary data mutation; maintenance =
+   * expensive / external-side-effect / hard-to-undo (reindex, YouTube
+   * fetch, digest). */
+  access: 'read' | 'write' | 'maintenance';
   /** Input schema re-declared in zod 3 (@strapi/utils). Omit for no input. */
   input?: z.ZodObject<z.ZodRawShape>;
   /**
@@ -43,7 +46,12 @@ export function registerPortedTool(
 ): void {
   const { legacy, title, access, input } = ported;
   const output = ported.output ?? LOOSE_OUTPUT;
-  const action = access === 'write' ? MCP_ACTIONS.WRITE : MCP_ACTIONS.READ;
+  const action =
+    access === 'maintenance'
+      ? MCP_ACTIONS.MAINTENANCE
+      : access === 'write'
+        ? MCP_ACTIONS.WRITE
+        : MCP_ACTIONS.READ;
 
   registerTool({
     name: legacy.name,

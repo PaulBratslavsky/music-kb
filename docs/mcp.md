@@ -27,16 +27,20 @@ Streamable HTTP transport, enabled by `server.mcp.enabled` in
 The official server authenticates **admin API tokens** (not content API
 tokens). A token must be `kind: 'admin'`, owned by an active admin user,
 and carry the admin permissions that gate the tools it should see. We
-expose two custom actions:
+expose three custom actions (a token sees only the tools its permissions
+allow):
 
 - `api::music-kb-mcp.read` — the 16 read tools.
-- `api::music-kb-mcp.write` — the 8 write tools (`addVideo`,
-  `saveSummary`, `tagVideo`, `untagVideo`, `saveNote`, `fetchTranscript`,
-  `reindexEmbeddings`, `generateDigest`).
+- `api::music-kb-mcp.write` — ordinary data mutations: `saveSummary`,
+  `tagVideo`, `untagVideo`, `saveNote`.
+- `api::music-kb-mcp.maintenance` — the expensive / external-side-effect /
+  hard-to-undo tools: `addVideo` and `fetchTranscript` (hit YouTube),
+  `reindexEmbeddings` (long Ollama run), `generateDigest` (LLM cost).
 
-A token sees only the tools its permissions allow — grant read-only for a
-safe browsing token, read+write for a full one. (To also expose the
-built-in per-content-type CRUD tools, additionally grant the relevant
+Mix to taste: read-only for a safe browsing token; read + write for
+browse-and-annotate (can't trigger reindexes or YouTube fetches);
+all three for a full-power token. (To also expose the built-in
+per-content-type CRUD tools, additionally grant the relevant
 `content-manager` permissions.)
 
 > A plain content-API "Full access" token from Settings → API Tokens is
@@ -50,12 +54,13 @@ The reliable, version-proof way is the admin-token service via
 ```bash
 cd server
 printf '%s\n' \
-  "const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'claude-'+Date.now(), description:'MCP', lifespan:null, adminUserOwner:u.id, adminPermissions:[{action:'api::music-kb-mcp.read'},{action:'api::music-kb-mcp.write'}]}, u); console.log('TOKEN='+t.accessKey);" \
+  "const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'claude-'+Date.now(), description:'MCP', lifespan:null, adminUserOwner:u.id, adminPermissions:[{action:'api::music-kb-mcp.read'},{action:'api::music-kb-mcp.write'},{action:'api::music-kb-mcp.maintenance'}]}, u); console.log('TOKEN='+t.accessKey);" \
   ".exit" | npx strapi console
 ```
 
-Copy the `TOKEN=` value (shown once). For a read-only token, drop the
-`.write` entry. Restart the dev server afterwards.
+Copy the `TOKEN=` value (shown once). The snippet grants all three tiers
+(full power); drop `.maintenance` for browse-and-annotate, or keep only
+`.read` for a read-only token. Restart the dev server afterwards.
 
 Every request to `/mcp` must carry:
 

@@ -16,6 +16,7 @@ import type { Core } from '@strapi/strapi';
 export const MCP_ACTIONS = {
   READ: 'api::music-kb-mcp.read',
   WRITE: 'api::music-kb-mcp.write',
+  MAINTENANCE: 'api::music-kb-mcp.maintenance',
 } as const;
 
 const ACTION_DEFS = [
@@ -30,6 +31,16 @@ const ACTION_DEFS = [
     category: 'MCP',
     displayName: 'Use mutating music-kb MCP tools',
     uid: 'music-kb-mcp.write',
+  },
+  {
+    // The expensive / external-side-effect / hard-to-undo tools:
+    // reindexEmbeddings (long Ollama run), fetchTranscript + addVideo
+    // (hit YouTube), generateDigest (LLM cost). Split out so a
+    // browse-and-annotate token (read + write) can't trigger them.
+    section: 'settings',
+    category: 'MCP',
+    displayName: 'Use maintenance / expensive music-kb MCP tools',
+    uid: 'music-kb-mcp.maintenance',
   },
 ];
 
