@@ -73,22 +73,33 @@ Rotate by minting a new token and revoking the old one
 
 ## Tools
 
-| Tool | Purpose |
-|---|---|
-| `listTranscripts` | Paged list of stored transcripts |
-| `getTranscript` | Full transcript (or chunked / time-range slice) by videoId |
-| `searchTranscript` | BM25 top-k passages inside a single video |
-| `verifyCitations` | BM25-ground `[mm:ss]` citations in a draft text against a video's transcript; rewrites drifted ones, reports ungrounded ones |
-| `findTranscripts` | Cross-transcript substring search with previews |
-| `fetchTranscript` | Fetch from YouTube + upsert; acts as "regenerate" with `force=true` |
-| `listVideos` | Paged video catalog |
-| `getVideo` | Full video record (summary, sections, tags) |
-| `searchVideos` | Substring search over titles + summaries |
-| `addVideo` | Ingest a YouTube URL (creates Video + fetches transcript) |
-| `saveSummary` | Persist a frontier-model-generated summary to a Video |
-| `listTags` / `tagVideo` / `untagVideo` | Tag CRUD |
-| `saveNote` | Attach a short note to a video |
-| `getMusicData` | AI-extracted music data (key, chords, techniques, referenced songs; transcript-grounded timecodes) + the video's saved practice loops |
+24 tools across three permission tiers — 16 read, 4 write, 4 maintenance:
+
+| Tool | Tier | Purpose |
+|---|---|---|
+| `libraryStats` | read | High-level KB stats: video count, summary-status breakdown, top tags, top channels, monthly ingestion buckets |
+| `listVideos` | read | Paged video catalog (filter by status / verdict / tag) |
+| `searchVideos` | read | Tokenized substring search over titles + summaries (a full URL or 11-char id also works) |
+| `getVideo` | read | Full video record (summary, sections, tags) |
+| `getMusicData` | read | AI-extracted music data (key, chords, techniques, referenced songs; transcript-grounded timecodes) + the video's saved practice loops |
+| `getReadableArticle` | read | Cached long-form readable article (filler/sponsor stripped); null until generated from the app UI |
+| `relatedVideos` | read | Semantically similar videos by cosine similarity over the per-video topical embedding |
+| `listTranscripts` | read | Paged list of stored transcripts |
+| `getTranscript` | read | Full transcript (or chunked / time-range slice) by videoId |
+| `searchTranscript` | read | BM25 top-k passages inside a single video |
+| `findTranscripts` | read | Cross-transcript substring search with previews |
+| `crossSearchTranscripts` | read | BM25 search across many transcripts at once, top-k passages per video (optional tag filter) |
+| `aggregateByTag` | read | Gather summary data for every video matching a set of tags (avoids N `getVideo` round-trips) |
+| `listUntagged` | read | List videos with zero tags + enough context to suggest tags |
+| `listTags` | read | List existing tags |
+| `verifyCitations` | read | BM25-ground `[mm:ss]` citations in a draft text against a video's transcript; rewrites drifted ones, reports ungrounded ones |
+| `saveSummary` | write | Persist a frontier-model-generated summary to a Video |
+| `tagVideo` / `untagVideo` | write | Add / remove a tag on a video |
+| `saveNote` | write | Attach a short note to a video |
+| `addVideo` | maintenance | Ingest a YouTube URL (creates Video + fetches transcript) |
+| `fetchTranscript` | maintenance | Fetch from YouTube + upsert; acts as "regenerate" with `force=true` |
+| `reindexEmbeddings` | maintenance | Backfill / refresh topical embeddings (`missing` / `stale` / `all`); serial Ollama run |
+| `generateDigest` | maintenance | Bundle compiled summary fields for 2–5 videos into one payload for cross-video synthesis |
 
 Alongside these, the connecting token also sees Strapi's **built-in
 per-content-type CRUD tools** (`list_video`, `get_video`, …) if it carries

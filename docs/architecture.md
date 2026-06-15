@@ -1,10 +1,10 @@
 # Architecture
 
-Deep dive into how yt-knowledge-base is wired. Covers data model, generation pipeline, retrieval, chat, tool use, grounding, and the UI surfaces that sit on top.
+Deep dive into how music-kb is wired. Covers data model, generation pipeline, retrieval, chat, tool use, grounding, and the UI surfaces that sit on top.
 
 > **Where to look first:**
 > - **Setup + usage:** [README](../README.md).
-> - **Why the codebase looks the way it does:** [`./adr/`](./adr/) — seven ADRs covering local-first AI, Strapi, BM25-vs-embeddings, deterministic timecodes, hybrid scoring, digest upsert, and error translation.
+> - **Why the codebase looks the way it does:** [`./adr/`](./adr/) — eight ADRs covering local-first AI, Strapi, BM25-vs-embeddings, deterministic timecodes, hybrid scoring, digest upsert, error translation, and the official Strapi MCP server.
 > - **Field-by-field schema reference:** [`./data-model.md`](./data-model.md). Section 2 below is a short overview; the detailed table is there.
 > - **When something breaks:** [`./operations.md`](./operations.md) (runbook).
 > - **MCP integration:** [`./mcp.md`](./mcp.md).
@@ -80,7 +80,7 @@ flowchart TB
 
 ## 2. Data model
 
-Five Strapi content types. **The detailed field reference lives in [`./data-model.md`](./data-model.md).** This section sketches the relationships and the rationale for the splits.
+Five core Strapi content types (the music-kb fork adds two more, `composition` and `loop` — see Sections 11.9–11.10). **The detailed field reference lives in [`./data-model.md`](./data-model.md).** This section sketches the relationships and the rationale for the splits.
 
 ```mermaid
 erDiagram
@@ -639,7 +639,9 @@ client/src/
 
 server/src/
 ├── api/
+│   ├── composition/               — Progression Composer blobs (music-kb fork)
 │   ├── digest/                    — saved cross-video digests
+│   ├── loop/                      — saved theory-panel loops (music-kb fork)
 │   ├── note/                      — markdown notes (4 sources)
 │   ├── tag/                       — lowercase-normalized Tag
 │   ├── transcript/                — immutable Transcript cache

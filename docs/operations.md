@@ -58,6 +58,52 @@ echo $OLLAMA_MODEL $OLLAMA_CHAT_MODEL $OLLAMA_EMBEDDING_MODEL
 OLLAMA_MODEL=gemma3:4b
 ```
 
+## Symptom: Claude Desktop / Code can't reach the MCP server
+
+The knowledge base is exposed over MCP by the **official Strapi MCP
+server** (built into Strapi 5.47+; we're on 5.48.0) at
+`http://localhost:1350/mcp`, Streamable HTTP, gated by **admin API
+tokens**. See `docs/mcp.md` and ADR 0008. (The old hand-rolled server at
+`/api/mcp` was retired — that endpoint no longer exists.)
+
+**Diagnose:**
+
+```bash
+curl -sf http://localhost:1350/_health || echo "Strapi down"
+# Unauthenticated hit should be rejected (401), proving the route is live:
+curl -si http://localhost:1350/mcp | head -1
+```
+
+**Likely causes & fixes:**
+
+- **`MCP_ENABLED` is off.** The server is enabled by `server.mcp.enabled`
+  in `server/config/server.ts` (env `MCP_ENABLED`, default on). If you set
+  `MCP_ENABLED=false` in `server/.env`, `/mcp` won't be served — unset it
+  and restart Strapi.
+- **Wrong token kind.** The official server only accepts **admin** API
+  tokens (`kind: 'admin'`), *not* content-API tokens. A "Full access"
+  token minted from Settings → API Tokens is rejected. Mint an admin token
+  via `strapi console` — full snippet in `docs/mcp.md` ("Mint an admin
+  token"). Stop the dev server first (SQLite single-writer), then re-run:
+  ```bash
+  cd server
+  printf '%s\n' \
+    "const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'claude-'+Date.now(), description:'MCP', lifespan:null, adminUserOwner:u.id, adminPermissions:[{action:'api::music-kb-mcp.read'},{action:'api::music-kb-mcp.write'},{action:'api::music-kb-mcp.maintenance'}]}, u); console.log('TOKEN='+t.accessKey);" \
+    ".exit" | npx strapi console
+  ```
+- **Missing tools / "tool not found".** A token only sees the tools its
+  permissions allow — the three custom actions are
+  `api::music-kb-mcp.read` (16 read tools), `.write` (4: `saveSummary`,
+  `tagVideo`, `untagVideo`, `saveNote`), and `.maintenance` (4 expensive /
+  external: `addVideo`, `fetchTranscript`, `reindexEmbeddings`,
+  `generateDigest`). 24 custom domain tools total. Re-mint with the
+  actions you need.
+- **Claude Desktop won't connect at all.** Its built-in client speaks
+  stdio, not Streamable HTTP — bridge it with `mcp-remote` (see the
+  `claude_desktop_config.json` example in `docs/mcp.md`). Claude Code can
+  connect directly: `claude mcp add music-kb --transport http
+  http://localhost:1350/mcp -H "Authorization: Bearer <admin-token>"`.
+
 ## Symptom: a video is stuck on "Generating…" forever
 
 The learn page polls every 3 s while `summaryStatus = 'pending'`. If the loader sees `pending` for >10 minutes, polling stops (cap is 200 attempts × 3s).

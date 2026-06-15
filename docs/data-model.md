@@ -78,7 +78,7 @@ See ADR 0005 for the why. Three score fields per video:
 | `verdictSummary` | One-sentence "is this worth your time" line, ≤280 chars. Shown on cards and at the top of the learn page. |
 | `verdictReason` | Longer rationale, ≤1000 chars. |
 
-**Three writers update these fields:** summary save (`learning.ts`), verdict-only re-rate (`regenerateVideoVerdict`), signal-only recompute (`regenerateVideoSignals`). All three must write `finalScore` consistently — see `content-signals.test.ts`.
+**One writer updates these fields:** all partial score updates (verdict-only re-rate, derived-value backfill, signal-only recompute, finalScore re-derive) route through `applyVideoScoreUpdateService` in `client/src/lib/services/videos.ts`, which derives `finalScore` internally — callers never compute or pass it. The full-summary save (`updateVideoSummaryService`) derives it the same way. The `regenerateVideoVerdict` / `regenerateVideoSignals` server functions delegate to the writer. The invariant is pinned by `videos.score-writer.test.ts`.
 
 ### Retrieval & embeddings (two tiers)
 
@@ -182,8 +182,8 @@ Lowercase-normalized labels. Created on the fly when a Video is shared with new 
 
 | Field | Notes |
 |---|---|
-| `name` | **Unique.** Server-side normalization (Strapi lifecycle) lowercases and trims so dedupe works. |
-| `slug` | Strapi `uid` field, derived from `name`. The URL filter on `/feed?tag=<slug>` matches on this. |
+| `name` | **Unique.** Server-side normalization (document-service middleware in `server/src/index.ts`) lowercases and trims so dedupe works. |
+| `slug` | Strapi `uid` field, derived from the normalized `name` by the same `tag.create` rule in `server/src/index.ts` when the client omits it (REST clients send only `name`). The URL filter on `/feed?tag=<slug>` matches on this. |
 | `videos` | Many-to-many. |
 
 `parseTagInput(raw)` in `client/src/lib/validations/post.ts` handles user input — splits on commas, lowercases, deduplicates, caps at 8.
