@@ -106,9 +106,9 @@ A digest is identified by `videoSetKey = sort(youtubeVideoIds).join(',')`, not a
 
 Stored vectors carry `embeddingModel` + `embeddingVersion`. Mismatch with current env flags the row stale; `/settings` offers backfill (missing / stale / all). Bumping the code-level (client/src/lib/env.ts) `EMBEDDING_VERSION` alongside changing the text-builder in `client/src/lib/services/embeddings.ts` is the protocol — without it, old vectors silently keep being trusted.
 
-### Map-reduce kicks in past ~25K tokens
+### Map-reduce kicks in past ~15K tokens
 
-Single-pass for short transcripts; long ones split into 2500-word windows (50-word overlap), parallel map-step at `MAP_CONCURRENCY` (which **must match** `OLLAMA_NUM_PARALLEL`), then a final reduce. Code in `client/src/lib/services/learning.ts`.
+Single-pass for short transcripts (≤ `SINGLE_PASS_TOKEN_BUDGET`, 15K); long ones split into 2500-word windows (50-word overlap), parallel map-step at `MAP_CONCURRENCY` (which **must match** `OLLAMA_NUM_PARALLEL`), then a final reduce. Code in `client/src/lib/services/learning.ts`.
 
 ### MCP server lives in Strapi
 

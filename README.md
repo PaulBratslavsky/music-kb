@@ -16,7 +16,7 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 - **Music-aware AI extraction** — after each summary, a best-effort pass extracts key, chords, techniques, and referenced songs into `Video.musicExtraction` (`client/src/lib/services/music-extraction.ts`). Timecodes are BM25-grounded against the stored transcript, never model-emitted. The extraction feeds the embedding text-builder and the BM25 legs, so "videos in E minor" / "videos teaching travis picking" work on `/feed` semantic search and `/api/ask`. Trigger it from the learn page Theory tab or in bulk from `/settings`.
 - **Semantic discovery** — per-video embeddings from the summary layer power "Related videos" on the learn page and library-wide semantic search on the feed. Same `embeddings.ts` infra ready to layer onto transcript chunks for moment-level search.
 - **Frontier-model bridge via MCP** — Strapi's official [MCP server](https://modelcontextprotocol.io) at `/mcp` lets you drive the knowledge base from Claude Desktop / Claude Code / Cursor with a bigger model when you need one. 24 tools cover transcripts, videos, tags, notes, music data — defined once in Strapi, no duplication with the in-app chat. See [`docs/mcp.md`](./docs/mcp.md).
-- **Handles long videos** — map-reduce summary pipeline kicks in past ~25K tokens. Transcript caching means regeneration never re-hits YouTube.
+- **Handles long videos** — map-reduce summary pipeline kicks in past ~15K tokens. Transcript caching means regeneration never re-hits YouTube.
 - **Fully TanStack stack** — [TanStack Start](https://tanstack.com/start) (Vite + React 19) + [TanStack Router](https://tanstack.com/router) + TanStack AI + [Tailwind v4](https://tailwindcss.com).
 
 ---
@@ -262,7 +262,7 @@ Stored vectors carry two invalidation keys: `embeddingModel` (the Ollama model t
 The model is explicitly instructed NOT to emit timecodes in its output. After generation, each section runs through BM25 against the transcript chunks; the top match's real caption-segment start becomes the section's `timeSec`. Same pattern is used in chat to ground every `[mm:ss]` the model does emit, with drift flagged in the Sources accordion.
 
 ### Map-reduce for long videos
-Transcripts over ~25K estimated tokens split into 2500-word windows (50-word overlap). Each window produces bullet notes in parallel (up to `MAP_CONCURRENCY`); a final reduce pass synthesizes the structured summary. Chunk timecodes come from real caption segments, not wpm estimation.
+Transcripts over ~15K estimated tokens (`SINGLE_PASS_TOKEN_BUDGET`) split into 2500-word windows (50-word overlap). Each window produces bullet notes in parallel (up to `MAP_CONCURRENCY`); a final reduce pass synthesizes the structured summary. Chunk timecodes come from real caption segments, not wpm estimation.
 
 ---
 
