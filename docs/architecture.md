@@ -1,10 +1,10 @@
 # Architecture
 
-Deep dive into how yt-knowledge-base is wired. Covers data model, generation pipeline, retrieval, chat, tool use, grounding, and the UI surfaces that sit on top.
+Deep dive into how music-kb is wired. Covers data model, generation pipeline, retrieval, chat, tool use, grounding, and the UI surfaces that sit on top.
 
 > **Where to look first:**
 > - **Setup + usage:** [README](../README.md).
-> - **Why the codebase looks the way it does:** [`./adr/`](./adr/) — seven ADRs covering local-first AI, Strapi, BM25-vs-embeddings, deterministic timecodes, hybrid scoring, digest upsert, and error translation.
+> - **Why the codebase looks the way it does:** [`./adr/`](./adr/) — eight ADRs covering local-first AI, Strapi, BM25-vs-embeddings, deterministic timecodes, hybrid scoring, digest upsert, error translation, and the official Strapi MCP server.
 > - **Field-by-field schema reference:** [`./data-model.md`](./data-model.md). Section 2 below is a short overview; the detailed table is there.
 > - **When something breaks:** [`./operations.md`](./operations.md) (runbook).
 > - **MCP integration:** [`./mcp.md`](./mcp.md).
@@ -80,7 +80,7 @@ flowchart TB
 
 ## 2. Data model
 
-Five Strapi content types. **The detailed field reference lives in [`./data-model.md`](./data-model.md).** This section sketches the relationships and the rationale for the splits.
+Five core Strapi content types (the music-kb fork adds two more, `composition` and `loop` — see Sections 11.9–11.10). **The detailed field reference lives in [`./data-model.md`](./data-model.md).** This section sketches the relationships and the rationale for the splits.
 
 ```mermaid
 erDiagram
@@ -639,13 +639,16 @@ client/src/
 
 server/src/
 ├── api/
+│   ├── composition/               — Progression Composer blobs (music-kb fork)
 │   ├── digest/                    — saved cross-video digests
+│   ├── loop/                      — saved theory-panel loops (music-kb fork)
 │   ├── note/                      — markdown notes (4 sources)
 │   ├── tag/                       — lowercase-normalized Tag
 │   ├── transcript/                — immutable Transcript cache
 │   └── video/                     — main Video content type
 ├── components/content/             — repeatable component schemas (section, takeaway, etc)
-├── mcp/                            — MCP server, tools, transport
+├── mcp/                            — MCP tool implementations (served via the official server)
+├── mcp-official/                   — adapter: registers the tools on Strapi's official MCP server
 └── index.ts                       — Strapi bootstrap, middleware, role grants
 ```
 
@@ -714,7 +717,7 @@ Code in `client/src/lib/services/notes.ts`, `client/src/components/NotesPane.tsx
 
 ### 11.6 MCP server
 
-`server/src/mcp/` exposes 14 tools (videos, transcripts, tags, notes) over Streamable HTTP at `/api/mcp` with bearer-token auth. Drives the knowledge base from Claude Desktop / Code / Cursor when you want a frontier model. **Tools are defined once in Strapi** — the in-app Ollama chat does not use MCP. See [`./mcp.md`](./mcp.md) and [ADR 0001](./adr/0001-local-first-no-cloud-ai.md).
+24 tools (videos, transcripts, tags, notes, music data) served by the **official Strapi MCP server** (built into 5.47+) at `/mcp`, gated by admin API tokens. Registered from `server/src/index.ts` via the adapter in `server/src/mcp-official/`, reusing the tool bodies in `server/src/mcp/tools/`. Drives the knowledge base from Claude Desktop / Code / Cursor when you want a frontier model. **Tool implementations are defined once** — the in-app Ollama chat does not use MCP. The hand-rolled `/api/mcp` server was retired ([ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md)). See [`./mcp.md`](./mcp.md).
 
 ### 11.7 Boundary-layer error translation
 

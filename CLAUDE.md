@@ -17,7 +17,7 @@ The base architecture below carries over from the parent project unchanged unles
 Two-package monorepo with an unversioned root:
 
 - `client/` — TanStack Start (Vite + React 19) app on port **3015**. Server functions and Nitro API routes live alongside the React routes.
-- `server/` — Strapi 5 (SQLite for dev) on port **1350**. Hosts the data model, REST API, the MCP server at `/api/mcp`, and the `seed-data/` archive.
+- `server/` — Strapi 5 (SQLite for dev) on port **1350**. Hosts the data model, REST API, the official Strapi MCP server at `/mcp`, and the `seed-data/` archive.
 - `docs/` — design notes, planning docs, and architecture deep-dive (`architecture.md`).
 - Root `package.json` is a shell that delegates to the two packages via `yarn` workspaces-style scripts. **Do not run app code from the root** — it has no `src/`.
 
@@ -106,13 +106,13 @@ A digest is identified by `videoSetKey = sort(youtubeVideoIds).join(',')`, not a
 
 Stored vectors carry `embeddingModel` + `embeddingVersion`. Mismatch with current env flags the row stale; `/settings` offers backfill (missing / stale / all). Bumping the code-level (client/src/lib/env.ts) `EMBEDDING_VERSION` alongside changing the text-builder in `client/src/lib/services/embeddings.ts` is the protocol — without it, old vectors silently keep being trusted.
 
-### Map-reduce kicks in past ~25K tokens
+### Map-reduce kicks in past ~15K tokens
 
-Single-pass for short transcripts; long ones split into 2500-word windows (50-word overlap), parallel map-step at `MAP_CONCURRENCY` (which **must match** `OLLAMA_NUM_PARALLEL`), then a final reduce. Code in `client/src/lib/services/learning.ts`.
+Single-pass for short transcripts (≤ `SINGLE_PASS_TOKEN_BUDGET`, 15K); long ones split into 2500-word windows (50-word overlap), parallel map-step at `MAP_CONCURRENCY` (which **must match** `OLLAMA_NUM_PARALLEL`), then a final reduce. Code in `client/src/lib/services/learning.ts`.
 
 ### MCP server lives in Strapi
 
-`server/src/mcp/` exposes 23 tools (videos, transcripts, tags, notes, music data) over Streamable HTTP at `/api/mcp` with bearer-token auth. **Tools are defined once here** — the in-app Ollama chat does not use MCP, and reusing tool implementations across the two worlds is intentionally avoided to keep local inference protocol-free. See `docs/mcp.md`.
+The **official Strapi MCP server** (built into 5.47+) serves `/mcp`, gated by admin API tokens. Our 24 domain tools (videos, transcripts, tags, notes, music data) register on it from `server/src/index.ts` via the adapter in `server/src/mcp-official/` (permissions + `registerTool` wrapping), reusing the tool bodies in `server/src/mcp/tools/`. Schemas are re-declared in `@strapi/utils` zod-3 there because the app uses zod-4 (see ADR 0008). **Tool implementations are defined once** in `server/src/mcp/tools/` — the in-app Ollama chat does not use MCP, keeping local inference protocol-free. The hand-rolled `/api/mcp` server was retired (ADR 0008). See `docs/mcp.md`.
 
 ## Routing and aliases
 

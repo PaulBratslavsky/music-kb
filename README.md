@@ -13,9 +13,10 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 - **Agentic chat** — streaming chat over [TanStack AI](https://tanstack.com/ai/latest) with a built-in `web_search` tool. Force-trigger with `/web <query>` when you want external context.
 - **Cross-video digests** — synthesize 2–5 videos into structured themes, contradictions, unique insights, and a long-form article. Saved digests are upserted by a deterministic `videoSetKey` so re-saving the same selection updates in place instead of duplicating.
 - **Notes that stick** — "Summarize to note" turns a chat conversation into a markdown note attached to the video. MCP clients (Claude Desktop, etc.) can also leave notes. Every note is markdown; every note renders timecode chips back into the player.
+- **Music-aware AI extraction** — after each summary, a best-effort pass extracts key, chords, techniques, and referenced songs into `Video.musicExtraction` (`client/src/lib/services/music-extraction.ts`). Timecodes are BM25-grounded against the stored transcript, never model-emitted. The extraction feeds the embedding text-builder and the BM25 legs, so "videos in E minor" / "videos teaching travis picking" work on `/feed` semantic search and `/api/ask`. Trigger it from the learn page Theory tab or in bulk from `/settings`.
 - **Semantic discovery** — per-video embeddings from the summary layer power "Related videos" on the learn page and library-wide semantic search on the feed. Same `embeddings.ts` infra ready to layer onto transcript chunks for moment-level search.
-- **Frontier-model bridge via MCP** — Strapi exposes an [MCP server](https://modelcontextprotocol.io) at `/api/mcp` so you can drive the knowledge base from Claude Desktop / Claude Code / Cursor with a bigger model when you need one. Tools cover transcripts, videos, tags, notes — defined once in Strapi, no duplication with the in-app chat. See [`docs/mcp.md`](./docs/mcp.md).
-- **Handles long videos** — map-reduce summary pipeline kicks in past ~25K tokens. Transcript caching means regeneration never re-hits YouTube.
+- **Frontier-model bridge via MCP** — Strapi's official [MCP server](https://modelcontextprotocol.io) at `/mcp` lets you drive the knowledge base from Claude Desktop / Claude Code / Cursor with a bigger model when you need one. 24 tools cover transcripts, videos, tags, notes, music data — defined once in Strapi, no duplication with the in-app chat. See [`docs/mcp.md`](./docs/mcp.md).
+- **Handles long videos** — map-reduce summary pipeline kicks in past ~15K tokens. Transcript caching means regeneration never re-hits YouTube.
 - **Fully TanStack stack** — [TanStack Start](https://tanstack.com/start) (Vite + React 19) + [TanStack Router](https://tanstack.com/router) + TanStack AI + [Tailwind v4](https://tailwindcss.com).
 
 ---
@@ -28,8 +29,8 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 | AI (in-app) | [TanStack AI](https://tanstack.com/ai/latest) + `@tanstack/ai-ollama` |
 | Chat/summary model | Any Ollama chat model — default `gemma4-kb:latest` (custom [Gemma 4](https://ollama.com/library/gemma4) Modelfile, Q4) |
 | Embedding model | [`nomic-embed-text`](https://ollama.com/library/nomic-embed-text) via Ollama (768-dim, ~137MB). One vector per video; cosine similarity in-memory |
-| Backend | [Strapi 5](https://strapi.io) (SQLite for dev, Postgres-ready) |
-| MCP server | [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/sdk) Streamable HTTP transport at `/api/mcp`, auth via Strapi API tokens |
+| Backend | [Strapi 5](https://strapi.io) (5.48, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |
+| MCP server | Official Strapi MCP server (built into 5.47+) at `/mcp`, Streamable HTTP, auth via admin API tokens |
 | Transcripts | [youtubei.js](https://github.com/LuanRT/YouTube.js) directly against YouTube caption tracks |
 
 ---
@@ -152,48 +153,37 @@ From any video chat, click **Summarize to note** — the conversation + full tra
 - **Semantic search on the feed** — toggle search mode from **Keyword** (default) to **Semantic** on `/feed`. Query gets embedded, ranked by similarity to each video's topical embedding. Hybrid intent: "find videos about X" → semantic; "find videos mentioning 'Ollama'" → keyword. Per-result `NN%` similarity chips.
 
 ### Settings
-`/settings` is the home for app-level infrastructure. Currently hosts the **Semantic embeddings** panel: total/current/stale/missing counts, backfill buttons scoped to `missing`, `stale`, or `all`. Concurrency 3; safe to run anytime.
+`/settings` is the home for app-level infrastructure. Hosts the **Semantic embeddings** panel (total/current/stale/missing counts, backfill buttons scoped to `missing`, `stale`, or `all`; concurrency 3, safe to run anytime) and the **Music extraction** coverage panel for bulk-running the music-aware extraction across the library.
 
 ---
 
 ## MCP — driving the KB from Claude Desktop
 
-The in-app chat stays local (Ollama). When you want a frontier model (Claude, GPT, etc.) to reason across your knowledge base — or when you want multiple videos in a single context — connect to the built-in MCP server.
+The in-app chat stays local (Ollama). When you want a frontier model (Claude, GPT, etc.) to reason across your knowledge base — or when you want multiple videos in a single context — connect to Strapi's official MCP server.
 
 ```
-Claude Desktop ──▶ POST /api/mcp  (Streamable HTTP + Bearer token)
-                   │
-                   ▼
-                 Strapi MCP server
-                 ├── listVideos / getVideo / searchVideos / addVideo / saveSummary
-                 ├── listTranscripts / getTranscript / searchTranscript / findTranscripts / fetchTranscript
-                 └── listTags / tagVideo / untagVideo / saveNote
+Claude Code ──▶ POST /mcp  (Streamable HTTP + admin-token Bearer)
+                │
+                ▼
+              Strapi official MCP server (24 custom tools)
+              ├── listVideos / getVideo / searchVideos / addVideo / saveSummary
+              ├── listTranscripts / getTranscript / searchTranscript / findTranscripts / fetchTranscript
+              ├── listTags / tagVideo / untagVideo / saveNote / getMusicData
+              └── aggregateByTag / crossSearchTranscripts / libraryStats / generateDigest / …
 ```
 
 **Quick setup:**
 
 1. Start Strapi (`yarn server`).
-2. Admin UI → **Settings → API Tokens → Create new** → type `Custom` → check **Mcp → handle** → Save → copy the token.
-3. Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+2. Mint an admin token (one-liner via `strapi console` — see [`docs/mcp.md`](./docs/mcp.md)).
+3. Add to Claude Code:
 
-   ```json
-   {
-     "mcpServers": {
-       "yt-knowledge-base": {
-         "command": "npx",
-         "args": [
-           "-y", "mcp-remote",
-           "http://localhost:1350/api/mcp",
-           "--header", "Authorization: Bearer YOUR_TOKEN"
-         ]
-       }
-     }
-   }
+   ```bash
+   claude mcp add music-kb --transport http http://localhost:1350/mcp \
+     -H "Authorization: Bearer YOUR_TOKEN"
    ```
 
-4. ⌘Q Claude Desktop and reopen. The connector toggles on; 14 tools appear.
-
-Full walkthrough (Claude Code, Cursor, MCP Inspector, auth rotation) in [`docs/mcp.md`](./docs/mcp.md).
+Full walkthrough (Claude Desktop, Cursor, MCP Inspector, token minting) in [`docs/mcp.md`](./docs/mcp.md).
 
 **Design constraint: no tool duplication.** Tools are defined once in `server/src/mcp/tools/` and consumed via MCP. The in-app Ollama chat does not use MCP — it stays on its BM25 + `web_search` path so local inference doesn't pay the protocol overhead. The two worlds meet at the same Strapi data layer, not at the tool definitions.
 
@@ -215,7 +205,7 @@ Full walkthrough (Claude Code, Cursor, MCP Inspector, auth rotation) in [`docs/m
 | `MAP_CONCURRENCY` | `1` | Parallel map-step chunks on long videos. Bump to 2-4 if you have RAM headroom. Must match `OLLAMA_NUM_PARALLEL` on the server side. |
 | `TRANSCRIPT_PROXY_URL` | *(empty)* | Residential proxy for the YouTube caption fetch — only needed if your IP hits a bot wall |
 
-`EMBEDDING_VERSION` is not a client env var — it's a code constant in `client/src/lib/env.ts` (currently `2`), the compound invalidation key alongside `OLLAMA_EMBEDDING_MODEL`. Bump it by editing that file when the text-builder in `client/src/lib/services/embeddings.ts` changes (different fields concatenated, different ordering); any stored `embeddingVersion` that doesn't match is flagged stale.
+`EMBEDDING_VERSION` is not a client env var — it's a code constant in `client/src/lib/env.ts` (currently `3`; a sibling `PASSAGE_EMBEDDING_VERSION` is also `3`), the compound invalidation key alongside `OLLAMA_EMBEDDING_MODEL`. Bump it by editing that file when the text-builder in `client/src/lib/services/embeddings.ts` changes (different fields concatenated, different ordering); any stored `embeddingVersion` that doesn't match is flagged stale.
 
 ### Ollama environment (via `launchctl setenv` on macOS)
 
@@ -272,7 +262,7 @@ Stored vectors carry two invalidation keys: `embeddingModel` (the Ollama model t
 The model is explicitly instructed NOT to emit timecodes in its output. After generation, each section runs through BM25 against the transcript chunks; the top match's real caption-segment start becomes the section's `timeSec`. Same pattern is used in chat to ground every `[mm:ss]` the model does emit, with drift flagged in the Sources accordion.
 
 ### Map-reduce for long videos
-Transcripts over ~25K estimated tokens split into 2500-word windows (50-word overlap). Each window produces bullet notes in parallel (up to `MAP_CONCURRENCY`); a final reduce pass synthesizes the structured summary. Chunk timecodes come from real caption segments, not wpm estimation.
+Transcripts over ~15K estimated tokens (`SINGLE_PASS_TOKEN_BUDGET`) split into 2500-word windows (50-word overlap). Each window produces bullet notes in parallel (up to `MAP_CONCURRENCY`); a final reduce pass synthesizes the structured summary. Chunk timecodes come from real caption segments, not wpm estimation.
 
 ---
 
@@ -285,7 +275,7 @@ yarn server         # Strapi only
 yarn --cwd client test    # Run vitest suite
 ```
 
-The `server/` and `client/` directories are independent git repos; the monorepo root is unversioned. The `tanstack-ai-migration` branch in `client/` is where active development has happened — merge to `main` when ready.
+The monorepo root is a single git repo with an unversioned shell `package.json` that delegates to the two workspaces; the `client/` and `server/` halves are independent (neither imports from the other — they meet over Strapi's REST API). Active development lands on feature branches off `main`.
 
 ---
 
