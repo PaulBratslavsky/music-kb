@@ -101,6 +101,7 @@ export function CircleOfFifths({
   onAudioMutedChange,
   onChordSelect,
   compact = false,
+  hideControls = false,
 }: {
   initialTonicIdx?: number;
   tonicIdx?: number;
@@ -140,6 +141,11 @@ export function CircleOfFifths({
    *  a tight surface (e.g., the music-video page's right column)
    *  where the surrounding chrome already provides context. */
   compact?: boolean;
+  /** When true, hides ALL the control toggles (Major/Minor, Fifths/Fourths,
+   *  sound, enharmonic) so only the wheel itself renders. For surfaces that
+   *  use the wheel purely as a picker and drive mode/spelling externally
+   *  (e.g. /builder's base-chord picker). */
+  hideControls?: boolean;
 } = {}) {
   const [internalTonicIdx, setInternalTonicIdx] = useState(initialTonicIdx);
   const tonicIdx = tonicIdxProp ?? internalTonicIdx;
@@ -246,6 +252,7 @@ export function CircleOfFifths({
       </div>
       )}
 
+      {!hideControls && (
       <div className="flex flex-wrap items-center justify-center gap-3">
         <div
           className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-xs"
@@ -350,6 +357,7 @@ export function CircleOfFifths({
         ))}
       </div>
       </div>
+      )}
 
       <svg
         viewBox={`0 0 ${VIEW} ${VIEW}`}

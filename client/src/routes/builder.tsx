@@ -14,7 +14,11 @@ import { z } from 'zod';
 import { useAppState } from '#/lib/music/state/useAppState';
 import { resolveSelection } from '#/lib/music/state/resolve';
 import { SelectionBar } from '#/lib/music/components/SelectionBar';
+import { CircleOfFifths } from '#/components/CircleOfFifths';
+import type { KeyMode } from '#/lib/music/circle-of-fifths';
 import { GuitarView } from '#/lib/music/instruments/guitar/GuitarView';
+import { PianoView } from '#/lib/music/instruments/piano/PianoView';
+import { ProgressionPanel } from '#/components/ProgressionPanel';
 import { synth } from '#/lib/music/audio/synth';
 import { Button } from '#/components/ui/button';
 import { exportFretboardPng } from '#/lib/music/png-export';
@@ -22,7 +26,7 @@ import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positi
 import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
 import { parseTheoryParam } from '#/lib/music/deep-link';
-import type { ScalePosition } from '#/lib/music/types';
+import type { PitchClass, ChordQuality, ScalePosition } from '#/lib/music/types';
 import '#/lib/music/theory-companion.css';
 
 // `?theory=` deep-link param so /theory and other surfaces can jump
@@ -55,6 +59,47 @@ function BuilderPage() {
   const pcLabels =
     appState.labelMode === 'degree' ? resolved.pcDegrees : resolved.pcDisplay;
 
+  // Load a chord (root + quality) into the builder as a fresh root-position
+  // triad, switching to chord mode so the instrument shows it even if the
+  // user was in scale/note mode. Shared by the circle-of-fifths picker and
+  // the progression panel's chip-reselect.
+  const loadChord = (root: PitchClass, quality: ChordQuality) => {
+    appState.setMode('chord');
+    appState.setChord((c) => ({
+      ...c,
+      root,
+      quality,
+      inversion: 0,
+      voicingIndex: 0,
+    }));
+  };
+
+  // Circle-of-fifths picker → set the base chord. One-way input: clicking
+  // an outer wedge selects (root, major); an inner wedge selects
+  // (relativeMinorRoot, minor). Quality beyond maj/min stays the linear
+  // quality row's job.
+  const pickChordFromWheel = (root: PitchClass, keyMode: KeyMode) =>
+    loadChord(root, keyMode === 'minor' ? 'min' : 'maj');
+
+  // The current chord (full selection incl. voicing), for the progression
+  // panel. Null unless in chord mode.
+  const currentChord =
+    appState.state.mode === 'chord' ? appState.state.chord : null;
+
+  // Reselect a saved progression chord, restoring its exact voicing
+  // (inversion + voicingIndex), not just root/quality.
+  const loadFullChord = (chord: typeof appState.state.chord) => {
+    appState.setMode('chord');
+    appState.setChord(() => ({ ...chord }));
+  };
+
+  // Which instrument the panel renders + exports. Both PianoView and
+  // GuitarView emit `svg.instrument-svg`, so the PNG exporter is
+  // instrument-agnostic — only the guitar-specific controls (voicing nav,
+  // CAGED shape highlight, crop-to-shape, bulk-shape export) are gated off
+  // in piano mode below.
+  const [instrument, setInstrument] = useState<'guitar' | 'piano'>('guitar');
+
   // Ref on the wrapping panel so the export logic can find the .theory-
   // companion ancestor (for CSS-var resolution) and the SVG it contains.
   const fretboardRef = useRef<HTMLDivElement | null>(null);
@@ -67,8 +112,10 @@ function BuilderPage() {
     exportFretboardPng({
       svg,
       themeRoot: root,
-      filename: buildFilename(appState.state),
-      cropToShape,
+      filename: buildFilename(appState.state, instrument),
+      // Crop-to-shape finds guitar fret-marker circles; it's meaningless
+      // for the full keyboard, so never crop in piano mode.
+      cropToShape: cropToShape && instrument === 'guitar',
     });
   };
 
@@ -206,11 +253,25 @@ function BuilderPage() {
         </p>
       </header>
 
-      <div className="panel">
-        <SelectionBar {...appState} />
+      <div className="grid gap-4 lg:grid-cols-[1fr_minmax(280px,340px)] lg:items-stretch">
+        <div className="panel">
+          <SelectionBar {...appState} />
+        </div>
+        {/* Circle of fifths as an alternate base-chord picker. Click an
+            outer wedge for a major root, an inner wedge for its relative
+            minor — drives the chord selection on the left. No chrome: the
+            wheel is self-explanatory, centered in its panel. */}
+        <div className="panel flex items-center justify-center">
+          <CircleOfFifths
+            compact
+            hideControls
+            enharmonic="sharps"
+            onChordSelect={pickChordFromWheel}
+          />
+        </div>
       </div>
 
-      {appState.state.mode === 'chord' && voicingTotal > 1 && (
+      {instrument === 'guitar' && appState.state.mode === 'chord' && voicingTotal > 1 && (
         <div className="mt-4 flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-3">
           <button
             type="button"
@@ -242,7 +303,7 @@ function BuilderPage() {
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-sm text-[var(--ink-soft)]">{resolved.label}</span>
         <div className="flex flex-wrap items-center gap-3">
-          {highlightApplies && availableShapePositions.length > 0 && (
+          {instrument === 'guitar' && highlightApplies && availableShapePositions.length > 0 && (
             <div className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs">
               <button
                 type="button"
@@ -284,16 +345,18 @@ function BuilderPage() {
               </button>
             </div>
           )}
-          <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
-            <input
-              type="checkbox"
-              checked={cropToShape}
-              onChange={(e) => setCropToShape(e.target.checked)}
-              className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
-            />
-            Crop to shape
-          </label>
-          {positions.length > 0 && (
+          {instrument === 'guitar' && (
+            <label className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
+              <input
+                type="checkbox"
+                checked={cropToShape}
+                onChange={(e) => setCropToShape(e.target.checked)}
+                className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+              />
+              Crop to shape
+            </label>
+          )}
+          {instrument === 'guitar' && positions.length > 0 && (
             <Button
               type="button"
               onClick={() => void handleBulkExport()}
@@ -314,24 +377,79 @@ function BuilderPage() {
       </div>
 
       <div ref={fretboardRef} className="panel mt-4">
-        <h2 className="panel-title">Guitar (standard tuning)</h2>
-        <GuitarView
-          highlighted={resolved.guitar}
-          rootPitchClass={resolved.rootPitchClass}
-          matchByPitchClass={resolved.guitarMatchByPitchClass}
-          focusedPitchClass={appState.focusedPitchClass}
-          onPickPitchClass={appState.toggleFocusedPitchClass}
-          onPlayNote={(midi) => synth.playNote(midi)}
-          pcLabels={pcLabels}
-          shapePositions={resolved.guitarShapePositions}
-          barre={resolved.guitarBarre}
-          cellColors={cellColors}
-          showNaturals={appState.showNaturals}
-          emphasizedPitchClasses={resolved.previewedChordPCs}
-          gameMode={appState.gameMode.guitar}
-          onGameGuess={(pos) => appState.submitGuess('guitar', pos)}
-        />
+        {/* Instrument tab — pick the view to render + export. Both views
+            emit svg.instrument-svg so the export path is shared. */}
+        <div
+          className="mb-4 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-sm"
+          role="radiogroup"
+          aria-label="Instrument"
+        >
+          {(
+            [
+              { id: 'guitar' as const, label: 'Guitar' },
+              { id: 'piano' as const, label: 'Piano' },
+            ]
+          ).map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              role="radio"
+              aria-checked={instrument === opt.id}
+              onClick={() => setInstrument(opt.id)}
+              className={`rounded-full px-4 py-1 font-medium transition ${
+                instrument === opt.id
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {instrument === 'guitar' ? (
+          <>
+            <h2 className="panel-title">Guitar (standard tuning)</h2>
+            <GuitarView
+              highlighted={resolved.guitar}
+              rootPitchClass={resolved.rootPitchClass}
+              matchByPitchClass={resolved.guitarMatchByPitchClass}
+              focusedPitchClass={appState.focusedPitchClass}
+              onPickPitchClass={appState.toggleFocusedPitchClass}
+              onPlayNote={(midi) => synth.playNote(midi)}
+              pcLabels={pcLabels}
+              shapePositions={resolved.guitarShapePositions}
+              barre={resolved.guitarBarre}
+              cellColors={cellColors}
+              showNaturals={appState.showNaturals}
+              emphasizedPitchClasses={resolved.previewedChordPCs}
+              gameMode={appState.gameMode.guitar}
+              onGameGuess={(pos) => appState.submitGuess('guitar', pos)}
+            />
+          </>
+        ) : (
+          <>
+            <h2 className="panel-title">Piano</h2>
+            <PianoView
+              highlighted={resolved.piano}
+              rootPitchClass={resolved.rootPitchClass}
+              matchByPitchClass={resolved.pianoMatchByPitchClass}
+              focusedPitchClass={appState.focusedPitchClass}
+              onPickPitchClass={appState.toggleFocusedPitchClass}
+              onPlayNote={(midi) => synth.playNote(midi)}
+              pcLabels={pcLabels}
+              emphasizedPitchClasses={resolved.previewedChordPCs}
+              gameMode={appState.gameMode.piano}
+              onGameGuess={(pos) => appState.submitGuess('piano', pos)}
+            />
+          </>
+        )}
       </div>
+
+      <ProgressionPanel
+        currentChord={currentChord}
+        onLoadChord={loadFullChord}
+        instrument={instrument}
+      />
     </main>
   );
 }
@@ -342,22 +460,32 @@ function slug(s: string): string {
   return s.replace(/[^A-Za-z0-9#+°-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
 
-// Builds the suggested download filename from current state. Examples:
-//   chord mode:        F-min7.png
-//   scale mode 'all':  A-minor.png
-//   scale mode shape:  A-minor-shape3.png  /  A-minor-2oct.png
-function buildFilename(state: ReturnType<typeof useAppState>['state']): string {
+// Builds the suggested download filename from current state + instrument.
+// Examples (guitar omits the suffix to preserve existing filenames; piano
+// appends `-piano`):
+//   chord, guitar:     F-min7.png
+//   chord, piano:      F-min7-piano.png
+//   scale 'all', gtr:  A-minor.png
+//   scale shape, gtr:  A-minor-shape3.png  /  A-minor-2oct.png
+function buildFilename(
+  state: ReturnType<typeof useAppState>['state'],
+  instrument: 'guitar' | 'piano',
+): string {
+  const suffix = instrument === 'piano' ? '-piano' : '';
   if (state.mode === 'chord') {
-    return `${slug(state.chord.root)}-${slug(state.chord.quality)}.png`;
+    return `${slug(state.chord.root)}-${slug(state.chord.quality)}${suffix}.png`;
   }
   if (state.mode === 'scale') {
     const base = `${slug(state.scale.root)}-${slug(state.scale.type)}`;
+    // Guitar CAGED positions only apply to the fretboard; piano shows the
+    // full scale, so the position part is dropped in piano mode.
+    if (instrument === 'piano') return `${base}${suffix}.png`;
     if (state.scalePosition === 'all') return `${base}.png`;
     if (state.scalePosition === '2oct') return `${base}-2oct.png`;
     return `${base}-shape${state.scalePosition}.png`;
   }
   if (state.mode === 'note') {
-    return `note-${slug(state.singleNote)}.png`;
+    return `note-${slug(state.singleNote)}${suffix}.png`;
   }
-  return 'fretboard.png';
+  return `${instrument}.png`;
 }

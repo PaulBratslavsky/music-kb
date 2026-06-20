@@ -162,6 +162,13 @@ export default {
       'api::composition.composition.create',
       'api::composition.composition.update',
       'api::composition.composition.delete',
+      // Progression is a saved chord progression from /builder — an
+      // ordered list of { root, quality } chords in a JSON field.
+      'api::progression.progression.find',
+      'api::progression.progression.findOne',
+      'api::progression.progression.create',
+      'api::progression.progression.update',
+      'api::progression.progression.delete',
     ];
 
     try {

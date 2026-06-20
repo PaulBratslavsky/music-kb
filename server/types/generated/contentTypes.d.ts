@@ -648,6 +648,41 @@ export interface ApiNoteNote extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiProgressionProgression extends Struct.CollectionTypeSchema {
+  collectionName: 'progressions';
+  info: {
+    description: 'A saved chord progression from the /builder tool \u2014 an ordered list of chords. Each chord is the full builder ChordSelection { root, quality, inversion, voicingIndex } so the exact on-screen voicing round-trips (legacy rows may carry only root/quality; readers default the rest to 0). The list lives in the `chords` JSON field; `name` is the user-given label for the saved-list.';
+    displayName: 'Progression';
+    pluralName: 'progressions';
+    singularName: 'progression';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    chords: Schema.Attribute.JSON & Schema.Attribute.Required;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::progression.progression'
+    > &
+      Schema.Attribute.Private;
+    name: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 100;
+        minLength: 1;
+      }>;
+    publishedAt: Schema.Attribute.DateTime;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
 export interface ApiTagTag extends Struct.CollectionTypeSchema {
   collectionName: 'tags';
   info: {
@@ -1400,6 +1435,7 @@ declare module '@strapi/strapi' {
       'api::digest.digest': ApiDigestDigest;
       'api::loop.loop': ApiLoopLoop;
       'api::note.note': ApiNoteNote;
+      'api::progression.progression': ApiProgressionProgression;
       'api::tag.tag': ApiTagTag;
       'api::transcript.transcript': ApiTranscriptTranscript;
       'api::video.video': ApiVideoVideo;

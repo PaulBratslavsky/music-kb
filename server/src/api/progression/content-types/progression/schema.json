@@ -1,0 +1,27 @@
+{
+  "kind": "collectionType",
+  "collectionName": "progressions",
+  "info": {
+    "singularName": "progression",
+    "pluralName": "progressions",
+    "displayName": "Progression",
+    "description": "A saved chord progression from the /builder tool — an ordered list of chords. Each chord is the full builder ChordSelection { root, quality, inversion, voicingIndex } so the exact on-screen voicing round-trips (legacy rows may carry only root/quality; readers default the rest to 0). The list lives in the `chords` JSON field; `name` is the user-given label for the saved-list."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "chords": {
+      "type": "json",
+      "required": true,
+      "description": "Ordered array of { root: PitchClass, quality: ChordQuality }. Mirrors the builder's chord selection so a saved progression reloads with no flattening."
+    }
+  }
+}
