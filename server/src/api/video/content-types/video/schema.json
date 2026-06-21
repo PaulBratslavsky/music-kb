@@ -68,6 +68,12 @@
       "target": "api::loop.loop",
       "mappedBy": "video"
     },
+    "progressions": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::progression.progression",
+      "mappedBy": "video"
+    },
     "videoType": {
       "type": "enumeration",
       "enum": ["lesson", "music"],

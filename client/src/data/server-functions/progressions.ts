@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import {
   listProgressionsService,
+  listProgressionsForVideoService,
   createProgressionService,
   updateProgressionService,
   deleteProgressionService,
@@ -47,6 +48,20 @@ export const listProgressions = createServerFn({ method: 'GET' }).handler(
   },
 );
 
+// List the progressions saved against a specific music video.
+const ForVideoSchema = z.object({ videoDocumentId: z.string().min(1).max(64) });
+
+export const listProgressionsForVideo = createServerFn({ method: 'GET' })
+  .inputValidator((data: z.input<typeof ForVideoSchema>) =>
+    ForVideoSchema.parse(data),
+  )
+  .handler(async ({ data }): Promise<ListProgressionsResult> => {
+    const result = await listProgressionsForVideoService(data.videoDocumentId);
+    if (!result.success) return { status: 'error', error: result.error };
+    const valid = result.data.filter((p) => Array.isArray(p.chords));
+    return { status: 'ok', progressions: valid };
+  });
+
 // =============================================================================
 // Save — create when documentId is null, else update in place.
 // =============================================================================
@@ -55,6 +70,10 @@ const SaveSchema = z.object({
   documentId: z.string().min(1).max(64).nullable(),
   name: z.string().trim().min(1).max(100),
   chords: ChordsSchema,
+  // When creating, associate the progression with this music video. Ignored
+  // on update (the relation stays as-is). Omit/null for a standalone
+  // /builder progression.
+  videoDocumentId: z.string().min(1).max(64).nullable().optional(),
 });
 
 export type SaveProgressionResult =
@@ -68,7 +87,7 @@ export const saveProgression = createServerFn({ method: 'POST' })
     const chords = data.chords as ProgressionChord[];
     const result = data.documentId
       ? await updateProgressionService(data.documentId, data.name, chords)
-      : await createProgressionService(data.name, chords);
+      : await createProgressionService(data.name, chords, data.videoDocumentId);
     if (!result.success) return { status: 'error', error: result.error };
     return { status: 'ok', progression: result.data };
   });

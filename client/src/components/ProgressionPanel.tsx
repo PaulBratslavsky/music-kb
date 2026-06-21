@@ -3,6 +3,7 @@ import { Button } from '#/components/ui/button';
 import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
 import {
   listProgressions,
+  listProgressionsForVideo,
   saveProgression,
   deleteProgression,
 } from '#/data/server-functions/progressions';
@@ -40,13 +41,22 @@ type Props = {
   onLoadChord: (chord: ProgressionChord) => void;
   /** Builder's active instrument — drives which diagram the chips show. */
   instrument: 'guitar' | 'piano';
+  /** When set, saved progressions are scoped to (and created against) this
+   *  music video; the saved list shows only that video's. Omit on /builder
+   *  for standalone progressions. */
+  videoDocumentId?: string;
 };
 
 // Builder-local chord progression: append the current chord, reorder/remove,
 // and save the ordered list to the Strapi `progression` collection so it can
 // be reloaded later. Distinct from the Theory → Compose tool (that's a
 // scale-degree melody/bass sketchpad); this is just an ordered chord list.
-export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Props) {
+export function ProgressionPanel({
+  currentChord,
+  onLoadChord,
+  instrument,
+  videoDocumentId,
+}: Props) {
   const [chords, setChords] = useState<ProgressionChord[]>([]);
   const [name, setName] = useState('');
   // documentId of the saved row currently loaded — Save updates it in place;
@@ -66,12 +76,16 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
   const sheetRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = async () => {
-    const res = await listProgressions();
+    const res = videoDocumentId
+      ? await listProgressionsForVideo({ data: { videoDocumentId } })
+      : await listProgressions();
     if (res.status === 'ok') setSaved(res.progressions);
   };
   useEffect(() => {
     void refresh();
-  }, []);
+    // Re-fetch when the scope (video) changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoDocumentId]);
 
   // Live edit-in-place: mirror the builder chord into the selected slot
   // whenever it changes.
@@ -151,6 +165,7 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
           documentId: asNew ? null : loadedId,
           name: name.trim() || defaultName(chords),
           chords,
+          videoDocumentId: videoDocumentId ?? null,
         },
       });
       if (res.status === 'error') {

@@ -680,6 +680,7 @@ export interface ApiProgressionProgression extends Struct.CollectionTypeSchema {
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
+    video: Schema.Attribute.Relation<'manyToOne', 'api::video.video'>;
   };
 }
 
@@ -826,6 +827,10 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
     musicExtraction: Schema.Attribute.JSON;
     notes: Schema.Attribute.Relation<'manyToMany', 'api::note.note'>;
     passageEmbeddings: Schema.Attribute.JSON;
+    progressions: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::progression.progression'
+    >;
     publishedAt: Schema.Attribute.DateTime;
     readableArticle: Schema.Attribute.RichText;
     readableArticleGeneratedAt: Schema.Attribute.DateTime;
