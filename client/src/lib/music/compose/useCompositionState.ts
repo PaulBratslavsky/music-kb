@@ -17,6 +17,7 @@ import {
   removeById,
   resizeSpan,
   setChordDegree,
+  setChordSeventh,
   spanAt,
 } from './spans';
 import {
@@ -62,9 +63,10 @@ type Action =
   | { type: 'selectBar'; tick: number }
   | { type: 'select'; kind: Selection['kind']; id: string }
   | { type: 'deselect' }
-  | { type: 'pickDegree'; degree: Degree; newId: string }
+  | { type: 'pickDegree'; degree: Degree; seventh: boolean; newId: string }
   | { type: 'moveChord'; id: string; start: number }
   | { type: 'resizeChord'; id: string; length: number }
+  | { type: 'setSeventh'; id: string; seventh: boolean }
   | { type: 'removeChord'; id: string }
   | { type: 'placeNote'; lane: Lane; degree: Degree; tick: number; length: number; newId: string }
   | { type: 'moveNote'; lane: Lane; id: string; start: number; degree: Degree }
@@ -99,7 +101,7 @@ function reducer(s: EditorState, a: Action): EditorState {
       if (s.selected?.kind === 'chord') {
         return { ...s, comp: { ...comp, chords: setChordDegree(comp.chords, s.selected.id, a.degree) } };
       }
-      const chords = addChord(comp.chords, a.newId, a.degree, s.cursor, DEFAULT_CHORD_TICKS);
+      const chords = addChord(comp.chords, a.newId, a.degree, s.cursor, DEFAULT_CHORD_TICKS, a.seventh);
       const placed = spanAt(chords, s.cursor);
       const cursor = placed
         ? Math.min(placed.start + placed.length, TOTAL_TICKS - 1)
@@ -110,6 +112,8 @@ function reducer(s: EditorState, a: Action): EditorState {
       return { ...s, comp: { ...comp, chords: moveSpan(comp.chords, a.id, a.start) } };
     case 'resizeChord':
       return { ...s, comp: { ...comp, chords: resizeSpan(comp.chords, a.id, a.length) } };
+    case 'setSeventh':
+      return { ...s, comp: { ...comp, chords: setChordSeventh(comp.chords, a.id, a.seventh) } };
     case 'removeChord':
       return {
         ...s,
@@ -159,9 +163,10 @@ export type CompositionActions = {
   selectBar: (tick: number) => void;
   select: (kind: Selection['kind'], id: string) => void;
   deselect: () => void;
-  pickDegree: (degree: Degree) => void;
+  pickDegree: (degree: Degree, seventh: boolean) => void;
   moveChord: (id: string, start: number) => void;
   resizeChord: (id: string, length: number) => void;
+  setChordSeventh: (id: string, seventh: boolean) => void;
   removeChord: (id: string) => void;
   placeNote: (lane: Lane, degree: Degree, tick: number, length: number) => void;
   moveNote: (lane: Lane, id: string, start: number, degree: Degree) => void;
@@ -191,9 +196,10 @@ export function useCompositionState(initialRoot: Composition['key']['root']) {
       selectBar: (tick) => dispatch({ type: 'selectBar', tick }),
       select: (kind, id) => dispatch({ type: 'select', kind, id }),
       deselect: () => dispatch({ type: 'deselect' }),
-      pickDegree: (degree) => dispatch({ type: 'pickDegree', degree, newId: nextId('span') }),
+      pickDegree: (degree, seventh) => dispatch({ type: 'pickDegree', degree, seventh, newId: nextId('span') }),
       moveChord: (id, start) => dispatch({ type: 'moveChord', id, start }),
       resizeChord: (id, length) => dispatch({ type: 'resizeChord', id, length }),
+      setChordSeventh: (id, seventh) => dispatch({ type: 'setSeventh', id, seventh }),
       removeChord: (id) => dispatch({ type: 'removeChord', id }),
       placeNote: (lane, degree, tick, length) =>
         dispatch({ type: 'placeNote', lane, degree, tick, length, newId: nextId('note') }),

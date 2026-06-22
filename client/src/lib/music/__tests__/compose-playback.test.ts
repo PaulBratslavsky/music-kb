@@ -19,10 +19,21 @@ describe('resolveChordMidis', () => {
     expect(midis.map(pitchClassFromMidi)).toEqual(['C', 'E', 'G']);
   });
 
-  it('builds the V triad of C major as G-B-D (triad only, no 7th)', () => {
+  it('builds the V triad of C major as G-B-D when seventh is off', () => {
     const midis = resolveChordMidis(cMajor(), 5);
     expect(midis).toHaveLength(3);
     expect(midis.map(pitchClassFromMidi)).toEqual(['G', 'B', 'D']);
+  });
+
+  it('builds the V7 of C major as G-B-D-F when seventh is on', () => {
+    const midis = resolveChordMidis(cMajor(), 5, true);
+    expect(midis).toHaveLength(4);
+    expect(midis.map(pitchClassFromMidi)).toEqual(['G', 'B', 'D', 'F']);
+  });
+
+  it('builds the Imaj7 of C major as C-E-G-B', () => {
+    const midis = resolveChordMidis(cMajor(), 1, true);
+    expect(midis.map(pitchClassFromMidi)).toEqual(['C', 'E', 'G', 'B']);
   });
 
   it('builds the ii triad of C major as D-F-A', () => {
@@ -71,8 +82,8 @@ describe('buildSchedule', () => {
   it('fires each chord span once on its start tick, carrying its length', () => {
     const c = cMajor();
     c.chords = [
-      { id: 'a', degree: 1 as Degree, start: 0, length: 16 },
-      { id: 'b', degree: 5 as Degree, start: 32, length: 8 },
+      { id: 'a', degree: 1 as Degree, seventh: false, start: 0, length: 16 },
+      { id: 'b', degree: 5 as Degree, seventh: false, start: 32, length: 8 },
     ];
     const schedule = buildSchedule(c);
     expect(schedule.map((e) => e.step)).toEqual([0, 32]);
@@ -82,9 +93,18 @@ describe('buildSchedule', () => {
     expect(schedule[1].chordTicks).toBe(8);
   });
 
+  it('voices a seventh chord span as four notes in the schedule', () => {
+    const c = cMajor();
+    c.chords = [
+      { id: 'a', degree: 5 as Degree, seventh: true, start: 0, length: 16 },
+    ];
+    const [first] = buildSchedule(c);
+    expect(first.chord?.map(pitchClassFromMidi)).toEqual(['G', 'B', 'D', 'F']);
+  });
+
   it('merges chord + melody + bass that land on the same tick', () => {
     const c = cMajor();
-    c.chords = [{ id: 'a', degree: 1 as Degree, start: 0, length: 16 }];
+    c.chords = [{ id: 'a', degree: 1 as Degree, seventh: false, start: 0, length: 16 }];
     c.melody = [{ id: 'm', degree: 3, octave: 0, start: 0, length: 4 }];
     c.bass = [{ id: 'b', degree: 1, octave: 0, start: 0, length: 4 }];
     const [first] = buildSchedule(c);

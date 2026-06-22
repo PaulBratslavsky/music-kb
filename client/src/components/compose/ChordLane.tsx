@@ -12,7 +12,7 @@
 import { memo, useRef } from 'react';
 import type { ChordSpan } from '#/lib/music/compose/types';
 import { TOTAL_TICKS } from '#/lib/music/compose/types';
-import type { TriadLabel } from '#/lib/music/compose/labels';
+import type { DegreeLabel } from '#/lib/music/compose/labels';
 import { degreeColor } from '#/lib/music/compose/colors';
 import { LABEL_W, TRACK_COLS, isBarStart, isBeatStart } from './laneLayout';
 import { useSpanDrag } from './useSpanDrag';
@@ -29,8 +29,8 @@ function ChordLaneImpl({
   onRemove,
 }: {
   chords: ChordSpan[];
-  /** Triad label (roman + name) per diatonic degree for the current key. */
-  labels: Record<number, TriadLabel>;
+  /** Triad + seventh labels per diatonic degree for the current key. */
+  labels: Record<number, DegreeLabel>;
   selectedId: string | null;
   cursor: number;
   onSelect: (id: string | null) => void;
@@ -94,7 +94,12 @@ function ChordLaneImpl({
           style={{ gridTemplateColumns: TRACK_COLS }}
         >
           {chords.map((span) => {
-            const label = labels[span.degree];
+            const entry = labels[span.degree];
+            const label = entry
+              ? span.seventh
+                ? entry.seventh
+                : entry.triad
+              : undefined;
             const selected = span.id === selectedId;
             const color = degreeColor(span.degree);
             return (

@@ -68,16 +68,21 @@ export function resolveBassMidi(
   );
 }
 
-/** Triad MIDI (root/3rd/5th) for a chord on `degree`, voiced close. */
+/**
+ * Chord MIDI for the chord on `degree`, voiced close from CHORD_OCTAVE.
+ * Triad (root/3rd/5th) by default; the four-note seventh (root/3rd/5th/7th)
+ * when `seventh` is set. getDiatonicChords already supplies all four tones.
+ */
 export function resolveChordMidis(
   comp: Composition,
   degree: Degree,
+  seventh = false,
 ): number[] {
   const selection = keyToScaleSelection(comp);
   const chord = getDiatonicChords(selection).find((c) => c.degree === degree);
   if (!chord) return [];
-  const triadPcs: PitchClass[] = chord.pitchClasses.slice(0, 3);
-  return notesAscending(triadPcs, CHORD_OCTAVE).map(midiFromNote);
+  const pcs: PitchClass[] = chord.pitchClasses.slice(0, seventh ? 4 : 3);
+  return notesAscending(pcs, CHORD_OCTAVE).map(midiFromNote);
 }
 
 /** One tick's worth of notes to fire, with each layer's sustain in ticks. */
@@ -109,7 +114,7 @@ export function buildSchedule(comp: Composition): StepEvent[] {
   };
 
   for (const span of comp.chords) {
-    const midis = resolveChordMidis(comp, span.degree);
+    const midis = resolveChordMidis(comp, span.degree, span.seventh);
     if (midis.length) {
       const e = ensure(span.start);
       e.chord = midis;

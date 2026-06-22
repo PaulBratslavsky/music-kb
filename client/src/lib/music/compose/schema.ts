@@ -16,10 +16,20 @@ const SpanBase = {
   length: z.number().int().min(1).max(TOTAL_TICKS),
 };
 
-const ChordSpanSchema = z.object(SpanBase);
+const ChordSpanSchema = z.object({
+  ...SpanBase,
+  seventh: z.boolean(),
+});
 const NoteSpanSchema = z.object({
   ...SpanBase,
   octave: z.union([z.literal(0), z.literal(1)]),
+});
+
+// Lenient chord schema for stored rows: v1 rows have no `seventh`, so
+// default it to false (triad). See SCHEMA_VERSION history in types.ts.
+const StoredChordSpanSchema = z.object({
+  ...SpanBase,
+  seventh: z.boolean().default(false),
 });
 
 /**
@@ -46,6 +56,7 @@ export const CompositionSchema = z.object({
 // before `version` existed) are missing the field, so default it.
 const StoredCompositionSchema = CompositionSchema.extend({
   version: z.number().int().default(SCHEMA_VERSION),
+  chords: z.array(StoredChordSpanSchema).max(64),
 });
 
 /**

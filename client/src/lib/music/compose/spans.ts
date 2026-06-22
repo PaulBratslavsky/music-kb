@@ -92,12 +92,13 @@ export function addChord(
   degree: Degree,
   tick: number,
   desiredLength: number,
+  seventh = false,
 ): ChordSpan[] {
   const gap = freeGapAt(spans, tick);
   if (!gap) return spans;
   const length = Math.max(1, Math.min(desiredLength, gap.length));
   const start = Math.min(tick, gap.start + gap.length - length);
-  return sortSpans([...spans, { id, degree, start, length }]);
+  return sortSpans([...spans, { id, degree, seventh, start, length }]);
 }
 
 export function setChordDegree(
@@ -106,6 +107,14 @@ export function setChordDegree(
   degree: Degree,
 ): ChordSpan[] {
   return spans.map((s) => (s.id === id ? { ...s, degree } : s));
+}
+
+export function setChordSeventh(
+  spans: ChordSpan[],
+  id: string,
+  seventh: boolean,
+): ChordSpan[] {
+  return spans.map((s) => (s.id === id ? { ...s, seventh } : s));
 }
 
 // ---- Note builders ----

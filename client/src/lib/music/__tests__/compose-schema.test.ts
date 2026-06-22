@@ -3,12 +3,31 @@ import { parseStoredComposition } from '../compose/schema';
 import { emptyComposition, SCHEMA_VERSION } from '../compose/types';
 
 describe('parseStoredComposition', () => {
-  it('round-trips a current composition', () => {
+  it('round-trips a current composition (preserving seventh)', () => {
     const c = emptyComposition('c1', 'Test', 'C', 'major');
-    c.chords = [{ id: 'a', degree: 1, start: 0, length: 16 }];
+    c.chords = [{ id: 'a', degree: 1, seventh: true, start: 0, length: 16 }];
     const parsed = parseStoredComposition(JSON.parse(JSON.stringify(c)));
     expect(parsed).not.toBeNull();
     expect(parsed!.chords).toHaveLength(1);
+    expect(parsed!.chords[0].seventh).toBe(true);
+    expect(parsed!.version).toBe(SCHEMA_VERSION);
+  });
+
+  it('migrates a v1 row by defaulting chord.seventh to false', () => {
+    // A row saved before sevenths existed: version 1, chords without the field.
+    const v1 = {
+      id: 'old',
+      version: 1,
+      name: 'Pre-seventh',
+      key: { root: 'C', mode: 'major' },
+      bpm: 100,
+      chords: [{ id: 'a', degree: 1, start: 0, length: 16 }],
+      melody: [],
+      bass: [],
+    };
+    const parsed = parseStoredComposition(v1);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.chords[0].seventh).toBe(false);
     expect(parsed!.version).toBe(SCHEMA_VERSION);
   });
 

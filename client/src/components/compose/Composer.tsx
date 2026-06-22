@@ -29,8 +29,8 @@ import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { getDiatonicChords } from '#/lib/music/theory/diatonic';
 import {
   chordToneDegrees,
-  triadLabel,
-  type TriadLabel,
+  degreeLabel,
+  type DegreeLabel,
 } from '#/lib/music/compose/labels';
 import {
   listCompositions,
@@ -57,6 +57,8 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
   const [muted, setMuted] = useState(false);
   const [durTicks, setDurTicks] = useState(4); // default 1/4 note
   const [loop, setLoop] = useState(true);
+  // Sticky placement mode: newly-dropped chords are sevenths while on.
+  const [seventhMode, setSeventhMode] = useState(false);
 
   // Strapi persistence: documentId of the currently-loaded row (null =
   // unsaved), the saved-list for the picker, and a transient status line.
@@ -98,8 +100,8 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
   );
   const pcs = useMemo(() => getScalePitchClasses(scaleSel), [scaleSel]);
   const labels = useMemo(() => {
-    const m: Record<number, TriadLabel> = {};
-    for (const c of getDiatonicChords(scaleSel)) m[c.degree] = triadLabel(c);
+    const m: Record<number, DegreeLabel> = {};
+    for (const c of getDiatonicChords(scaleSel)) m[c.degree] = degreeLabel(c);
     return m;
   }, [scaleSel]);
 
@@ -188,7 +190,9 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
     () =>
       selectedChord
         ? {
-            degrees: new Set(chordToneDegrees(selectedChord.degree)),
+            degrees: new Set(
+              chordToneDegrees(selectedChord.degree, selectedChord.seventh),
+            ),
             start: selectedChord.start,
             length: selectedChord.length,
             color: hexToRgba(degreeColor(selectedChord.degree), 0.28),
@@ -417,11 +421,42 @@ export function Composer({ initialRoot = 'C' }: { initialRoot?: PitchClass }) {
       </div>
 
       {/* Palette */}
-      <ChordPalette comp={comp} onPick={actions.pickDegree} />
+      <div className="flex flex-wrap items-center gap-3">
+        <ChordPalette
+          comp={comp}
+          seventh={selectedChord ? selectedChord.seventh : seventhMode}
+          onPick={(degree) => actions.pickDegree(degree, seventhMode)}
+        />
+        {/* 7th toggle — flips the selected chord between triad and seventh,
+            or sets the sticky placement mode when nothing is selected. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (selectedChord) {
+              actions.setChordSeventh(selectedChord.id, !selectedChord.seventh);
+            } else {
+              setSeventhMode((m) => !m);
+            }
+          }}
+          aria-pressed={selectedChord ? selectedChord.seventh : seventhMode}
+          className={`rounded border px-2.5 py-1 text-xs font-medium transition ${
+            (selectedChord ? selectedChord.seventh : seventhMode)
+              ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+              : 'border-[var(--line)] bg-[var(--card)] text-[var(--ink-soft)] hover:border-[var(--accent)]'
+          }`}
+          title={
+            selectedChord
+              ? 'Toggle the selected chord between triad and seventh'
+              : 'Place new chords as four-note sevenths'
+          }
+        >
+          7th
+        </button>
+      </div>
       <p className="-mt-2 text-[11px] text-[var(--ink-muted)]">
         {selectedChord
-          ? 'Chord selected — pick a palette chip to change it, drag its body to move, drag the right edge to extend, or × to remove.'
-          : 'Click a beat in the chord lane to set where the next chord lands, then a palette chip. Click melody/bass cells to add notes at the chosen duration (drag to move, right edge to resize, double-click to remove).'}
+          ? 'Chord selected — pick a palette chip to change it, “7th” to toggle the seventh, drag its body to move, the right edge to extend, or × to remove.'
+          : `Click a beat in the chord lane to set where the next chord lands, then a palette chip. “7th” ${seventhMode ? 'is on — new chords are sevenths.' : 'makes new chords sevenths.'} Click melody/bass cells to add notes at the chosen duration.`}
       </p>
 
       {/* Timeline */}
