@@ -17,7 +17,7 @@ const schema = z.object({
   mode: z
     .enum(['full', 'chunked', 'timeRange'])
     .default('full')
-    .describe('full: rawText + metadata. chunked: rawSegments with ms timing. timeRange: segments inside [startSec, endSec].'),
+    .describe('full: rawText slice (offset/maxChars). chunked: rawSegments page (page/pageSize). timeRange: segments inside [startSec, endSec].'),
   startSec: z
     .number()
     .int()
@@ -30,6 +30,35 @@ const schema = z.object({
     .min(0)
     .optional()
     .describe('Exclusive end second for timeRange mode.'),
+  // Pagination — a long transcript exceeds the 1 MB MCP result limit, so
+  // both bulk modes return a bounded slice plus a cursor (nextOffset /
+  // page+hasMore) the agent follows to pull more as needed.
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .default(0)
+    .describe('full mode: character offset to start from. Follow the returned nextOffset to continue.'),
+  maxChars: z
+    .number()
+    .int()
+    .min(500)
+    .max(400_000)
+    .default(120_000)
+    .describe('full mode: max characters to return (default 120000, well under the 1 MB limit).'),
+  page: z
+    .number()
+    .int()
+    .min(1)
+    .default(1)
+    .describe('chunked mode: 1-based page of segments.'),
+  pageSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .default(200)
+    .describe('chunked mode: segments per page (default 200).'),
 });
 
 type Segment = { text: string; startMs: number; endMs: number };
@@ -37,9 +66,9 @@ type Segment = { text: string; startMs: number; endMs: number };
 export const getTranscriptTool: ToolDef<z.infer<typeof schema>> = {
   name: 'getTranscript',
   description:
-    'Retrieve a saved transcript by youtubeVideoId. Supports three modes: "full" returns the whole transcript, "chunked" returns caption segments with millisecond timing, "timeRange" returns only segments inside [startSec, endSec). Use "timeRange" when the user asks about a specific moment in the video.',
+    'Retrieve a saved transcript by youtubeVideoId. Prefer `searchTranscript` to answer a question from the relevant passages first; reach for this when you need the verbatim text. Modes: "full" returns a character slice (offset/maxChars) with a nextOffset cursor; "chunked" returns a page of caption segments (page/pageSize) with hasMore; "timeRange" returns only segments inside [startSec, endSec). Bulk modes are paginated because a long transcript exceeds the 1 MB MCP limit — follow nextOffset / increment page to pull more as needed. Use "timeRange" to expand context around a searchTranscript hit.',
   schema,
-  execute: async ({ videoId, mode, startSec, endSec }, { strapi }) => {
+  execute: async ({ videoId, mode, startSec, endSec, offset, maxChars, page, pageSize }, { strapi }) => {
     const row = (await strapi
       .documents('api::transcript.transcript')
       .findFirst({
@@ -69,16 +98,38 @@ export const getTranscriptTool: ToolDef<z.infer<typeof schema>> = {
     };
 
     if (mode === 'full') {
+      const fullText = row.rawText ?? (row.rawSegments ?? []).map((s) => s.text).join(' ');
+      const totalChars = fullText.length;
+      const slice = fullText.slice(offset, offset + maxChars);
+      const nextOffset = offset + slice.length;
+      const hasMore = nextOffset < totalChars;
       return {
         ...header,
-        transcript: row.rawText ?? (row.rawSegments ?? []).map((s) => s.text).join(' '),
+        mode,
+        offset,
+        returnedChars: slice.length,
+        totalChars,
+        hasMore,
+        // Cursor to continue from; null when the transcript is fully read.
+        nextOffset: hasMore ? nextOffset : null,
+        transcript: slice,
       };
     }
 
     if (mode === 'chunked') {
+      const all = row.rawSegments ?? [];
+      const totalSegments = all.length;
+      const start = (page - 1) * pageSize;
+      const segments = all.slice(start, start + pageSize);
       return {
         ...header,
-        segments: row.rawSegments ?? [],
+        mode,
+        page,
+        pageSize,
+        totalSegments,
+        returnedSegments: segments.length,
+        hasMore: start + segments.length < totalSegments,
+        segments,
       };
     }
 

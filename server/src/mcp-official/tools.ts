@@ -1,16 +1,12 @@
-// Ported tool definitions for the official MCP server.
+// The music-kb domain tools registered on the official MCP server.
 //
-// Each entry reuses a legacy tool's execute body (imported from the
-// hand-rolled server) and pairs it with a zod-3 input schema + access tier.
-// Input schemas are re-declared here (zod 3, @strapi/utils) because the
-// legacy schemas are zod 4 — see adapter.ts / the migration plan.
-//
-// This is the FIRST verified slice: read-only tools. Write tools
-// (addVideo, saveSummary, tag/untag, saveNote, fetchTranscript,
-// reindexEmbeddings, generateDigest) follow once this slice is proven
-// end-to-end against a real admin token.
+// Each entry pairs a tool's execute body (from ../mcp/tools/) with a zod-3
+// input schema + an access tier (read | write | maintenance). Input schemas
+// are re-declared here (zod 3, @strapi/utils) because the tools' own schemas
+// are zod 4 and the two aren't interchangeable across the SDK — see ADR 0008
+// and adapter.ts.
 import { z } from '@strapi/utils';
-import type { PortedTool } from './adapter';
+import type { DomainTool } from './adapter';
 
 import { libraryStatsTool } from '../mcp/tools/library-stats';
 import { listVideosTool } from '../mcp/tools/list-videos';
@@ -44,9 +40,9 @@ const videoIdInput = z.object({
     .describe('Either the youtubeVideoId or the Strapi documentId.'),
 });
 
-export const portedTools: PortedTool[] = [
+export const domainTools: DomainTool[] = [
   {
-    legacy: libraryStatsTool,
+    tool: libraryStatsTool,
     title: 'Library stats overview',
     access: 'read',
     input: z.object({
@@ -56,7 +52,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: listVideosTool,
+    tool: listVideosTool,
     title: 'List videos',
     access: 'read',
     input: z.object({
@@ -77,7 +73,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: searchVideosTool,
+    tool: searchVideosTool,
     title: 'Search videos',
     access: 'read',
     input: z.object({
@@ -93,19 +89,19 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: getMusicDataTool,
+    tool: getMusicDataTool,
     title: 'Get extracted music data',
     access: 'read',
     input: videoIdInput,
   },
   {
-    legacy: getVideoTool,
+    tool: getVideoTool,
     title: 'Get a video',
     access: 'read',
     input: videoIdInput,
   },
   {
-    legacy: getTranscriptTool,
+    tool: getTranscriptTool,
     title: 'Get a transcript',
     access: 'read',
     input: z.object({
@@ -113,13 +109,17 @@ export const portedTools: PortedTool[] = [
       mode: z
         .enum(['full', 'chunked', 'timeRange'])
         .default('full')
-        .describe('full: rawText + metadata. chunked: segments. timeRange: segments in [startSec,endSec].'),
+        .describe('full: rawText slice (offset/maxChars). chunked: segment page (page/pageSize). timeRange: segments in [startSec,endSec].'),
       startSec: z.number().int().min(0).optional(),
       endSec: z.number().int().min(0).optional(),
+      offset: z.number().int().min(0).default(0).describe('full mode: char offset; follow nextOffset to continue.'),
+      maxChars: z.number().int().min(500).max(400_000).default(120_000).describe('full mode: max chars (default 120000).'),
+      page: z.number().int().min(1).default(1).describe('chunked mode: 1-based page.'),
+      pageSize: z.number().int().min(1).max(500).default(200).describe('chunked mode: segments per page (default 200).'),
     }),
   },
   {
-    legacy: searchTranscriptTool,
+    tool: searchTranscriptTool,
     title: 'Search within a transcript',
     access: 'read',
     input: z.object({
@@ -129,7 +129,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: findTranscriptsTool,
+    tool: findTranscriptsTool,
     title: 'Find transcripts',
     access: 'read',
     input: z.object({
@@ -139,7 +139,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: crossSearchTranscriptsTool,
+    tool: crossSearchTranscriptsTool,
     title: 'Search across transcripts',
     access: 'read',
     input: z.object({
@@ -150,7 +150,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: listTranscriptsTool,
+    tool: listTranscriptsTool,
     title: 'List transcripts',
     access: 'read',
     input: z.object({
@@ -160,7 +160,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: aggregateByTagTool,
+    tool: aggregateByTagTool,
     title: 'Aggregate videos by tag',
     access: 'read',
     input: z.object({
@@ -171,7 +171,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: listUntaggedTool,
+    tool: listUntaggedTool,
     title: 'List untagged videos',
     access: 'read',
     input: z.object({
@@ -180,7 +180,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: listTagsTool,
+    tool: listTagsTool,
     title: 'List tags',
     access: 'read',
     input: z.object({
@@ -188,7 +188,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: relatedVideosTool,
+    tool: relatedVideosTool,
     title: 'Related videos',
     access: 'read',
     input: z.object({
@@ -198,7 +198,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: getReadableArticleTool,
+    tool: getReadableArticleTool,
     title: 'Get the readable article',
     access: 'read',
     input: z.object({
@@ -206,7 +206,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: verifyCitationsTool,
+    tool: verifyCitationsTool,
     title: 'Verify transcript citations',
     access: 'read',
     input: z.object({
@@ -219,7 +219,7 @@ export const portedTools: PortedTool[] = [
 
   // ---- Write tools (gated by the music-kb-mcp.write admin action) ----
   {
-    legacy: addVideoTool,
+    tool: addVideoTool,
     title: 'Add a video',
     access: 'maintenance',
     input: z.object({
@@ -229,7 +229,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: saveSummaryTool,
+    tool: saveSummaryTool,
     title: 'Save a video summary',
     access: 'write',
     input: z.object({
@@ -259,7 +259,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: tagVideoTool,
+    tool: tagVideoTool,
     title: 'Tag a video',
     access: 'write',
     input: z.object({
@@ -268,7 +268,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: untagVideoTool,
+    tool: untagVideoTool,
     title: 'Untag a video',
     access: 'write',
     input: z.object({
@@ -277,7 +277,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: saveNoteTool,
+    tool: saveNoteTool,
     title: 'Save a note',
     access: 'write',
     input: z.object({
@@ -288,7 +288,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: fetchTranscriptTool,
+    tool: fetchTranscriptTool,
     title: 'Fetch a transcript from YouTube',
     access: 'maintenance',
     input: z.object({
@@ -298,7 +298,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: reindexEmbeddingsTool,
+    tool: reindexEmbeddingsTool,
     title: 'Reindex topical embeddings',
     access: 'maintenance',
     input: z.object({
@@ -306,7 +306,7 @@ export const portedTools: PortedTool[] = [
     }),
   },
   {
-    legacy: generateDigestTool,
+    tool: generateDigestTool,
     title: 'Generate a digest',
     access: 'maintenance',
     input: z.object({

@@ -4,8 +4,8 @@
 // start). No-op when MCP is disabled.
 import type { Core } from '@strapi/strapi';
 import { registerMcpAdminPermissions } from './permissions';
-import { registerPortedTool } from './adapter';
-import { portedTools } from './tools';
+import { registerDomainTool } from './adapter';
+import { domainTools } from './tools';
 
 export async function registerOfficialMcpTools(
   strapi: Core.Strapi,
@@ -20,10 +20,10 @@ export async function registerOfficialMcpTools(
 
   await registerMcpAdminPermissions(strapi);
 
-  for (const ported of portedTools) {
-    registerPortedTool(mcp.registerTool, strapi, ported);
+  for (const def of domainTools) {
+    registerDomainTool(mcp.registerTool, strapi, def);
   }
   strapi.log.info(
-    `[music-kb mcp] Registered ${portedTools.length} custom tool(s) on the official MCP server.`,
+    `[music-kb mcp] Registered ${domainTools.length} custom tool(s) on the official MCP server.`,
   );
 }
