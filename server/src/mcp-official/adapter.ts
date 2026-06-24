@@ -39,6 +39,29 @@ export type PortedTool = {
 
 const LOOSE_OUTPUT = z.object({}).catchall(z.any());
 
+// MCP clients (Claude Desktop/Code) reject a tool result over 1 MB with an
+// opaque "Tool result is too large" error the agent can't act on. We guard
+// just under that so the agent gets a structured, actionable message
+// instead — and can re-issue the call with pagination. ~120 KB of headroom
+// covers the JSON-RPC envelope + the duplicated structuredContent.
+const MAX_RESULT_BYTES = 900_000;
+
+/** Hints, by tool, for how to make an oversized result smaller. */
+function shrinkHint(toolName: string): string {
+  switch (toolName) {
+    case 'getTranscript':
+      return 'Use mode:"chunked" with page/pageSize to page segments, mode:"timeRange" for a specific window, or mode:"full" with offset/maxChars.';
+    case 'findTranscripts':
+      return 'Set includeFullContent:false (the default) or lower `limit`.';
+    case 'crossSearchTranscripts':
+      return 'Lower `perVideo` and/or `maxVideos`.';
+    case 'searchTranscript':
+      return 'Lower `k`.';
+    default:
+      return 'Re-issue with pagination / a smaller page size, or request fewer fields.';
+  }
+}
+
 export function registerPortedTool(
   registerTool: RegisterTool,
   strapi: Core.Strapi,
@@ -61,7 +84,26 @@ export function registerPortedTool(
     resolveOutputSchema: () => output,
     auth: { policies: [{ action }] },
     createHandler: (s: Core.Strapi) => async ({ args }: { args?: unknown }) => {
-      const result = await legacy.execute(args ?? {}, { strapi: s });
+      const rawResult = await legacy.execute(args ?? {}, { strapi: s });
+
+      // Backstop: an MCP client rejects any result over ~1 MB with an opaque
+      // "Tool result is too large" the agent can't recover from. If a tool
+      // (e.g. a whole-transcript getTranscript) blows the budget, swap in a
+      // small, structured notice telling the agent how to page — surfaced as
+      // a normal `{ error }` result, the same convention these tools already
+      // use for "no transcript found" etc.
+      const bytes = Buffer.byteLength(JSON.stringify(rawResult), 'utf8');
+      const result =
+        bytes > MAX_RESULT_BYTES
+          ? {
+              error: 'RESULT_TOO_LARGE',
+              tool: legacy.name,
+              bytes,
+              limitBytes: MAX_RESULT_BYTES,
+              message: `This ${legacy.name} result is ${(bytes / 1_000_000).toFixed(2)} MB, over the ~1 MB MCP response limit. ${shrinkHint(legacy.name)}`,
+            }
+          : rawResult;
+
       // structuredContent must be an object (the schema is a ZodObject).
       // Wrap arrays/scalars so every tool satisfies the contract.
       const structuredContent =

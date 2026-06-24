@@ -113,9 +113,13 @@ export const portedTools: PortedTool[] = [
       mode: z
         .enum(['full', 'chunked', 'timeRange'])
         .default('full')
-        .describe('full: rawText + metadata. chunked: segments. timeRange: segments in [startSec,endSec].'),
+        .describe('full: rawText slice (offset/maxChars). chunked: segment page (page/pageSize). timeRange: segments in [startSec,endSec].'),
       startSec: z.number().int().min(0).optional(),
       endSec: z.number().int().min(0).optional(),
+      offset: z.number().int().min(0).default(0).describe('full mode: char offset; follow nextOffset to continue.'),
+      maxChars: z.number().int().min(500).max(400_000).default(120_000).describe('full mode: max chars (default 120000).'),
+      page: z.number().int().min(1).default(1).describe('chunked mode: 1-based page.'),
+      pageSize: z.number().int().min(1).max(500).default(200).describe('chunked mode: segments per page (default 200).'),
     }),
   },
   {
