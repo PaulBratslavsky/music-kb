@@ -7,6 +7,7 @@ import {
   removeById,
   resizeSpan,
   setChordDegree,
+  setChordSeventh,
   spanAt,
 } from '../compose/spans';
 import type { ChordSpan, Degree } from '../compose/types';
@@ -15,6 +16,7 @@ import { TOTAL_TICKS } from '../compose/types';
 const span = (id: string, degree: number, start: number, length: number): ChordSpan => ({
   id,
   degree: degree as Degree,
+  seventh: false,
   start,
   length,
 });
@@ -60,6 +62,19 @@ describe('addChord', () => {
   it('is a no-op on an occupied tick', () => {
     const spans = [span('a', 1, 0, 4)];
     expect(addChord(spans, 'x', 5 as Degree, 2, 4)).toBe(spans);
+  });
+  it('defaults to a triad and records the seventh flag when asked', () => {
+    expect(addChord([], 'x', 1 as Degree, 0, 4)[0].seventh).toBe(false);
+    expect(addChord([], 'y', 5 as Degree, 0, 4, true)[0].seventh).toBe(true);
+  });
+});
+
+describe('setChordSeventh', () => {
+  it('flips the seventh flag in place without touching others', () => {
+    const spans = [span('a', 1, 0, 4), span('b', 5, 4, 4)];
+    const out = setChordSeventh(spans, 'a', true);
+    expect(out.find((s) => s.id === 'a')!.seventh).toBe(true);
+    expect(out.find((s) => s.id === 'b')!.seventh).toBe(false);
   });
 });
 

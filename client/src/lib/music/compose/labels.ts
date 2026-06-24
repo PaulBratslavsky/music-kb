@@ -17,13 +17,15 @@ function semitones(a: string, b: string): number {
 }
 
 /**
- * The three scale degrees (1–7) that make up the triad on `degree`:
- * the degree itself, plus a third and fifth stacked diatonically. E.g.
- * I → [1,3,5], V → [5,7,2], vi → [6,1,3].
+ * The scale degrees (1–7) that make up the chord on `degree`: the degree
+ * itself plus a third and fifth stacked diatonically, and the seventh too
+ * when `seventh` is set. E.g. I → [1,3,5] (or [1,3,5,7]); V → [5,7,2]
+ * (or [5,7,2,4]); vi → [6,1,3].
  */
-export function chordToneDegrees(degree: number): number[] {
+export function chordToneDegrees(degree: number, seventh = false): number[] {
   const i = degree - 1;
-  return [i % 7, (i + 2) % 7, (i + 4) % 7].map((x) => x + 1);
+  const steps = seventh ? [0, 2, 4, 6] : [0, 2, 4];
+  return steps.map((s) => ((i + s) % 7) + 1);
 }
 
 export type TriadLabel = { roman: string; name: string };
@@ -49,4 +51,20 @@ export function triadLabel(chord: DiatonicChord): TriadLabel {
     return { roman: `${upper}+`, name: `${chord.rootDisplay}+` };
   // fallback — shouldn't happen for diatonic triads
   return { roman: upper, name: chord.rootDisplay };
+}
+
+/**
+ * Seventh-chord label for a diatonic chord. getDiatonicChords already
+ * analyses the four-note quality, so we reuse its Roman numeral
+ * (e.g. "Imaj7", "V7", "viiø") and full chord name (e.g. "Cmaj7", "G7").
+ */
+export function seventhLabel(chord: DiatonicChord): TriadLabel {
+  return { roman: chord.roman, name: chord.chordName };
+}
+
+/** Triad + seventh labels for a diatonic chord, keyed by `seventh`. */
+export type DegreeLabel = { triad: TriadLabel; seventh: TriadLabel };
+
+export function degreeLabel(chord: DiatonicChord): DegreeLabel {
+  return { triad: triadLabel(chord), seventh: seventhLabel(chord) };
 }

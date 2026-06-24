@@ -15,9 +15,12 @@ import { SCALE_TYPE_LABELS } from '#/lib/music/theory/scales';
 
 export function ChordPalette({
   comp,
+  seventh,
   onPick,
 }: {
   comp: Composition;
+  /** Whether a placed/previewed chord sounds as a four-note seventh. */
+  seventh: boolean;
   onPick: (degree: Degree) => void;
 }) {
   const diatonic = useMemo(
@@ -41,7 +44,7 @@ export function ChordPalette({
             type="button"
             onClick={() => {
               onPick(c.degree as Degree);
-              const midis = resolveChordMidis(comp, c.degree as Degree);
+              const midis = resolveChordMidis(comp, c.degree as Degree, seventh);
               if (midis.length) synth.playChord(midis, 700, 'string');
             }}
             className="flex min-w-[2.75rem] flex-col items-center rounded px-2 py-1 text-white transition hover:opacity-90"

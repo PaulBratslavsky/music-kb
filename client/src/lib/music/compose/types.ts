@@ -32,9 +32,13 @@ export type TimeSpan = {
   length: number;
 };
 
-/** A chord placed on the timeline: a diatonic degree over a run of ticks. */
+/** A chord placed on the timeline: a diatonic degree over a run of ticks.
+ *  `seventh` extends the diatonic triad to its four-note seventh chord
+ *  (Imaj7, iim7, V7, viiø …) — quality is still derived from the key, so
+ *  the piece transposes for free either way. */
 export type ChordSpan = TimeSpan & {
   degree: Degree;
+  seventh: boolean;
 };
 
 /** A monophonic melody/bass note: a degree (+ octave band) over a run of ticks. */
@@ -50,8 +54,11 @@ export type NoteSpan = TimeSpan & {
  * branch in compose/schema.ts → parseStoredComposition. (History: v1 is
  * the tick-based model; the earlier beats-based shape predates this
  * Strapi content type, so there are no v0 rows to migrate.)
+ *
+ * v2 adds `seventh` to ChordSpan; v1 rows are migrated by defaulting it
+ * to false (triad) in compose/schema.ts → parseStoredComposition.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export type Composition = {
   id: string;
