@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '#/components/ui/button';
 import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
 import {
   listProgressions,
+  listProgressionsForVideo,
   saveProgression,
   deleteProgression,
 } from '#/data/server-functions/progressions';
@@ -12,6 +13,9 @@ import type {
 } from '#/lib/services/progressions';
 import type { ChordQuality } from '#/lib/music/types';
 import { ChordMini } from '#/components/ChordMini';
+import { ProgressionSheet } from '#/components/ProgressionSheet';
+import { guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
+import { exportFretboardPng } from '#/lib/music/png-export';
 
 // "Cmaj" / "Am" / "Fmaj7" — root glued to the short quality label.
 function chordLabel(c: ProgressionChord): string {
@@ -24,6 +28,12 @@ function defaultName(chords: ProgressionChord[]): string {
   return joined.length <= 60 ? joined : `${joined.slice(0, 57)}…`;
 }
 
+// Identity of a chord incl. its voicing — so the live edit-sync only writes
+// when the builder actually changed the selected slot.
+function chordKey(c: ProgressionChord): string {
+  return `${c.root}|${c.quality}|${c.inversion ?? 0}|${c.voicingIndex ?? 0}`;
+}
+
 type Props = {
   /** Current builder chord, or null when the builder isn't in chord mode. */
   currentChord: ProgressionChord | null;
@@ -31,13 +41,22 @@ type Props = {
   onLoadChord: (chord: ProgressionChord) => void;
   /** Builder's active instrument — drives which diagram the chips show. */
   instrument: 'guitar' | 'piano';
+  /** When set, saved progressions are scoped to (and created against) this
+   *  music video; the saved list shows only that video's. Omit on /builder
+   *  for standalone progressions. */
+  videoDocumentId?: string;
 };
 
 // Builder-local chord progression: append the current chord, reorder/remove,
 // and save the ordered list to the Strapi `progression` collection so it can
 // be reloaded later. Distinct from the Theory → Compose tool (that's a
 // scale-degree melody/bass sketchpad); this is just an ordered chord list.
-export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Props) {
+export function ProgressionPanel({
+  currentChord,
+  onLoadChord,
+  instrument,
+  videoDocumentId,
+}: Props) {
   const [chords, setChords] = useState<ProgressionChord[]>([]);
   const [name, setName] = useState('');
   // documentId of the saved row currently loaded — Save updates it in place;
@@ -46,34 +65,90 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
   const [saved, setSaved] = useState<StrapiProgression[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // Slot currently being edited in the builder, or null. While set, builder
+  // chord changes (voicing/root/quality) write back to this slot live.
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  // Set on select so the FIRST sync after selecting (which fires with the
+  // stale builder chord, before onLoadChord propagates) doesn't overwrite
+  // the slot with the wrong chord.
+  const skipNextSync = useRef(false);
+  // Off-screen sheet (composed SVG of all chords) for PNG export.
+  const sheetRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = async () => {
-    const res = await listProgressions();
+    const res = videoDocumentId
+      ? await listProgressionsForVideo({ data: { videoDocumentId } })
+      : await listProgressions();
     if (res.status === 'ok') setSaved(res.progressions);
   };
   useEffect(() => {
     void refresh();
-  }, []);
+    // Re-fetch when the scope (video) changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoDocumentId]);
+
+  // Live edit-in-place: mirror the builder chord into the selected slot
+  // whenever it changes.
+  useEffect(() => {
+    if (editingIndex === null) return;
+    if (skipNextSync.current) {
+      skipNextSync.current = false;
+      return;
+    }
+    if (!currentChord) return;
+    setChords((cs) => {
+      const target = cs[editingIndex];
+      if (!target || chordKey(target) === chordKey(currentChord)) return cs;
+      const next = cs.slice();
+      next[editingIndex] = currentChord;
+      return next;
+    });
+  }, [currentChord, editingIndex]);
+
+  // Click a chord card → edit it in place (load into builder, highlight).
+  // Click the same card again to stop editing.
+  const selectForEdit = (i: number) => {
+    if (editingIndex === i) {
+      setEditingIndex(null);
+      return;
+    }
+    skipNextSync.current = true;
+    setEditingIndex(i);
+    onLoadChord(chords[i]);
+  };
 
   const addCurrent = () => {
     if (!currentChord) return;
+    setEditingIndex(null);
     setChords((cs) => [...cs, currentChord]);
     setMsg(null);
   };
-  const removeAt = (i: number) =>
+  const removeAt = (i: number) => {
     setChords((cs) => cs.filter((_, j) => j !== i));
-  const move = (i: number, dir: -1 | 1) =>
-    setChords((cs) => {
-      const j = i + dir;
-      if (j < 0 || j >= cs.length) return cs;
-      const next = cs.slice();
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
-    });
+    setEditingIndex((cur) =>
+      cur === null ? null : cur === i ? null : cur > i ? cur - 1 : cur,
+    );
+  };
+  // Cycle a chord's voicing (its position/shape on the neck) in place. If the
+  // chord is currently being edited in the builder, push the new voicing there
+  // too so the big view stays in sync (skip the live-sync echo).
+  const cycleVoicing = (i: number, dir: -1 | 1) => {
+    const c = chords[i];
+    const count = guitarVoicingCount(c);
+    if (count <= 1) return;
+    const v = (((c.voicingIndex ?? 0) + dir) % count + count) % count;
+    const updated: ProgressionChord = { ...c, voicingIndex: v };
+    setChords((cs) => cs.map((x, j) => (j === i ? updated : x)));
+    if (i === editingIndex) {
+      skipNextSync.current = true;
+      onLoadChord(updated);
+    }
+  };
   const clearAll = () => {
     setChords([]);
     setName('');
     setLoadedId(null);
+    setEditingIndex(null);
     setMsg(null);
   };
 
@@ -90,6 +165,7 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
           documentId: asNew ? null : loadedId,
           name: name.trim() || defaultName(chords),
           chords,
+          videoDocumentId: videoDocumentId ?? null,
         },
       });
       if (res.status === 'error') {
@@ -111,7 +187,28 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
     setChords(p.chords);
     setName(p.name);
     setLoadedId(p.documentId);
+    setEditingIndex(null);
     setMsg(null);
+  };
+
+  const handleExport = async () => {
+    const host = sheetRef.current;
+    if (!host) return;
+    const svg = host.querySelector('svg.instrument-svg') as SVGSVGElement | null;
+    if (!svg) return;
+    // Resolve theme CSS vars against the page's .theory-companion root.
+    const themeRoot =
+      (svg.closest('.theory-companion') as HTMLElement | null) ?? document.body;
+    const base = (name.trim() || defaultName(chords)).replace(
+      /[^A-Za-z0-9#°+ -]/g,
+      '',
+    );
+    await exportFretboardPng({
+      svg,
+      themeRoot,
+      filename: `${base || 'progression'}-${instrument}.png`,
+      cropToShape: false,
+    });
   };
 
   const handleDelete = async (p: StrapiProgression) => {
@@ -131,34 +228,52 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
     <section className="panel mt-4">
       <h2 className="panel-title">Chord progression</h2>
 
-      {/* Working list — one diagram card per chord */}
-      <div className="mt-3 flex flex-wrap gap-3">
-        {chords.length === 0 && (
-          <span className="text-sm text-[var(--ink-muted)]">
-            No chords yet — pick a chord above, then “Add chord”.
-          </span>
-        )}
+      {/* Working list — one diagram card per chord, 4 per row */}
+      {chords.length === 0 && (
+        <p className="mt-3 text-sm text-[var(--ink-muted)]">
+          No chords yet — pick a chord above, then “Add chord”.
+        </p>
+      )}
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+
         {chords.map((c, i) => (
           <div
             key={`${c.root}-${c.quality}-${c.voicingIndex ?? 0}-${i}`}
-            className="flex flex-col items-center gap-1 rounded-xl border border-[var(--line)] bg-[var(--bg-subtle)] p-2"
+            className={`relative flex flex-col items-center gap-1 rounded-xl border bg-[var(--bg-subtle)] p-2 ${
+              editingIndex === i
+                ? 'border-[var(--accent)] ring-2 ring-[var(--accent)]'
+                : 'border-[var(--line)]'
+            }`}
           >
             <button
               type="button"
-              onClick={() => onLoadChord(c)}
+              onClick={() => removeAt(i)}
+              className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full text-[var(--ink-muted)] transition hover:bg-[var(--card)] hover:text-[var(--ink)]"
+              aria-label={`Remove ${chordLabel(c)}`}
+              title="Remove chord"
+            >
+              ×
+            </button>
+            <button
+              type="button"
+              onClick={() => selectForEdit(i)}
               className="rounded-lg transition hover:opacity-80"
-              title="Load this chord (and its voicing) back into the builder"
+              title={
+                editingIndex === i
+                  ? 'Editing — change voicing or chord in the builder; click to stop'
+                  : 'Edit this chord: load it into the builder, then tweak its voicing or change the chord'
+              }
             >
               <ChordMini chord={c} instrument={instrument} />
             </button>
             <div className="flex items-center gap-0.5">
               <button
                 type="button"
-                onClick={() => move(i, -1)}
-                disabled={i === 0}
+                onClick={() => cycleVoicing(i, -1)}
+                disabled={guitarVoicingCount(c) <= 1}
                 className="rounded px-1 text-[var(--ink-muted)] hover:text-[var(--ink)] disabled:opacity-30"
-                aria-label={`Move ${chordLabel(c)} left`}
-                title="Move left"
+                aria-label={`Lower fret position for ${chordLabel(c)}`}
+                title="Lower position / previous voicing"
               >
                 ‹
               </button>
@@ -167,27 +282,33 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
               </span>
               <button
                 type="button"
-                onClick={() => move(i, 1)}
-                disabled={i === chords.length - 1}
+                onClick={() => cycleVoicing(i, 1)}
+                disabled={guitarVoicingCount(c) <= 1}
                 className="rounded px-1 text-[var(--ink-muted)] hover:text-[var(--ink)] disabled:opacity-30"
-                aria-label={`Move ${chordLabel(c)} right`}
-                title="Move right"
+                aria-label={`Higher fret position for ${chordLabel(c)}`}
+                title="Higher position / next voicing"
               >
                 ›
-              </button>
-              <button
-                type="button"
-                onClick={() => removeAt(i)}
-                className="ml-0.5 rounded-full px-1 text-[var(--ink-muted)] hover:bg-[var(--card)] hover:text-[var(--ink)]"
-                aria-label={`Remove ${chordLabel(c)}`}
-                title="Remove"
-              >
-                ×
               </button>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Editing hint */}
+      {editingIndex !== null && (
+        <p className="mt-3 text-xs text-[var(--accent)]">
+          Editing chord {editingIndex + 1} — change its voicing or pick a
+          different chord above; it updates in place.{' '}
+          <button
+            type="button"
+            onClick={() => setEditingIndex(null)}
+            className="underline underline-offset-2 hover:no-underline"
+          >
+            Done
+          </button>
+        </p>
+      )}
 
       {/* Actions */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -197,9 +318,11 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
           onClick={addCurrent}
           disabled={!currentChord}
           title={
-            currentChord
-              ? 'Append the current chord to the progression'
-              : 'Switch the builder to Chord mode to add a chord'
+            editingIndex !== null
+              ? 'Append the current chord as a NEW chord (stops editing)'
+              : currentChord
+                ? 'Append the current chord to the progression'
+                : 'Switch the builder to Chord mode to add a chord'
           }
         >
           + Add chord
@@ -207,6 +330,17 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
         {chords.length > 0 && (
           <Button type="button" size="pill" variant="outline" onClick={clearAll}>
             Clear
+          </Button>
+        )}
+        {chords.length > 0 && (
+          <Button
+            type="button"
+            size="pill"
+            variant="outline"
+            onClick={() => void handleExport()}
+            title="Export all chord diagrams as a single PNG"
+          >
+            ⬇ Export chords
           </Button>
         )}
         <div className="flex-1" />
@@ -286,6 +420,16 @@ export function ProgressionPanel({ currentChord, onLoadChord, instrument }: Prop
           </ul>
         </div>
       )}
+
+      {/* Off-screen composed sheet — the export source. Positioned out of
+          view but still laid out so getBoundingClientRect / CSS vars resolve. */}
+      <div
+        ref={sheetRef}
+        aria-hidden
+        className="pointer-events-none absolute -left-[99999px] top-0 opacity-0"
+      >
+        <ProgressionSheet chords={chords} instrument={instrument} />
+      </div>
     </section>
   );
 }

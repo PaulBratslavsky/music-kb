@@ -18,11 +18,7 @@ import { SaveLoopButton } from '#/components/SaveLoopButton';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
 import { SongContent } from '#/components/SongContent';
 import { ViewTabs } from '#/components/ViewTabs';
-import TheoryCompanion from '#/lib/music/TheoryCompanion';
-import { PianoView } from '#/lib/music/instruments/piano/PianoView';
-import { synth } from '#/lib/music/audio/synth';
-import { midiFromNote, midiFromPitchOctave } from '#/lib/music/theory/notes';
-import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
+import { ChordBuilder } from '#/components/ChordBuilder';
 import type { StrapiVideo } from '#/lib/services/videos';
 
 const VideoSearchSchema = z.object({
@@ -92,12 +88,12 @@ const SIDE_TABS: Array<{ id: SideTab; label: string }> = [
 ];
 
 // Bottom-section tabs — wider reference content that needs more room
-// than the right column gives. Default = piano (the most-used "I want
-// to play along" surface).
-type BottomTab = 'piano' | 'visualizer' | 'song';
+// than the right column gives. The Chords builder (guitar/piano view +
+// chord-progression tool) covers the old Piano + Visualizer tabs; saving
+// a progression here ties it to this video.
+type BottomTab = 'chords' | 'song';
 const BOTTOM_TABS: Array<{ id: BottomTab; label: string }> = [
-  { id: 'piano', label: 'Piano' },
-  { id: 'visualizer', label: 'Visualizer' },
+  { id: 'chords', label: 'Chords' },
   { id: 'song', label: 'Tab & lyrics' },
 ];
 
@@ -105,7 +101,7 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
   // Bumped after a save so SavedLoopsList refetches.
   const [loopsRefreshKey, setLoopsRefreshKey] = useState(0);
   const [sideTab, setSideTab] = useState<SideTab>('loops');
-  const [bottomTab, setBottomTab] = useState<BottomTab>('piano');
+  const [bottomTab, setBottomTab] = useState<BottomTab>('chords');
   const search = Route.useSearch();
 
   return (
@@ -211,10 +207,9 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
                 onChange={setBottomTab}
               />
             </div>
-            {bottomTab === 'piano' && <PracticePiano />}
-            {bottomTab === 'visualizer' && (
-              <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
-                <TheoryCompanion compact />
+            {bottomTab === 'chords' && (
+              <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4 sm:p-6">
+                <ChordBuilder videoDocumentId={video.documentId} />
               </div>
             )}
             {bottomTab === 'song' && (
@@ -283,96 +278,3 @@ function LoopHydrator({ loopId }: { loopId?: string }) {
   return null;
 }
 
-/** Standalone one-octave click-to-play piano. Lets the user audition
- *  notes while the video loops — no SelectionBar / chord-mode chrome,
- *  just a keyboard. Clicked notes also highlight (focus ring) so the
- *  user can track what they last played by ear. */
-function PracticePiano() {
-  const [focused, setFocused] = useState<PitchClass | null>(null);
-  const [octave, setOctave] = useState(4);
-
-  // Build a one-octave Note[] for the highlighted prop — empty here
-  // (PianoView lights nothing by default); we just need the keyboard
-  // rendered and clickable. PianoView's onPickPitchClass + onPlayNote
-  // do the work.
-  const handlePlay = (midi: number) => synth.playNote(midi);
-  const handlePick = (pc: PitchClass) =>
-    setFocused((prev) => (prev === pc ? null : pc));
-
-  // Quick "play scale up" affordance — fires the 7 natural notes
-  // ascending from C in the current octave. Useful as an audible
-  // reference point against the song.
-  const playScale = () => {
-    const pcs: PitchClass[] = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-    pcs.forEach((pc, i) => {
-      setTimeout(() => synth.playNote(midiFromPitchOctave(pc, octave)), i * 220);
-    });
-  };
-
-  return (
-    <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4 sm:p-6">
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-          Play along
-        </span>
-        <div
-          className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] p-0.5 text-xs"
-          role="radiogroup"
-          aria-label="Octave"
-        >
-          {[3, 4, 5].map((o) => (
-            <button
-              key={o}
-              type="button"
-              role="radio"
-              aria-checked={octave === o}
-              onClick={() => setOctave(o)}
-              className={`rounded-full px-3 py-1 font-medium transition ${
-                octave === o
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-[var(--ink-soft)] hover:bg-[var(--card)] hover:text-[var(--ink)]'
-              }`}
-            >
-              C{o}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={playScale}
-          className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-3 py-1 text-xs font-medium text-[var(--ink-soft)] hover:border-[var(--accent)] hover:text-[var(--ink)]"
-          title="Play the C major scale ascending in the current octave"
-        >
-          ▶ Scale
-        </button>
-        {focused && (
-          <span className="ml-auto text-xs text-[var(--ink-muted)]">
-            Last: <strong className="text-[var(--ink)]">{focused}</strong>
-          </span>
-        )}
-      </div>
-      {/* The CSS variables (--white-key, --black-key, etc.) that
-          PianoView reads are scoped to `.theory-companion` in
-          theory-companion.css. Wrap so the keys render their proper
-          colors when used outside TheoryCompanion. */}
-      <div className="theory-companion">
-        <PianoView
-          highlighted={focused ? PITCH_CLASSES.map((pc) => ({ pitchClass: pc, octave })).filter((n) => n.pitchClass === focused) : []}
-          rootPitchClass={null}
-          matchByPitchClass={true}
-          focusedPitchClass={focused}
-          onPickPitchClass={handlePick}
-          onPlayNote={handlePlay}
-        />
-      </div>
-      <p className="mt-3 text-xs text-[var(--ink-muted)]">
-        Click any key to play it. Switch octaves with C3 / C4 / C5. Use
-        this to audition notes against the looped section above —
-        especially handy when you're trying to find the root by ear.
-      </p>
-    </div>
-  );
-}
-// Make sure midiFromNote is reachable for the click handler typing — re-export
-// noop so the import isn't tree-shaken when unused.
-void midiFromNote;

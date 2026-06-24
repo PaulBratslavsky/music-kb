@@ -34,11 +34,13 @@ export type ChordDiagramProps = {
   startFret?: number;
 };
 
-const WIDTH = 120;
+const WIDTH = 134;
 const HEIGHT = 140;
 const PAD_TOP = 26;
 const PAD_BOTTOM = 12;
-const PAD_LEFT = 18;
+// Wider left gutter so the up-the-neck position indicator ("5fr", "12fr")
+// fits without clipping past the SVG's left edge.
+const PAD_LEFT = 30;
 const PAD_RIGHT = 12;
 
 export function ChordDiagram({
@@ -130,9 +132,9 @@ export function ChordDiagram({
         />
       ) : (
         <text
-          x={PAD_LEFT - 6}
+          x={PAD_LEFT - 7}
           y={PAD_TOP + fretGap / 2 + 3}
-          fontSize={10}
+          fontSize={9}
           textAnchor="end"
           fill="var(--ink-muted)"
           fontFamily="ui-monospace, monospace"

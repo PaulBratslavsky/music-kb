@@ -34,13 +34,35 @@ const listQuery: StrapiQuery = {
   pagination: { pageSize: 100 },
 };
 
+// Standalone progressions (from /builder) — NOT tied to a video. Video-tied
+// ones are listed per-video via listProgressionsForVideoService so the two
+// surfaces don't show each other's progressions.
 export async function listProgressionsService(): Promise<
   ServiceResult<StrapiProgression[]>
 > {
   const result = await strapiFetch<StrapiProgression[]>(
     'GET',
     '/api/progressions',
-    { query: listQuery },
+    { query: { ...listQuery, filters: { video: { $null: true } } } },
+  );
+  return result.ok
+    ? { success: true, data: result.data ?? [] }
+    : { success: false, error: result.error };
+}
+
+// Progressions saved against a specific music video.
+export async function listProgressionsForVideoService(
+  videoDocumentId: string,
+): Promise<ServiceResult<StrapiProgression[]>> {
+  const result = await strapiFetch<StrapiProgression[]>(
+    'GET',
+    '/api/progressions',
+    {
+      query: {
+        ...listQuery,
+        filters: { video: { documentId: { $eq: videoDocumentId } } },
+      },
+    },
   );
   return result.ok
     ? { success: true, data: result.data ?? [] }
@@ -50,11 +72,15 @@ export async function listProgressionsService(): Promise<
 export async function createProgressionService(
   name: string,
   chords: ProgressionChord[],
+  videoDocumentId?: string | null,
 ): Promise<ServiceResult<StrapiProgression>> {
+  // Strapi 5 connects a relation from a documentId string.
+  const data: Record<string, unknown> = { name, chords };
+  if (videoDocumentId) data.video = videoDocumentId;
   const result = await strapiFetch<StrapiProgression>(
     'POST',
     '/api/progressions',
-    { body: { data: { name, chords } } },
+    { body: { data } },
   );
   return result.ok
     ? { success: true, data: result.data }

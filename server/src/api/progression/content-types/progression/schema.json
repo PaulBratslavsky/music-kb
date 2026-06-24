@@ -22,6 +22,12 @@
       "type": "json",
       "required": true,
       "description": "Ordered array of { root: PitchClass, quality: ChordQuality }. Mirrors the builder's chord selection so a saved progression reloads with no flattening."
+    },
+    "video": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::video.video",
+      "inversedBy": "progressions"
     }
   }
 }
