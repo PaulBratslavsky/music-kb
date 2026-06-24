@@ -22,7 +22,9 @@ import { exportFretboardPng } from '#/lib/music/png-export';
 import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positions';
 import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
+import { detectFromFrets } from '#/lib/music/theory/detect-chord';
 import { parseTheoryParam } from '#/lib/music/deep-link';
+import type { ProgressionChord } from '#/lib/services/progressions';
 import type { PitchClass, ChordQuality, ScalePosition } from '#/lib/music/types';
 import '#/lib/music/theory-companion.css';
 
@@ -70,10 +72,55 @@ export function ChordBuilder({
   const pickChordFromWheel = (root: PitchClass, keyMode: KeyMode) =>
     loadChord(root, keyMode === 'minor' ? 'min' : 'maj');
 
-  // The current chord (full selection incl. voicing), for the progression
-  // panel. Null unless in chord mode.
-  const currentChord =
-    appState.state.mode === 'chord' ? appState.state.chord : null;
+  // --- Reverse-detect mode ------------------------------------------------
+  // Tap the fretboard to build a shape; tonal names the chord; the named
+  // chord (with its exact tapped positions) feeds the progression panel so
+  // "Add chord" saves the shape verbatim.
+  const [detectMode, setDetectMode] = useState(false);
+  const [playedFrets, setPlayedFrets] = useState<Map<number, number>>(new Map());
+  const toggleFret = (string: number, fret: number) =>
+    setPlayedFrets((prev) => {
+      const next = new Map(prev);
+      if (next.get(string) === fret) next.delete(string);
+      else next.set(string, fret); // one note per string
+      return next;
+    });
+  const clearShape = () => setPlayedFrets(new Map());
+  const detected = useMemo(
+    () => (detectMode ? detectFromFrets(playedFrets) : null),
+    [detectMode, playedFrets],
+  );
+  // The detected chord as a progression chord: its exact positions + the
+  // tonal name. root/quality are a best-effort fallback (bass note + maj)
+  // when the shape doesn't map to a known quality; positions carry the truth.
+  const detectedChord = useMemo<ProgressionChord | null>(() => {
+    if (!detected || playedFrets.size === 0) return null;
+    const positions = [...playedFrets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([s, f]) => `${s}-${f}`);
+    const best = detected.candidates[0];
+    // For a clean, parseable triad/seventh, leave detectedLabel unset so the
+    // progression shows the app-style name (root+quality, e.g. "Cmaj", "G7"),
+    // consistent with manually-built chords. Preserve tonal's raw symbol for
+    // slash chords (bass is dropped by the parser) and shapes we can't map.
+    const useRaw = !detected.selection || (best?.includes('/') ?? false);
+    return {
+      root: detected.selection?.root ?? detected.notes[0] ?? 'C',
+      quality: detected.selection?.quality ?? 'maj',
+      inversion: 0,
+      voicingIndex: 0,
+      positions,
+      detectedLabel: useRaw ? (best ?? detected.notes.join(' ')) : undefined,
+    };
+  }, [detected, playedFrets]);
+
+  // The current chord for the progression panel. In detect mode it's the
+  // tapped shape; otherwise the builder's selection (null unless chord mode).
+  const currentChord: ProgressionChord | null = detectMode
+    ? detectedChord
+    : appState.state.mode === 'chord'
+      ? appState.state.chord
+      : null;
 
   // Reselect a saved progression chord, restoring its exact voicing.
   const loadFullChord = (chord: typeof appState.state.chord) => {
@@ -223,7 +270,7 @@ export function ChordBuilder({
         </div>
       </div>
 
-      {instrument === 'guitar' && appState.state.mode === 'chord' && voicingTotal > 1 && (
+      {instrument === 'guitar' && !detectMode && appState.state.mode === 'chord' && voicingTotal > 1 && (
         <div className="mt-4 flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-3">
           <button
             type="button"
@@ -253,7 +300,15 @@ export function ChordBuilder({
       )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <span className="font-mono text-sm text-[var(--ink-soft)]">{resolved.label}</span>
+        <span className="font-mono text-sm text-[var(--ink-soft)]">
+          {!detectMode
+            ? resolved.label
+            : detected && detected.candidates.length > 0
+              ? `Detected: ${detected.candidates.slice(0, 3).join('   ·   ')}`
+              : detected && detected.notes.length > 0
+                ? `Notes: ${detected.notes.join(' ')} — no chord match`
+                : 'Tap the fretboard to build a shape'}
+        </span>
         <div className="flex flex-wrap items-center gap-3">
           {instrument === 'guitar' && highlightApplies && availableShapePositions.length > 0 && (
             <div className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs">
@@ -330,32 +385,71 @@ export function ChordBuilder({
 
       <div ref={fretboardRef} className="panel mt-4">
         {/* Instrument tab — pick the view to render + export. */}
-        <div
-          className="mb-4 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-sm"
-          role="radiogroup"
-          aria-label="Instrument"
-        >
-          {(
-            [
-              { id: 'guitar' as const, label: 'Guitar' },
-              { id: 'piano' as const, label: 'Piano' },
-            ]
-          ).map((opt) => (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-sm"
+            role="radiogroup"
+            aria-label="Instrument"
+          >
+            {(
+              [
+                { id: 'guitar' as const, label: 'Guitar' },
+                { id: 'piano' as const, label: 'Piano' },
+              ]
+            ).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                role="radio"
+                aria-checked={instrument === opt.id}
+                onClick={() => {
+                  setInstrument(opt.id);
+                  // Detect is a guitar-fretboard mode; leaving guitar exits it.
+                  if (opt.id === 'piano') setDetectMode(false);
+                }}
+                className={`rounded-full px-4 py-1 font-medium transition ${
+                  instrument === opt.id
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Reverse-detect toggle (guitar only) — tap the fretboard to build
+              a shape; the readout above names it; "Add chord" saves it. */}
+          {instrument === 'guitar' && (
             <button
-              key={opt.id}
               type="button"
-              role="radio"
-              aria-checked={instrument === opt.id}
-              onClick={() => setInstrument(opt.id)}
-              className={`rounded-full px-4 py-1 font-medium transition ${
-                instrument === opt.id
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+              onClick={() => setDetectMode((d) => !d)}
+              aria-pressed={detectMode}
+              className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
+                detectMode
+                  ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                  : 'border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--accent)]'
               }`}
+              title="Reverse-detect: tap the fretboard to build a custom shape and auto-name the chord"
             >
-              {opt.label}
+              🔍 Detect chord
             </button>
-          ))}
+          )}
+          {detectMode && playedFrets.size > 0 && (
+            <button
+              type="button"
+              onClick={clearShape}
+              className="rounded-full border border-[var(--line)] px-3 py-1 text-sm text-[var(--ink-muted)] transition hover:border-[var(--accent)] hover:text-[var(--ink)]"
+            >
+              Clear shape
+            </button>
+          )}
+          {detectMode && (
+            <span className="text-xs text-[var(--ink-muted)]">
+              Tap frets to place a note per string (tap again to remove);
+              untouched strings are muted.
+            </span>
+          )}
         </div>
         {instrument === 'guitar' ? (
           <>
@@ -375,6 +469,9 @@ export function ChordBuilder({
               emphasizedPitchClasses={resolved.previewedChordPCs}
               gameMode={appState.gameMode.guitar}
               onGameGuess={(pos) => appState.submitGuess('guitar', pos)}
+              detectMode={detectMode}
+              playedFrets={playedFrets}
+              onToggleFret={toggleFret}
             />
           </>
         ) : (

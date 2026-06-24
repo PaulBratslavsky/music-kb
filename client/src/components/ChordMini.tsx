@@ -13,26 +13,56 @@ import { pitchClassFromMidi } from '#/lib/music/theory/notes';
 import { getChordPitchClasses } from '#/lib/music/theory/chords';
 import type { ChordSelection, PitchClass } from '#/lib/music/types';
 
-// ChordSelection → ChordDiagram props. `positions` are `${string}-${fret}`
-// keys with string 0 = high E … 5 = low E — the same convention ChordDiagram
-// expects, so they map straight across. A string absent from `positions` is
-// muted; fret 0 is open; otherwise a fretted dot, accented when it's the root.
-function guitarDiagram(chord: ChordSelection): ChordDiagramProps | null {
-  const v = guitarVoicing(chord);
-  if (!v.positions || v.positions.size === 0) return null;
-  const fretByString = new Map<number, number>();
-  for (const key of v.positions) {
-    const [s, f] = key.split('-').map(Number);
-    fretByString.set(s, f);
-  }
-  const strings: ChordDiagramProps['strings'] = Array.from({ length: 6 }, (_, s) => {
+// A chord as the progression stores it — a ChordSelection plus, for shapes
+// captured via the reverse-detect fretboard, the exact tapped `positions`.
+type MiniChord = ChordSelection & { positions?: string[] };
+
+// A `${string}-${fret}` key map → ChordDiagram per-string states. Keys use
+// string 0 = high E … 5 = low E, the same convention ChordDiagram expects.
+// A string absent from the map is muted; fret 0 is open; otherwise a fretted
+// dot, accented when its pitch class is the chord root.
+function stringsFromFretMap(
+  fretByString: Map<number, number>,
+  root: PitchClass,
+): ChordDiagramProps['strings'] {
+  return Array.from({ length: 6 }, (_, s) => {
     const fret = fretByString.get(s);
     if (fret === undefined) return { kind: 'muted' as const };
     if (fret === 0) return { kind: 'open' as const };
     const pc = pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + fret);
-    return { kind: 'fretted' as const, fret, isRoot: pc === chord.root };
+    return { kind: 'fretted' as const, fret, isRoot: pc === root };
   });
-  return { strings, barre: v.barre ?? undefined, fretCount: 5 };
+}
+
+function parsePositions(positions: string[]): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const key of positions) {
+    const [s, f] = key.split('-').map(Number);
+    m.set(s, f);
+  }
+  return m;
+}
+
+// MiniChord → ChordDiagram props. A detect-captured chord (with `positions`)
+// renders its exact shape verbatim; otherwise the shape is recomputed from
+// root+quality+voicingIndex via guitarVoicing.
+function guitarDiagram(chord: MiniChord): ChordDiagramProps | null {
+  if (chord.positions && chord.positions.length > 0) {
+    const fretByString = parsePositions(chord.positions);
+    const frets = [...fretByString.values()].filter((f) => f > 0);
+    const span = frets.length ? Math.max(...frets) - Math.min(...frets) + 1 : 5;
+    return {
+      strings: stringsFromFretMap(fretByString, chord.root),
+      fretCount: Math.max(5, span),
+    };
+  }
+  const v = guitarVoicing(chord);
+  if (!v.positions || v.positions.size === 0) return null;
+  return {
+    strings: stringsFromFretMap(parsePositions([...v.positions]), chord.root),
+    barre: v.barre ?? undefined,
+    fretCount: 5,
+  };
 }
 
 // --- Mini piano (one octave, C → B) --------------------------------------
@@ -47,8 +77,16 @@ const BLACK: Array<{ pc: PitchClass; after: number }> = [
   { pc: 'A#', after: 5 },
 ];
 
-function MiniPiano({ chord }: { chord: ChordSelection }) {
-  const lit = new Set<PitchClass>(getChordPitchClasses(chord.root, chord.quality));
+function MiniPiano({ chord }: { chord: MiniChord }) {
+  // Detect-captured shapes light the exact played pitch classes; otherwise
+  // the chord's theoretical tones from root+quality.
+  const lit = new Set<PitchClass>(
+    chord.positions && chord.positions.length > 0
+      ? [...parsePositions(chord.positions).entries()].map(([s, f]) =>
+          pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + f),
+        )
+      : getChordPitchClasses(chord.root, chord.quality),
+  );
   const W = 112;
   const H = 64;
   const ww = W / 7;
@@ -92,7 +130,7 @@ export function ChordMini({
   chord,
   instrument,
 }: {
-  chord: ChordSelection;
+  chord: MiniChord;
   instrument: 'guitar' | 'piano';
 }) {
   if (instrument === 'piano') return <MiniPiano chord={chord} />;
