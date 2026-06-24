@@ -16,8 +16,20 @@ type ServiceResult<T> =
  *  exact voicing round-trips: `root` + `quality` + `inversion` +
  *  `voicingIndex` (the latter two pin the guitar shape / piano inversion that
  *  was on screen when it was added). Legacy rows saved before voicings were
- *  captured simply lack inversion/voicingIndex; readers default them to 0. */
-export type ProgressionChord = ChordSelection;
+ *  captured simply lack inversion/voicingIndex; readers default them to 0.
+ *
+ *  Chords captured via the reverse-detect fretboard also carry:
+ *   - `positions`: the exact tapped frets (`${string}-${fret}`, string 0 =
+ *     high E). When present, renderers draw this verbatim instead of
+ *     recomputing a voicing from root+quality, so a custom/unknown shape is
+ *     preserved faithfully.
+ *   - `detectedLabel`: the tonal-detected chord name to show (e.g. "Cmaj7",
+ *     "Em7/C"), since root+quality is only a best-effort fallback for shapes
+ *     that don't map cleanly to a known quality. */
+export type ProgressionChord = ChordSelection & {
+  positions?: string[];
+  detectedLabel?: string;
+};
 
 export type StrapiProgression = {
   id: number;

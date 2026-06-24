@@ -25,6 +25,14 @@ const ProgressionChordSchema = z.object({
   quality: z.string().min(1).max(12),
   inversion: z.number().int().min(0).max(11).default(0),
   voicingIndex: z.number().int().min(0).max(64).default(0),
+  // Reverse-detect fretboard: the exact tapped shape (`${string}-${fret}`,
+  // string 0 = high E) + the detected chord name. Optional — normal builder
+  // chords omit them. Up to 6 strings.
+  positions: z
+    .array(z.string().regex(/^[0-5]-\d{1,2}$/))
+    .max(6)
+    .optional(),
+  detectedLabel: z.string().min(1).max(24).optional(),
 });
 
 const ChordsSchema = z.array(ProgressionChordSchema).min(1).max(64);

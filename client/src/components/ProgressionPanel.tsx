@@ -17,8 +17,11 @@ import { ProgressionSheet } from '#/components/ProgressionSheet';
 import { guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
 import { exportFretboardPng } from '#/lib/music/png-export';
 
-// "Cmaj" / "Am" / "Fmaj7" — root glued to the short quality label.
+// "Cmaj" / "Am" / "Fmaj7" — root glued to the short quality label. A
+// detect-captured chord shows its tonal-detected name (e.g. "Em7/C") since
+// root+quality is only a fallback for shapes that don't map to a quality.
 function chordLabel(c: ProgressionChord): string {
+  if (c.detectedLabel) return c.detectedLabel;
   return `${c.root}${QUALITY_LABELS[c.quality as ChordQuality] ?? c.quality}`;
 }
 
@@ -31,7 +34,13 @@ function defaultName(chords: ProgressionChord[]): string {
 // Identity of a chord incl. its voicing — so the live edit-sync only writes
 // when the builder actually changed the selected slot.
 function chordKey(c: ProgressionChord): string {
-  return `${c.root}|${c.quality}|${c.inversion ?? 0}|${c.voicingIndex ?? 0}`;
+  return `${c.root}|${c.quality}|${c.inversion ?? 0}|${c.voicingIndex ?? 0}|${(c.positions ?? []).join(',')}`;
+}
+
+// A detect-captured chord pins an exact shape (`positions`); its voicing
+// can't be cycled and it isn't editable in the normal builder.
+function isCustomShape(c: ProgressionChord): boolean {
+  return Array.isArray(c.positions) && c.positions.length > 0;
 }
 
 type Props = {
@@ -108,6 +117,10 @@ export function ProgressionPanel({
   // Click a chord card → edit it in place (load into builder, highlight).
   // Click the same card again to stop editing.
   const selectForEdit = (i: number) => {
+    // Custom detected shapes can't be represented by the builder's
+    // root+quality+voicing model, so editing-in-place would discard the
+    // shape. Leave them view-only (still removable via ×).
+    if (isCustomShape(chords[i])) return;
     if (editingIndex === i) {
       setEditingIndex(null);
       return;
@@ -134,6 +147,7 @@ export function ProgressionPanel({
   // too so the big view stays in sync (skip the live-sync echo).
   const cycleVoicing = (i: number, dir: -1 | 1) => {
     const c = chords[i];
+    if (isCustomShape(c)) return; // shape is fixed by its tapped positions
     const count = guitarVoicingCount(c);
     if (count <= 1) return;
     const v = (((c.voicingIndex ?? 0) + dir) % count + count) % count;
@@ -259,9 +273,11 @@ export function ProgressionPanel({
               onClick={() => selectForEdit(i)}
               className="rounded-lg transition hover:opacity-80"
               title={
-                editingIndex === i
-                  ? 'Editing — change voicing or chord in the builder; click to stop'
-                  : 'Edit this chord: load it into the builder, then tweak its voicing or change the chord'
+                isCustomShape(c)
+                  ? 'Detected custom shape — saved exactly as tapped (not editable in the builder)'
+                  : editingIndex === i
+                    ? 'Editing — change voicing or chord in the builder; click to stop'
+                    : 'Edit this chord: load it into the builder, then tweak its voicing or change the chord'
               }
             >
               <ChordMini chord={c} instrument={instrument} />
@@ -270,7 +286,7 @@ export function ProgressionPanel({
               <button
                 type="button"
                 onClick={() => cycleVoicing(i, -1)}
-                disabled={guitarVoicingCount(c) <= 1}
+                disabled={isCustomShape(c) || guitarVoicingCount(c) <= 1}
                 className="rounded px-1 text-[var(--ink-muted)] hover:text-[var(--ink)] disabled:opacity-30"
                 aria-label={`Lower fret position for ${chordLabel(c)}`}
                 title="Lower position / previous voicing"
@@ -283,7 +299,7 @@ export function ProgressionPanel({
               <button
                 type="button"
                 onClick={() => cycleVoicing(i, 1)}
-                disabled={guitarVoicingCount(c) <= 1}
+                disabled={isCustomShape(c) || guitarVoicingCount(c) <= 1}
                 className="rounded px-1 text-[var(--ink-muted)] hover:text-[var(--ink)] disabled:opacity-30"
                 aria-label={`Higher fret position for ${chordLabel(c)}`}
                 title="Higher position / next voicing"
