@@ -72,6 +72,13 @@ export function ChordBuilder({
   const pickChordFromWheel = (root: PitchClass, keyMode: KeyMode) =>
     loadChord(root, keyMode === 'minor' ? 'min' : 'maj');
 
+  // Which instrument the panel renders + exports. Both PianoView and
+  // GuitarView emit `svg.instrument-svg`, so the PNG exporter is
+  // instrument-agnostic — only the guitar-specific controls (voicing nav,
+  // CAGED shape highlight, crop-to-shape, bulk-shape export) are gated off
+  // in piano mode below.
+  const [instrument, setInstrument] = useState<'guitar' | 'piano'>('guitar');
+
   // --- Reverse-detect mode ------------------------------------------------
   // Tap the fretboard to build a shape; tonal names the chord; the named
   // chord (with its exact tapped positions) feeds the progression panel so
@@ -122,18 +129,26 @@ export function ChordBuilder({
       ? appState.state.chord
       : null;
 
-  // Reselect a saved progression chord, restoring its exact voicing.
-  const loadFullChord = (chord: typeof appState.state.chord) => {
+  // Reselect a saved progression chord for editing. A detect-captured shape
+  // (has `positions`) loads back onto the detect fretboard so re-tapping
+  // edits it; a normal chord restores its exact voicing in chord mode. The
+  // mode follows the chord type either way.
+  const loadFullChord = (chord: ProgressionChord) => {
+    if (chord.positions && chord.positions.length > 0) {
+      setInstrument('guitar');
+      setDetectMode(true);
+      const m = new Map<number, number>();
+      for (const key of chord.positions) {
+        const [s, f] = key.split('-').map(Number);
+        m.set(s, f);
+      }
+      setPlayedFrets(m);
+      return;
+    }
+    setDetectMode(false);
     appState.setMode('chord');
     appState.setChord(() => ({ ...chord }));
   };
-
-  // Which instrument the panel renders + exports. Both PianoView and
-  // GuitarView emit `svg.instrument-svg`, so the PNG exporter is
-  // instrument-agnostic — only the guitar-specific controls (voicing nav,
-  // CAGED shape highlight, crop-to-shape, bulk-shape export) are gated off
-  // in piano mode below.
-  const [instrument, setInstrument] = useState<'guitar' | 'piano'>('guitar');
 
   const fretboardRef = useRef<HTMLDivElement | null>(null);
 
