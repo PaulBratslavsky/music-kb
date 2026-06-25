@@ -68,6 +68,9 @@ export function ProgressionPanel({
 }: Props) {
   const [chords, setChords] = useState<ProgressionChord[]>([]);
   const [name, setName] = useState('');
+  // Inline rename of a saved row: the row being renamed + its draft name.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   // documentId of the saved row currently loaded — Save updates it in place;
   // null means the working list is unsaved (Save creates a new row).
   const [loadedId, setLoadedId] = useState<string | null>(null);
@@ -241,6 +244,46 @@ export function ProgressionPanel({
     }
   };
 
+  const startRename = (p: StrapiProgression) => {
+    setRenamingId(p.documentId);
+    setRenameValue(p.name);
+  };
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameValue('');
+  };
+  // Rename a saved progression in place — re-saves the same chords under the
+  // new name (saveProgression with a documentId updates the row).
+  const commitRename = async (p: StrapiProgression) => {
+    const newName = renameValue.trim();
+    if (!newName || newName === p.name) {
+      cancelRename();
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await saveProgression({
+        data: {
+          documentId: p.documentId,
+          name: newName,
+          chords: p.chords,
+          videoDocumentId: videoDocumentId ?? null,
+        },
+      });
+      if (res.status === 'error') {
+        setMsg(res.error);
+        return;
+      }
+      if (loadedId === p.documentId) setName(newName);
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Rename failed');
+    } finally {
+      setBusy(false);
+      cancelRename();
+    }
+  };
+
   return (
     <section className="panel mt-4">
       <h2 className="panel-title">Chord progression</h2>
@@ -369,8 +412,11 @@ export function ProgressionPanel({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={
-            chords.length > 0 ? defaultName(chords) : 'Progression name'
+          placeholder="Name this progression…"
+          title={
+            chords.length > 0
+              ? `Leave blank to auto-name it "${defaultName(chords)}"`
+              : 'Give this progression a name'
           }
           maxLength={100}
           className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-3 py-1.5 text-sm text-[var(--ink)] sm:flex-none sm:basis-56"
@@ -414,28 +460,71 @@ export function ProgressionPanel({
                     : 'hover:bg-[var(--bg-subtle)]'
                 }`}
               >
-                <button
-                  type="button"
-                  onClick={() => handleLoad(p)}
-                  className="min-w-0 flex-1 text-left"
-                  title="Load this progression"
-                >
-                  <span className="font-medium text-[var(--ink)]">{p.name}</span>
-                  <span className="ml-2 text-xs text-[var(--ink-muted)]">
-                    {Array.isArray(p.chords)
-                      ? p.chords.map(chordLabel).join(' ')
-                      : ''}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDelete(p)}
-                  disabled={busy}
-                  className="rounded px-1.5 text-xs text-[var(--ink-muted)] hover:text-[var(--danger,#c0392b)]"
-                  title="Delete this saved progression"
-                >
-                  Delete
-                </button>
+                {renamingId === p.documentId ? (
+                  <>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void commitRename(p);
+                        if (e.key === 'Escape') cancelRename();
+                      }}
+                      maxLength={100}
+                      className="min-w-0 flex-1 rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-sm text-[var(--ink)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void commitRename(p)}
+                      disabled={busy}
+                      className="rounded px-1.5 text-xs font-medium text-[var(--accent)] hover:underline"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelRename}
+                      className="rounded px-1.5 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleLoad(p)}
+                      className="min-w-0 flex-1 text-left"
+                      title="Load this progression"
+                    >
+                      <span className="font-medium text-[var(--ink)]">{p.name}</span>
+                      <span className="ml-2 text-xs text-[var(--ink-muted)]">
+                        {Array.isArray(p.chords)
+                          ? p.chords.map(chordLabel).join(' ')
+                          : ''}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startRename(p)}
+                      disabled={busy}
+                      className="rounded px-1.5 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                      title="Rename this saved progression"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(p)}
+                      disabled={busy}
+                      className="rounded px-1.5 text-xs text-[var(--ink-muted)] hover:text-[var(--danger,#c0392b)]"
+                      title="Delete this saved progression"
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
               </li>
             ))}
           </ul>
