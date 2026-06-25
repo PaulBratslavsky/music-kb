@@ -107,7 +107,11 @@ export function ProgressionPanel({
     if (!currentChord) return;
     setChords((cs) => {
       const target = cs[editingIndex];
-      if (!target || chordKey(target) === chordKey(currentChord)) return cs;
+      if (!target) return cs;
+      // Don't clobber a custom (positions) shape with a non-detect chord —
+      // e.g. if the builder leaves detect mode mid-edit (switches to piano).
+      if (isCustomShape(target) && !isCustomShape(currentChord)) return cs;
+      if (chordKey(target) === chordKey(currentChord)) return cs;
       const next = cs.slice();
       next[editingIndex] = currentChord;
       return next;
@@ -117,14 +121,13 @@ export function ProgressionPanel({
   // Click a chord card → edit it in place (load into builder, highlight).
   // Click the same card again to stop editing.
   const selectForEdit = (i: number) => {
-    // Custom detected shapes can't be represented by the builder's
-    // root+quality+voicing model, so editing-in-place would discard the
-    // shape. Leave them view-only (still removable via ×).
-    if (isCustomShape(chords[i])) return;
     if (editingIndex === i) {
       setEditingIndex(null);
       return;
     }
+    // onLoadChord routes by chord type: a custom detected shape reloads onto
+    // the detect fretboard (re-tap to edit), a normal chord into chord mode.
+    // Either way, edits mirror back into this slot via the live-sync effect.
     skipNextSync.current = true;
     setEditingIndex(i);
     onLoadChord(chords[i]);
@@ -273,10 +276,12 @@ export function ProgressionPanel({
               onClick={() => selectForEdit(i)}
               className="rounded-lg transition hover:opacity-80"
               title={
-                isCustomShape(c)
-                  ? 'Detected custom shape — saved exactly as tapped (not editable in the builder)'
-                  : editingIndex === i
-                    ? 'Editing — change voicing or chord in the builder; click to stop'
+                editingIndex === i
+                  ? isCustomShape(c)
+                    ? 'Editing — re-tap the fretboard to change this shape; click to stop'
+                    : 'Editing — change voicing or chord in the builder; click to stop'
+                  : isCustomShape(c)
+                    ? 'Edit this detected shape: loads onto the detect fretboard to re-tap'
                     : 'Edit this chord: load it into the builder, then tweak its voicing or change the chord'
               }
             >

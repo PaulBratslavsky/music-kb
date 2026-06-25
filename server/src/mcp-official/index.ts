@@ -10,10 +10,8 @@ import { domainTools } from './tools';
 export async function registerOfficialMcpTools(
   strapi: Core.Strapi,
 ): Promise<void> {
-  // strapi.ai.mcp is only present on 5.47+; guard so older cores / a
-  // disabled server are a clean skip.
   const mcp = strapi.ai?.mcp;
-  if (!mcp || !mcp.isEnabled()) {
+  if (!mcp?.isEnabled()) {
     strapi.log.info('[music-kb mcp] official MCP server disabled — skipping custom tools.');
     return;
   }
