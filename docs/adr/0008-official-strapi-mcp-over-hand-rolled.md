@@ -36,8 +36,10 @@ official server instead, at the app level.**
   hard-to-undo tools — addVideo, fetchTranscript, reindexEmbeddings,
   generateDigest). The maintenance tier exists so a browse-and-annotate
   token can't trigger a reindex, a YouTube fetch, or an LLM digest. Code
-  lives in `src/mcp-official/` (permissions, adapter, tool list).
-- **Reuse, don't rewrite, the tool bodies.** `src/mcp-official/adapter.ts`
+  lives in `src/mcp/` (permissions, adapter, catalog) alongside the tool
+  bodies. (Originally a separate `src/mcp-official/`; consolidated into
+  `src/mcp/` 2026-06 once the hand-rolled host was gone — see note below.)
+- **Reuse, don't rewrite, the tool bodies.** `src/mcp/adapter.ts`
   wraps each existing `ToolDef`'s `execute(args, { strapi })` into an
   official `registerTool` call. The tool implementations in
   `src/mcp/tools/*` and their helpers (`src/mcp/utils/*`,
@@ -55,7 +57,7 @@ The official API requires schemas built with `@strapi/utils`'s **zod 3**
 (3.25.x). The app uses **zod 4** (4.3.x); the two are not interchangeable
 across the MCP SDK's schema conversion. So the adapter reuses each tool's
 `execute` body (it operates on plain parsed args) but the **input/output
-schemas are re-declared in zod-3** in `src/mcp-official/tools.ts`. Output
+schemas are re-declared in zod-3** in `src/mcp/catalog.ts`. Output
 schemas must be a top-level `ZodObject`; the adapter normalizes any
 array/scalar result into an object to satisfy that.
 
@@ -87,7 +89,7 @@ full-access token — what the old `/api/mcp` used — is rejected.
   old config must reconfigure — see `docs/mcp.md`.
 - **Dual zod versions in the tool layer.** Each tool's schema is declared
   twice — zod-4 in the `ToolDef` (for the execute body's arg typing) and
-  zod-3 in `src/mcp-official/tools.ts` (for the official server). Drift
+  zod-3 in `src/mcp/catalog.ts` (for the official server). Drift
   between the two is possible; the verification pass (tools/list + sample
   calls) is the guard.
 - **Output schemas start loose.** The adapter defaults to a permissive
@@ -99,8 +101,15 @@ full-access token — what the old `/api/mcp` used — is rejected.
 
 **What's enforced in code.**
 
-- `src/mcp/` no longer serves HTTP — it's just tool *implementations* the
-  adapter consumes. Don't re-add a transport there.
+- `src/mcp/tools/` no longer serves HTTP — they're just tool
+  *implementations* the adapter consumes. Don't re-add a transport there.
 - New tools: author a `ToolDef` in `src/mcp/tools/`, add a zod-3 entry in
-  `src/mcp-official/tools.ts` with a read/write tier. Registration is
-  automatic via the array.
+  `src/mcp/catalog.ts` with a read/write tier. Registration is automatic
+  via the array.
+
+> **Update (2026-06):** the official-server wiring originally lived in a
+> separate `src/mcp-official/` folder (to keep tool bodies host-neutral
+> while the hand-rolled host was still around). With the hand-rolled host
+> gone there's only one host, so those four files were folded into
+> `src/mcp/` — `adapter.ts`, `catalog.ts` (was `tools.ts`), `permissions.ts`,
+> `index.ts` — next to `tools/` and `registry.ts`. No behavior change.

@@ -1,7 +1,7 @@
 // Adapter: register a music-kb domain ToolDef on the OFFICIAL Strapi MCP
 // server (strapi.ai.mcp.registerTool).
 //
-// Each domain tool (defined in ../mcp/tools/) supplies the parts that don't
+// Each domain tool (defined in ./tools/) supplies the parts that don't
 // change between hosts; the adapter supplies the official-server wrapping:
 //   - FROM the tool: its `execute(args, { strapi })` body and its
 //     human-facing `name` + `description`. These operate on plain parsed
@@ -13,7 +13,7 @@
 //     tier (read|write|maintenance) mapping to a custom admin permission.
 import { z } from '@strapi/utils';
 import type { Core } from '@strapi/strapi';
-import type { ToolDef } from '../mcp/registry';
+import type { ToolDef } from './registry';
 import { MCP_ACTIONS } from './permissions';
 
 type RegisterTool = Core.Strapi['ai']['mcp']['registerTool'];
