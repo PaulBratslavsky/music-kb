@@ -8,8 +8,8 @@ the bridge for when you want more power than a local model can provide.
 
 Served by the **official Strapi MCP server** (built into Strapi 5.47+).
 Our 24 domain tools are registered on it from `server/src/index.ts` via
-the adapter in `server/src/mcp-official/`; the tool bodies live in
-`server/src/mcp/tools/`. See [ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md)
+the adapter in `server/src/mcp/` (`adapter.ts` + `catalog.ts`); the tool
+bodies live in `server/src/mcp/tools/`. See [ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md)
 for why we retired the previous hand-rolled server (which served
 `/api/mcp` — **that endpoint no longer exists**).
 
@@ -212,6 +212,6 @@ fetchTranscript(videoId: <id>, force: true)
   grounding for a Claude-generated summary, regenerate from the app UI
   afterwards.
 - Adding a tool: author a `ToolDef` in `server/src/mcp/tools/`, then add a
-  zod-3 entry (read/write tier) to `server/src/mcp-official/tools.ts`.
+  zod-3 entry (read/write tier) to `server/src/mcp/catalog.ts`.
   Registration is automatic. See ADR 0008 for the zod-4-vs-zod-3 reason
   schemas are declared twice.

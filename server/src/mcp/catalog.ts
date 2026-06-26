@@ -1,6 +1,6 @@
 // The music-kb domain tools registered on the official MCP server.
 //
-// Each entry pairs a tool's execute body (from ../mcp/tools/) with a zod-3
+// Each entry pairs a tool's execute body (from ./tools/) with a zod-3
 // input schema + an access tier (read | write | maintenance). Input schemas
 // are re-declared here (zod 3, @strapi/utils) because the tools' own schemas
 // are zod 4 and the two aren't interchangeable across the SDK — see ADR 0008
@@ -8,28 +8,28 @@
 import { z } from '@strapi/utils';
 import type { DomainTool } from './adapter';
 
-import { libraryStatsTool } from '../mcp/tools/library-stats';
-import { listVideosTool } from '../mcp/tools/list-videos';
-import { searchVideosTool } from '../mcp/tools/search-videos';
-import { getMusicDataTool } from '../mcp/tools/get-music-data';
-import { getVideoTool } from '../mcp/tools/get-video';
-import { getTranscriptTool } from '../mcp/tools/get-transcript';
-import { searchTranscriptTool } from '../mcp/tools/search-transcript';
-import { findTranscriptsTool } from '../mcp/tools/find-transcripts';
-import { crossSearchTranscriptsTool } from '../mcp/tools/cross-search-transcripts';
-import { listTranscriptsTool } from '../mcp/tools/list-transcripts';
-import { aggregateByTagTool } from '../mcp/tools/aggregate-by-tag';
-import { listUntaggedTool } from '../mcp/tools/list-untagged';
-import { listTagsTool, tagVideoTool, untagVideoTool } from '../mcp/tools/tags';
-import { relatedVideosTool } from '../mcp/tools/related-videos';
-import { getReadableArticleTool } from '../mcp/tools/get-readable-article';
-import { verifyCitationsTool } from '../mcp/tools/verify-citations';
-import { addVideoTool } from '../mcp/tools/add-video';
-import { saveSummaryTool } from '../mcp/tools/save-summary';
-import { saveNoteTool } from '../mcp/tools/save-note';
-import { fetchTranscriptTool } from '../mcp/tools/fetch-transcript';
-import { reindexEmbeddingsTool } from '../mcp/tools/reindex-embeddings';
-import { generateDigestTool } from '../mcp/tools/generate-digest';
+import { libraryStatsTool } from './tools/library-stats';
+import { listVideosTool } from './tools/list-videos';
+import { searchVideosTool } from './tools/search-videos';
+import { getMusicDataTool } from './tools/get-music-data';
+import { getVideoTool } from './tools/get-video';
+import { getTranscriptTool } from './tools/get-transcript';
+import { searchTranscriptTool } from './tools/search-transcript';
+import { findTranscriptsTool } from './tools/find-transcripts';
+import { crossSearchTranscriptsTool } from './tools/cross-search-transcripts';
+import { listTranscriptsTool } from './tools/list-transcripts';
+import { aggregateByTagTool } from './tools/aggregate-by-tag';
+import { listUntaggedTool } from './tools/list-untagged';
+import { listTagsTool, tagVideoTool, untagVideoTool } from './tools/tags';
+import { relatedVideosTool } from './tools/related-videos';
+import { getReadableArticleTool } from './tools/get-readable-article';
+import { verifyCitationsTool } from './tools/verify-citations';
+import { addVideoTool } from './tools/add-video';
+import { saveSummaryTool } from './tools/save-summary';
+import { saveNoteTool } from './tools/save-note';
+import { fetchTranscriptTool } from './tools/fetch-transcript';
+import { reindexEmbeddingsTool } from './tools/reindex-embeddings';
+import { generateDigestTool } from './tools/generate-digest';
 
 const tagNames = z.array(z.string().min(1).max(40));
 

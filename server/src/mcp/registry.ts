@@ -3,7 +3,7 @@ import type { Core } from '@strapi/strapi';
 
 // Shape of a music-kb domain tool. Originally the interface of the
 // hand-rolled MCP server (retired — see ADR 0008); now just the input
-// contract that the `src/mcp-official/` adapter wraps onto the official
+// contract that the `./adapter.ts` adapter wraps onto the official
 // Strapi MCP server. The tool bodies in `./tools/*` are authored against
 // this type; the adapter supplies the official title/auth/output-schema
 // around each `execute`.

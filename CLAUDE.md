@@ -112,7 +112,7 @@ Single-pass for short transcripts (≤ `SINGLE_PASS_TOKEN_BUDGET`, 15K); long on
 
 ### MCP server lives in Strapi
 
-The **official Strapi MCP server** (built into 5.47+) serves `/mcp`, gated by admin API tokens. Our 24 domain tools (videos, transcripts, tags, notes, music data) register on it from `server/src/index.ts` via the adapter in `server/src/mcp-official/` (permissions + `registerTool` wrapping), reusing the tool bodies in `server/src/mcp/tools/`. Schemas are re-declared in `@strapi/utils` zod-3 there because the app uses zod-4 (see ADR 0008). **Tool implementations are defined once** in `server/src/mcp/tools/` — the in-app Ollama chat does not use MCP, keeping local inference protocol-free. The hand-rolled `/api/mcp` server was retired (ADR 0008). See `docs/mcp.md`.
+The **official Strapi MCP server** (built into 5.47+) serves `/mcp`, gated by admin API tokens. Our 24 domain tools (videos, transcripts, tags, notes, music data) register on it from `server/src/index.ts` via the adapter in `server/src/mcp/` (`adapter.ts` + `catalog.ts` permissions + `registerTool` wrapping), reusing the tool bodies in `server/src/mcp/tools/`. Schemas are re-declared in `@strapi/utils` zod-3 there because the app uses zod-4 (see ADR 0008). **Tool implementations are defined once** in `server/src/mcp/tools/` — the in-app Ollama chat does not use MCP, keeping local inference protocol-free. The hand-rolled `/api/mcp` server was retired (ADR 0008). See `docs/mcp.md`.
 
 ## Routing and aliases
 

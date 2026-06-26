@@ -1,6 +1,6 @@
 import type { Core } from '@strapi/strapi';
 import { errors } from '@strapi/utils';
-import { registerOfficialMcpTools } from './mcp-official';
+import { registerOfficialMcpTools } from './mcp';
 
 type WithData = { data?: Record<string, unknown> };
 
@@ -100,9 +100,9 @@ export default {
     //
     // Served by the OFFICIAL Strapi MCP server (5.47+) at /mcp, gated by
     // admin API tokens. We register our 24 domain tools on it here, behind
-    // custom admin permissions, via the adapter in `src/mcp-official/`
-    // (which reuses the tool bodies in `src/mcp/tools/`). The hand-rolled
-    // server that used to serve /api/mcp was retired — see ADR 0008. Must
+    // custom admin permissions, via the adapter in `src/mcp/` (which wraps
+    // the tool bodies in `src/mcp/tools/`). The hand-rolled server that used
+    // to serve /api/mcp was retired — see ADR 0008. Must
     // run in register(), before the MCP server starts.
     // -------------------------------------------------------------------
     await registerOfficialMcpTools(strapi);

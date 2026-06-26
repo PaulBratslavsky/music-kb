@@ -5,7 +5,7 @@
 import type { Core } from '@strapi/strapi';
 import { registerMcpAdminPermissions } from './permissions';
 import { registerDomainTool } from './adapter';
-import { domainTools } from './tools';
+import { domainTools } from './catalog';
 
 export async function registerOfficialMcpTools(
   strapi: Core.Strapi,
