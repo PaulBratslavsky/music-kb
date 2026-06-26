@@ -43,9 +43,15 @@ const LOOSE_OUTPUT = z.object({}).catchall(z.any());
 // MCP clients (Claude Desktop/Code) reject a tool result over 1 MB with an
 // opaque "Tool result is too large" error the agent can't act on. We guard
 // just under that so the agent gets a structured, actionable message
-// instead — and can re-issue the call with pagination. ~120 KB of headroom
-// covers the JSON-RPC envelope + the duplicated structuredContent.
-const MAX_RESULT_BYTES = 900_000;
+// instead — and can re-issue the call with pagination.
+//
+// CRUCIAL: the result rides the wire TWICE — once as JSON text in `content`
+// and once as `structuredContent` — so the payload is ~2x the serialized
+// result. Measure the DOUBLED size, not one copy. (Measuring one copy at a
+// 900 KB threshold let ~475–900 KB results — e.g. a getVideo with embeddings,
+// or findTranscripts with full content — slip through and blow the 1 MB
+// limit.) MAX_WIRE_BYTES is the ceiling for the full duplicated payload.
+const MAX_WIRE_BYTES = 950_000;
 
 /** Hints, by tool, for how to make an oversized result smaller. */
 function shrinkHint(toolName: string): string {
@@ -94,14 +100,17 @@ export function registerDomainTool(
       // a normal `{ error }` result, the same convention these tools already
       // use for "no transcript found" etc.
       const bytes = Buffer.byteLength(JSON.stringify(rawResult), 'utf8');
+      // The result rides the wire twice (content text + structuredContent),
+      // plus a small JSON-RPC envelope. Measure that, not the single copy.
+      const wireBytes = bytes * 2 + 2048;
       const result =
-        bytes > MAX_RESULT_BYTES
+        wireBytes > MAX_WIRE_BYTES
           ? {
               error: 'RESULT_TOO_LARGE',
               tool: tool.name,
-              bytes,
-              limitBytes: MAX_RESULT_BYTES,
-              message: `This ${tool.name} result is ${(bytes / 1_000_000).toFixed(2)} MB, over the ~1 MB MCP response limit. ${shrinkHint(tool.name)}`,
+              bytes: wireBytes,
+              limitBytes: MAX_WIRE_BYTES,
+              message: `This ${tool.name} result is ~${(wireBytes / 1_000_000).toFixed(2)} MB on the wire (sent twice), over the ~1 MB MCP response limit. ${shrinkHint(tool.name)}`,
             }
           : rawResult;
 

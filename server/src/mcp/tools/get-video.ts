@@ -45,14 +45,26 @@ export const getVideoTool: ToolDef<z.infer<typeof schema>> = {
       return { error: `No video found for "${videoId}".` };
     }
 
-    // Strip the BM25 index blob from the response — it's huge and not
-    // useful to a human-readable tool call. Agents that need the index
-    // should use searchTranscript which already consumes it.
-    const { transcriptSegments, tags, ...rest } = video as Record<string, unknown> & {
+    // Strip the internal retrieval blobs from the response — they're huge
+    // (passageEmbeddings alone can be ~800 KB, which doubles past the 1 MB
+    // MCP result limit once the adapter mirrors it into structuredContent)
+    // and useless to a human-readable tool call. Agents that need the BM25
+    // index should use searchTranscript; embeddings back relatedVideos.
+    const {
+      transcriptSegments,
+      passageEmbeddings,
+      summaryEmbedding,
+      tags,
+      ...rest
+    } = video as Record<string, unknown> & {
       transcriptSegments?: unknown;
+      passageEmbeddings?: unknown;
+      summaryEmbedding?: unknown;
       tags?: Array<{ name: string }>;
     };
     void transcriptSegments;
+    void passageEmbeddings;
+    void summaryEmbedding;
 
     return {
       ...rest,
