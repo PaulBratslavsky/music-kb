@@ -22,7 +22,7 @@ import {
   updateVideo,
 } from './storage';
 import { SectionChordStrip } from './SectionChordStrip';
-import { ProgressionPanel } from './ProgressionPanel';
+import { ChordsPanel } from './ChordsPanel';
 import { chordLabel } from './chordShapes';
 import { navigate } from './useHashRoute';
 import type { SavedLoop, SavedProgression, SavedVideo } from './types';
@@ -274,7 +274,7 @@ function PlayerInner({ video }: { video: SavedVideo }) {
         </aside>
       </div>
 
-      <ProgressionPanel
+      <ChordsPanel
         videoId={video.id}
         progressions={progressions}
         onChanged={refreshProgressions}
