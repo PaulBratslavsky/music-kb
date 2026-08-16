@@ -17,10 +17,15 @@ import {
   deleteLoop,
   getVideo,
   loopsForVideo,
+  progressionsForVideo,
+  updateLoop,
   updateVideo,
 } from './storage';
+import { SectionChordStrip } from './SectionChordStrip';
+import { ProgressionPanel } from './ProgressionPanel';
+import { chordLabel } from './chordShapes';
 import { navigate } from './useHashRoute';
-import type { SavedLoop, SavedVideo } from './types';
+import type { SavedLoop, SavedProgression, SavedVideo } from './types';
 
 export function PlayerPage({ videoId }: { videoId: string }) {
   const video = getVideo(videoId);
@@ -55,11 +60,30 @@ type SideTab = 'loops' | 'wheel';
 
 function PlayerInner({ video }: { video: SavedVideo }) {
   const [loops, setLoops] = useState<SavedLoop[]>(() => loopsForVideo(video.id));
+  const [progressions, setProgressions] = useState<SavedProgression[]>(() =>
+    progressionsForVideo(video.id),
+  );
+  // The section loaded into the player — drives the chord strip below it.
+  const [selectedLoopId, setSelectedLoopId] = useState<string | null>(null);
   const [sideTab, setSideTab] = useState<SideTab>('loops');
   const [editingTitle, setEditingTitle] = useState(!video.title);
   const [titleDraft, setTitleDraft] = useState(video.title);
 
   const refresh = () => setLoops(loopsForVideo(video.id));
+  const refreshProgressions = () => {
+    setProgressions(progressionsForVideo(video.id));
+    // A delete unlinks sections, so the loop rows need re-reading too.
+    setLoops(loopsForVideo(video.id));
+  };
+
+  const selectedLoop = loops.find((l) => l.id === selectedLoopId) ?? null;
+  const selectedProgression =
+    progressions.find((p) => p.id === selectedLoop?.progressionId) ?? null;
+
+  const patchLoop = (id: string, patch: Parameters<typeof updateLoop>[1]) => {
+    updateLoop(id, patch);
+    refresh();
+  };
 
   return (
     <main
@@ -176,6 +200,16 @@ function PlayerInner({ video }: { video: SavedVideo }) {
             </div>
             <LoopControls />
           </div>
+          {selectedLoop && (
+            <SectionChordStrip
+              loop={selectedLoop}
+              progression={selectedProgression}
+              onBarsChange={(bars) => patchLoop(selectedLoop.id, { bars })}
+              onTimesSave={(startSec, endSec) =>
+                patchLoop(selectedLoop.id, { startSec, endSec })
+              }
+            />
+          )}
         </section>
 
         <aside
@@ -221,6 +255,10 @@ function PlayerInner({ video }: { video: SavedVideo }) {
               <LoopsPanel
                 videoId={video.id}
                 loops={loops}
+                progressions={progressions}
+                selectedLoopId={selectedLoopId}
+                onSelect={setSelectedLoopId}
+                onPatch={patchLoop}
                 onSaved={refresh}
                 onDeleted={refresh}
               />
@@ -235,6 +273,12 @@ function PlayerInner({ video }: { video: SavedVideo }) {
           </div>
         </aside>
       </div>
+
+      <ProgressionPanel
+        videoId={video.id}
+        progressions={progressions}
+        onChanged={refreshProgressions}
+      />
     </main>
   );
 }
@@ -271,11 +315,19 @@ function TabButton({
 function LoopsPanel({
   videoId,
   loops,
+  progressions,
+  selectedLoopId,
+  onSelect,
+  onPatch,
   onSaved,
   onDeleted,
 }: {
   videoId: string;
   loops: SavedLoop[];
+  progressions: SavedProgression[];
+  selectedLoopId: string | null;
+  onSelect: (id: string) => void;
+  onPatch: (id: string, patch: Partial<SavedLoop>) => void;
   onSaved: () => void;
   onDeleted: () => void;
 }) {
@@ -293,6 +345,10 @@ function LoopsPanel({
             <LoopRow
               key={l.id}
               loop={l}
+              progressions={progressions}
+              selected={selectedLoopId === l.id}
+              onSelect={() => onSelect(l.id)}
+              onPatch={(patch) => onPatch(l.id, patch)}
               onDeleted={() => {
                 deleteLoop(l.id);
                 onDeleted();
@@ -312,67 +368,166 @@ function fmt(sec: number): string {
 
 function LoopRow({
   loop,
+  progressions,
+  selected,
+  onSelect,
+  onPatch,
   onDeleted,
 }: {
   loop: SavedLoop;
+  progressions: SavedProgression[];
+  selected: boolean;
+  onSelect: () => void;
+  onPatch: (patch: Partial<SavedLoop>) => void;
   onDeleted: () => void;
 }) {
   const { setLoopStart, setLoopEnd, seekTo, loopActive, toggleLoopActive } =
     usePlayerControl();
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(loop.label);
+
+  const linked = progressions.find((p) => p.id === loop.progressionId) ?? null;
+  const summary = linked
+    ? linked.chords.slice(0, 4).map(chordLabel).join(' ') +
+      (linked.chords.length > 4 ? ' …' : '')
+    : 'no progression';
+
   const load = () => {
     setLoopStart(loop.startSec);
     setLoopEnd(loop.endSec);
     seekTo(loop.startSec);
     if (!loopActive) toggleLoopActive();
+    onSelect();
+  };
+
+  const commitRename = () => {
+    const next = draft.trim();
+    setRenaming(false);
+    if (next && next !== loop.label) onPatch({ label: next });
   };
   return (
     <li
       style={{
         display: 'flex',
-        alignItems: 'center',
-        gap: 8,
+        flexDirection: 'column',
+        gap: 6,
         padding: '6px 8px',
         borderRadius: 6,
         background: 'var(--panel-2)',
-        border: '1px solid var(--border)',
+        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
         fontSize: 12,
       }}
     >
-      <button
-        type="button"
-        onClick={load}
-        style={{
-          all: 'unset',
-          flex: 1,
-          cursor: 'pointer',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-        }}
-      >
-        <span style={{ fontWeight: 600, flex: 1 }}>{loop.label}</span>
-        <span
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {renaming ? (
+          <>
+            <input
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename();
+                if (e.key === 'Escape') setRenaming(false);
+              }}
+              aria-label={`Rename ${loop.label}`}
+              maxLength={120}
+              style={{
+                flex: 1, minWidth: 0, padding: '2px 6px', fontSize: 12,
+                border: '1px solid var(--accent)', borderRadius: 4,
+                background: 'var(--panel)', color: 'var(--text)',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={commitRename}
+              style={{ all: 'unset', cursor: 'pointer', color: 'var(--accent)' }}
+            >
+              save
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={load}
+              style={{
+                all: 'unset', flex: 1, minWidth: 0, cursor: 'pointer',
+                display: 'flex', gap: 8, alignItems: 'center',
+              }}
+            >
+              <span style={{ fontWeight: 600 }}>{loop.label}</span>
+              <span style={{ fontFamily: 'ui-monospace, monospace', color: 'var(--text-dim)' }}>
+                {fmt(loop.startSec)}–{fmt(loop.endSec)}
+              </span>
+              <span
+                style={{
+                  color: 'var(--text-dim)', flex: 1, minWidth: 0,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+              >
+                {summary}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(loop.label);
+                setRenaming(true);
+              }}
+              aria-label={`Rename loop ${loop.label}`}
+              title="Rename this section"
+              style={{ all: 'unset', cursor: 'pointer', padding: '0 4px', color: 'var(--text-dim)' }}
+            >
+              ✎
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={onDeleted}
+          aria-label={`Delete loop ${loop.label}`}
           style={{
-            fontFamily: 'ui-monospace, monospace',
+            all: 'unset',
+            cursor: 'pointer',
+            padding: '0 4px',
             color: 'var(--text-dim)',
           }}
         >
-          {fmt(loop.startSec)}–{fmt(loop.endSec)}
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={onDeleted}
-        aria-label={`Delete loop ${loop.label}`}
-        style={{
-          all: 'unset',
-          cursor: 'pointer',
-          padding: '0 4px',
-          color: 'var(--text-dim)',
-        }}
-      >
         ×
-      </button>
+        </button>
+      </div>
+
+      {selected && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span
+            style={{
+              fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.04em', color: 'var(--text-dim)',
+            }}
+          >
+            Progression
+          </span>
+          <select
+            value={loop.progressionId ?? ''}
+            onChange={(e) => onPatch({ progressionId: e.target.value || null })}
+            aria-label="Progression for this section"
+            style={{
+              flex: 1, minWidth: 0, padding: '2px 4px', fontSize: 12,
+              border: '1px solid var(--border)', borderRadius: 4,
+              background: 'var(--panel)', color: 'var(--text)',
+              fontFamily: 'inherit',
+            }}
+          >
+            <option value="">— none —</option>
+            {progressions.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
     </li>
   );
 }

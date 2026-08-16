@@ -12,10 +12,11 @@
 // is unavailable (private windows, quota) — the caller can detect
 // success by re-reading and checking for the new id.
 
-import type { SavedLoop, SavedVideo } from './types';
+import type { SavedLoop, SavedProgression, SavedVideo } from './types';
 
 const VIDEOS_KEY = 'tv:videos';
 const LOOPS_KEY = 'tv:loops';
+const PROGRESSIONS_KEY = 'tv:progressions';
 
 function safeReadArray<T>(key: string): T[] {
   if (typeof window === 'undefined') return [];
@@ -100,6 +101,11 @@ export function deleteVideo(id: string): boolean {
   safeWriteArray(VIDEOS_KEY, filtered);
   const loops = safeReadArray<SavedLoop>(LOOPS_KEY);
   safeWriteArray(LOOPS_KEY, loops.filter((l) => l.videoId !== id));
+  const progressions = safeReadArray<SavedProgression>(PROGRESSIONS_KEY);
+  safeWriteArray(
+    PROGRESSIONS_KEY,
+    progressions.filter((p) => p.videoId !== id),
+  );
   return true;
 }
 
@@ -132,10 +138,85 @@ export function addLoop(
   return record;
 }
 
+/** Patch a loop — rename, retime, or link/unlink its progression. */
+export function updateLoop(
+  id: string,
+  patch: Partial<Omit<SavedLoop, 'id' | 'videoId' | 'createdAt'>>,
+): SavedLoop | null {
+  const all = safeReadArray<SavedLoop>(LOOPS_KEY);
+  const idx = all.findIndex((l) => l.id === id);
+  if (idx === -1) return null;
+  const next = { ...all[idx], ...patch };
+  all[idx] = next;
+  safeWriteArray(LOOPS_KEY, all);
+  return next;
+}
+
 export function deleteLoop(id: string): boolean {
   const all = safeReadArray<SavedLoop>(LOOPS_KEY);
   const filtered = all.filter((l) => l.id !== id);
   if (filtered.length === all.length) return false;
   safeWriteArray(LOOPS_KEY, filtered);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Progressions
+// ---------------------------------------------------------------------------
+// Scoped to a video: a section of one song should only be offered chords
+// saved against that song. Newest first so a just-saved progression is at
+// the top of the picker.
+
+export function progressionsForVideo(videoId: string): SavedProgression[] {
+  return safeReadArray<SavedProgression>(PROGRESSIONS_KEY)
+    .filter((p) => p.videoId === videoId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function getProgression(id: string): SavedProgression | null {
+  return (
+    safeReadArray<SavedProgression>(PROGRESSIONS_KEY).find((p) => p.id === id) ??
+    null
+  );
+}
+
+export function addProgression(
+  input: Omit<SavedProgression, 'id' | 'createdAt'>,
+): SavedProgression {
+  const record: SavedProgression = {
+    ...input,
+    id: newId(),
+    createdAt: new Date().toISOString(),
+  };
+  const all = safeReadArray<SavedProgression>(PROGRESSIONS_KEY);
+  safeWriteArray(PROGRESSIONS_KEY, [record, ...all]);
+  return record;
+}
+
+export function updateProgression(
+  id: string,
+  patch: Partial<Omit<SavedProgression, 'id' | 'videoId' | 'createdAt'>>,
+): SavedProgression | null {
+  const all = safeReadArray<SavedProgression>(PROGRESSIONS_KEY);
+  const idx = all.findIndex((p) => p.id === id);
+  if (idx === -1) return null;
+  const next = { ...all[idx], ...patch };
+  all[idx] = next;
+  safeWriteArray(PROGRESSIONS_KEY, all);
+  return next;
+}
+
+/** Delete a progression and unlink it from any section that used it, so a
+ *  section never points at an id that no longer exists. */
+export function deleteProgression(id: string): boolean {
+  const all = safeReadArray<SavedProgression>(PROGRESSIONS_KEY);
+  const filtered = all.filter((p) => p.id !== id);
+  if (filtered.length === all.length) return false;
+  safeWriteArray(PROGRESSIONS_KEY, filtered);
+  const loops = safeReadArray<SavedLoop>(LOOPS_KEY);
+  safeWriteArray(
+    LOOPS_KEY,
+    loops.map((l) => (l.progressionId === id ? { ...l, progressionId: null } : l)),
+  );
   return true;
 }

@@ -44,7 +44,7 @@ export default function App() {
 function Header({ active }: { active: 'visualizer' | 'music' }) {
   return (
     <header className="app-header">
-      <h1>TriadView</h1>
+      <h1>Paul's Music Helper</h1>
       <span className="tagline" style={{ flex: 1, minWidth: 0 }} />
       <nav style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }}>
         <button
@@ -136,7 +136,7 @@ function VisualizerHome() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>TriadView</h1>
+        <h1>Paul's Music Helper</h1>
         <span className="tagline" style={{ flex: 1, minWidth: 0 }}>
           See any chord on piano, guitar, bass, and Push — loop YouTube
           tracks and find their key with the Circle of Fifths.

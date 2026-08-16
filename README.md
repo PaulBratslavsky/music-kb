@@ -1,14 +1,14 @@
-# TriadView
+# Paul's Music Helper
 
 **A visual + audio reference for Ableton Push producers learning piano and guitar.**
 
-You already program harmony in Push. TriadView shows you what those same chords, scales, and notes look like on a **piano keyboard** and a **guitar fretboard** — all three views synchronized in real time. Click anywhere to hear the note. Pick a chord and see every scale it lives in. Pick a scale and see the chords inside it.
+You already program harmony in Push. Paul's Music Helper shows you what those same chords, scales, and notes look like on a **piano keyboard** and a **guitar fretboard** — all three views synchronized in real time. Click anywhere to hear the note. Pick a chord and see every scale it lives in. Pick a scale and see the chords inside it.
 
-Becoming fluent on piano and guitar makes you a better producer, even if you never perform. Most chord/scale references on the web target one instrument at a time. TriadView uses Push as the anchor and treats piano and guitar as the destinations.
+Becoming fluent on piano and guitar makes you a better producer, even if you never perform. Most chord/scale references on the web target one instrument at a time. Paul's Music Helper uses Push as the anchor and treats piano and guitar as the destinations.
 
 ## Why
 
-Each instrument has a totally different physical layout: piano is linear, guitar is mostly tuned in fourths, and Push is a chromatic grid in fourths. The same musical idea looks completely different on each. TriadView puts all three side-by-side so the shapes start to feel like dialects of the same language.
+Each instrument has a totally different physical layout: piano is linear, guitar is mostly tuned in fourths, and Push is a chromatic grid in fourths. The same musical idea looks completely different on each. Paul's Music Helper puts all three side-by-side so the shapes start to feel like dialects of the same language.
 
 ## Features
 

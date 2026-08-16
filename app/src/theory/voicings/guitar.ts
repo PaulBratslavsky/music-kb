@@ -14,13 +14,27 @@ export type GuitarVoicing = {
   notes: Note[];
   shapeName: string | null;
   /**
-   * Resolved barre — the absolute fret + string range the index finger
-   * should bar. Set only when the realized voicing's shape carries a
-   * `barre` annotation AND the resolved barre fret is > 0 (no need to
-   * render a bar at the nut). Drives the translucent bar overlay in
-   * GuitarView.
+   * (music-kb fork) Exact (string, fret) positions of the voicing, encoded as
+   * `${string}-${fret}` keys to match GuitarView's `shapePositions` filter.
+   * Without this, the GuitarView highlights every fretboard position whose
+   * MIDI matches the voicing's notes — but the same MIDI can sit at multiple
+   * (string, fret) pairs (E4 = string-1 fret-0 = string-2 fret-5 = …), so the
+   * "Open Em" voicing visually scattered 18+ markers across the neck. The
+   * positions set pins highlights to the actual fingering.
    *
-   * null for open chords, power chords, and quality fallbacks.
+   * null = no specific positions (the pitch-class-fallback path, when the
+   * quality has no shape definition); GuitarView falls back to "every
+   * position" matching, which is appropriate for that case.
+   */
+  positions: Set<string> | null;
+  /**
+   * (music-kb fork) Resolved barre — the absolute fret + string range the
+   * index finger should bar. Set only when the realized voicing's shape
+   * carries a `barre` annotation AND the resolved barre fret is > 0
+   * (no need to render a bar at the nut). Drives the thick translucent
+   * bar overlay in GuitarView.
+   *
+   * null for open chords, two-finger power chords, and quality fallbacks.
    */
   barre: { fret: number; fromString: number; toString: number } | null;
 };
@@ -44,10 +58,12 @@ function realizeShape(
   root: PitchClass,
 ): {
   notes: Note[];
+  positions: Set<string>;
   barre: { fret: number; fromString: number; toString: number } | null;
 } | null {
   const rootFret = lowestFretForPC(shape.rootString, root);
   const notes: Note[] = [];
+  const positions = new Set<string>();
   for (let s = 0; s < shape.frets.length; s++) {
     const offset = shape.frets[s];
     if (offset == null) continue;
@@ -57,9 +73,10 @@ function realizeShape(
     if (fret < 0 || fret > FRET_COUNT) continue;
     const midi = STANDARD_TUNING_MIDI[s] + fret;
     notes.push(noteFromMidi(midi));
+    positions.add(`${s}-${fret}`);
   }
   if (notes.length === 0) return null;
-  // Resolve the barre. Skip rendering when the barre lands at fret 0
+  // Resolve the barre. We skip it when the barre would land at fret 0
   // (the nut already covers open strings — drawing a bar there is noise).
   let barre: { fret: number; fromString: number; toString: number } | null = null;
   if (shape.barre) {
@@ -72,21 +89,26 @@ function realizeShape(
       };
     }
   }
-  return { notes, barre };
+  return { notes, positions, barre };
 }
 
 /**
  * Realize an open-position shape: its frets are absolute (0 = open string),
  * so we just add each played string's fret to that string's open MIDI.
  */
-function realizeOpenShape(shape: OpenChordShape): Note[] {
+function realizeOpenShape(shape: OpenChordShape): {
+  notes: Note[];
+  positions: Set<string>;
+} {
   const notes: Note[] = [];
+  const positions = new Set<string>();
   for (let s = 0; s < shape.frets.length; s++) {
     const fret = shape.frets[s];
     if (fret == null) continue;
     notes.push(noteFromMidi(STANDARD_TUNING_MIDI[s] + fret));
+    positions.add(`${s}-${fret}`);
   }
-  return notes;
+  return { notes, positions };
 }
 
 /** Open-position shape for this exact root+quality, or null if there isn't one. */
@@ -114,8 +136,10 @@ export function guitarVoicing(sel: ChordSelection): GuitarVoicing {
 
   const open = openShapeFor(sel);
   if (open) {
-    // Open shapes don't barre — they're played with discrete fingers.
-    voicings.push({ notes: realizeOpenShape(open), shapeName: open.name, barre: null });
+    const { notes, positions } = realizeOpenShape(open);
+    // Open shapes don't barre — they're played with discrete finger
+    // placement on individual strings.
+    voicings.push({ notes, shapeName: open.name, positions, barre: null });
   }
 
   for (const shape of GUITAR_SHAPES[sel.quality] ?? []) {
@@ -124,12 +148,21 @@ export function guitarVoicing(sel: ChordSelection): GuitarVoicing {
       voicings.push({
         notes: realized.notes,
         shapeName: shape.name,
+        positions: realized.positions,
         barre: realized.barre,
       });
   }
 
   if (voicings.length === 0) {
-    return { notes: pitchClassFallback(pcs), shapeName: null, barre: null };
+    // No shape data → fall back to pitch-class flood (positions: null). The
+    // resolve.ts caller sees positions == null and leaves guitarShapePositions
+    // null too, which GuitarView's inShape treats as "anywhere goes."
+    return {
+      notes: pitchClassFallback(pcs),
+      shapeName: null,
+      positions: null,
+      barre: null,
+    };
   }
 
   const v = ((sel.voicingIndex % voicings.length) + voicings.length) % voicings.length;
@@ -147,10 +180,12 @@ export function guitarHasShape(quality: ChordSelection['quality']): boolean {
 }
 
 /**
- * Does this quality have any movable named shape OR any root-specific
- * open shape? Used by the SelectionBar Quality picker to dim chips whose
- * qualities will fall back to the pitch-class-flood path (every matching
- * fretboard position lights up — not a named voicing).
+ * (music-kb fork) Does this quality have any movable named shape OR any
+ * root-specific open shape? Used by the SelectionBar Quality picker to dim
+ * chips whose qualities will fall back to the pitch-class-flood path (every
+ * matching fretboard position lights up — not a named voicing). Signals
+ * "this is an exotic chord; the guitar view won't have a specific
+ * fingering" without hiding the quality from the picker.
  */
 export function qualityHasAnyShape(quality: ChordSelection['quality']): boolean {
   if ((GUITAR_SHAPES[quality] ?? []).length > 0) return true;
@@ -160,10 +195,14 @@ export function qualityHasAnyShape(quality: ChordSelection['quality']): boolean 
 }
 
 /**
- * First voicing index whose shape is annotated as a barre. Returns -1
- * when the quality has no barre voicings (e.g. dim, aug, sus2, sus4, or
- * power chord '5'). Order matches `guitarVoicing`: index 0 is the open
- * shape (if any) for this exact root+quality; movable shapes follow.
+ * (music-kb fork) First voicing index whose shape is annotated as a barre.
+ * Returns -1 when the quality has no barre voicings (e.g. dim, aug, sus2,
+ * sus4, or power chord '5'). Used by the "Barre chord" quick-start chip to
+ * jump straight to the first barre form without making the user step
+ * through Voicing manually.
+ *
+ * Order matches `guitarVoicing`: index 0 is the open shape (if any) for
+ * this exact root+quality; movable shapes from GUITAR_SHAPES follow.
  */
 export function firstBarreVoicingIndex(sel: ChordSelection): number {
   const hasOpen = openShapeFor(sel) != null;
@@ -175,9 +214,9 @@ export function firstBarreVoicingIndex(sel: ChordSelection): number {
   return -1;
 }
 
-/** Shape name of the voicing currently selected by `voicingIndex`, or
- *  null when no shape is defined for this quality. Drives the active
- *  shape-name badge next to the SelectionBar's Voicing stepper. */
+/** Shape name of the voicing currently selected by `voicingIndex`, or null
+ *  when no shape is defined for this quality. Used to render the active
+ *  shape name next to the Voicing stepper in the SelectionBar. */
 export function currentGuitarShapeName(sel: ChordSelection): string | null {
   return guitarVoicing(sel).shapeName;
 }

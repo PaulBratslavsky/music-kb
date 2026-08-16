@@ -4,7 +4,7 @@ Guidance for Claude Code working in this repo.
 
 ## Project
 
-**TriadView** — a visual + audio reference for **Ableton Push producers learning piano and guitar**. Push is the user's anchor instrument; piano and guitar are the destinations they're trying to learn. The app shows the same chord/scale/note across all three views simultaneously, plays it via Web Audio, and surfaces theoretical relationships (diatonic chords in a scale, scales containing a chord).
+**Paul's Music Helper** — a visual + audio reference for **Ableton Push producers learning piano and guitar**. Push is the user's anchor instrument; piano and guitar are the destinations they're trying to learn. The app shows the same chord/scale/note across all three views simultaneously, plays it via Web Audio, and surfaces theoretical relationships (diatonic chords in a scale, scales containing a chord).
 
 The app code lives under `app/`. It's a static SPA — no backend, no database, no accounts.
 
