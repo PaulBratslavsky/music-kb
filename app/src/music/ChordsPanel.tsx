@@ -10,16 +10,18 @@
 // Progressions are saved per video in localStorage. Sections link to one
 // rather than owning chords, so this is the only place chords get built.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { SelectionBar } from '../components/SelectionBar';
 import { GuitarView } from '../instruments/guitar/GuitarView';
 import { PianoView } from '../instruments/piano/PianoView';
 import { useAppState } from '../state/useAppState';
 import { resolveSelection } from '../state/resolve';
 import { synth } from '../audio/synth';
-import { ChordDiagram } from './ChordDiagram';
+import { ChordMini } from './ChordMini';
+import { ProgressionSheet } from './ProgressionSheet';
+import { exportFretboardPng } from './png-export';
 import { ChordFormulaStrip } from './ChordFormulaStrip';
-import { chordDiagramProps, chordLabel } from './chordShapes';
+import { chordLabel } from './chordShapes';
 import { addProgression, deleteProgression, updateProgression } from './storage';
 import { detectFromFrets } from '../theory/detect-chord';
 import type { ProgressionChord, SavedProgression } from './types';
@@ -110,6 +112,27 @@ export function ChordsPanel({
     }
     setName(finalName);
     onChanged();
+  };
+
+  // The sheet is rendered off-screen purely so the SVG exporter has a
+  // single <svg> holding every chord; it is never shown directly.
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  const handleExport = async () => {
+    const svg = sheetRef.current?.querySelector(
+      'svg.instrument-svg',
+    ) as SVGSVGElement | null;
+    if (!svg) return;
+    const base = (name.trim() || defaultName || 'progression').replace(
+      /[^A-Za-z0-9#°+ -]/g,
+      '',
+    );
+    await exportFretboardPng({
+      svg,
+      themeRoot: document.body,
+      filename: `${base || 'progression'}-${instrument}.png`,
+      cropToShape: false,
+    });
   };
 
   const commitRename = (p: SavedProgression) => {
@@ -212,10 +235,8 @@ export function ChordsPanel({
           </p>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}>
-            {chords.map((c, i) => {
-              const props = chordDiagramProps(c);
-              return (
-                <figure key={`${c.root}-${c.quality}-${i}`} style={cardStyle}>
+            {chords.map((c, i) => (
+              <figure key={`${c.root}-${c.quality}-${i}`} style={cardStyle}>
                   <button
                     type="button"
                     onClick={() => setChords((p) => p.filter((_, idx) => idx !== i))}
@@ -227,21 +248,16 @@ export function ChordsPanel({
                   >
                     ×
                   </button>
-                  <div style={{ display: 'flex', justifyContent: 'center', minHeight: 60 }}>
-                    {props ? (
-                      <ChordDiagram {...props} orientation="horizontal" />
-                    ) : (
-                      <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>No shape</span>
-                    )}
-                  </div>
-                  <figcaption
-                    style={{ marginTop: 4, textAlign: 'center', fontSize: 13, fontWeight: 700 }}
-                  >
-                    {chordLabel(c)}
-                  </figcaption>
-                </figure>
-              );
-            })}
+                <div style={{ display: 'flex', justifyContent: 'center', minHeight: 60 }}>
+                  <ChordMini chord={c} instrument={instrument} />
+                </div>
+                <figcaption
+                  style={{ marginTop: 4, textAlign: 'center', fontSize: 13, fontWeight: 700 }}
+                >
+                  {chordLabel(c)}
+                </figcaption>
+              </figure>
+            ))}
           </div>
         )}
 
@@ -274,6 +290,16 @@ export function ChordsPanel({
               }}
             >
               Clear
+            </button>
+          )}
+          {chords.length > 0 && (
+            <button
+              type="button"
+              className="chip"
+              onClick={() => void handleExport()}
+              title="Export all chord diagrams as a single PNG"
+            >
+              ⬇ Export chords
             </button>
           )}
           <input
@@ -380,6 +406,13 @@ export function ChordsPanel({
             </ul>
           </div>
         )}
+      </div>
+      <div
+        ref={sheetRef}
+        aria-hidden
+        style={{ position: 'absolute', left: -99999, top: 0, pointerEvents: 'none' }}
+      >
+        <ProgressionSheet chords={chords} instrument={instrument} />
       </div>
     </section>
   );

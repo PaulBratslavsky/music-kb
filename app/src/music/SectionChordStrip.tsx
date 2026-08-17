@@ -6,8 +6,9 @@
 //
 // Timing is per BAR, not per chord. See activeIndex.
 
-import { ChordDiagram } from './ChordDiagram';
-import { chordDiagramProps, chordLabel } from './chordShapes';
+import { useState } from 'react';
+import { ChordMini } from './ChordMini';
+import { chordLabel } from './chordShapes';
 import { usePlayerControl } from './Player';
 import type { SavedLoop, SavedProgression } from './types';
 
@@ -57,6 +58,9 @@ export function SectionChordStrip({
   onTimesSave: (startSec: number, endSec: number) => void;
 }) {
   const { currentSeconds, loopStartSec, loopEndSec } = usePlayerControl();
+  // Play-along on either instrument — the chords are the same, only the
+  // picture changes.
+  const [instrument, setInstrument] = useState<'guitar' | 'piano'>('guitar');
   if (!loop) return null;
 
   const chords = progression?.chords ?? [];
@@ -161,6 +165,22 @@ export function SectionChordStrip({
           </button>
         )}
 
+        {chords.length > 0 && (
+          <span style={{ display: 'inline-flex', gap: 4 }}>
+            {(['guitar', 'piano'] as const).map((i) => (
+              <button
+                key={i}
+                type="button"
+                className={`chip${instrument === i ? ' active' : ''}`}
+                onClick={() => setInstrument(i)}
+                style={{ fontSize: 11, padding: '2px 8px' }}
+              >
+                {i === 'guitar' ? 'Guitar' : 'Piano'}
+              </button>
+            ))}
+          </span>
+        )}
+
         {chords.length === 0 && (
           <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
             No progression linked — pick one on the section in the Loops panel.
@@ -171,7 +191,6 @@ export function SectionChordStrip({
       {chords.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           {chords.map((c, i) => {
-            const props = chordDiagramProps(c);
             const isActive = active === i;
             return (
               <figure
@@ -185,13 +204,7 @@ export function SectionChordStrip({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'center', minHeight: 60 }}>
-                  {props ? (
-                    <ChordDiagram {...props} orientation="horizontal" />
-                  ) : (
-                    <span style={{ fontSize: 11, color: 'var(--text-dim)', maxWidth: 120, textAlign: 'center' }}>
-                      No standard shape
-                    </span>
-                  )}
+                  <ChordMini chord={c} instrument={instrument} />
                 </div>
                 <figcaption
                   style={{
