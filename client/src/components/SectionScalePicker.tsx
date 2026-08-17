@@ -227,15 +227,24 @@ export function SectionScalePicker({
   // when the overlay is on. The keyboard has no position system and no
   // fretted "shape", so it shows chord TONES rather than a voicing — the
   // honest piano equivalent.
-  const keyMarks = useMemo<KeyMark[]>(
-    () =>
-      scalePcs.map((pc) => ({
+  const keyMarks = useMemo<KeyMark[]>(() => {
+    // With the overlay on, mark ONLY the current chord's notes. Marking the
+    // whole scale lit almost every key and said nothing — the question the
+    // overlay answers is "which notes are this chord", so everything else
+    // has to stay unmarked.
+    if (overlay) {
+      return [...overlay.tones].map((pc) => ({
         pc,
-        label: showDegrees ? degreeLabel(pc, root) : pc,
-        root: overlay ? (overlay.tones.has(pc) ?? false) : pc === root,
-      })),
-    [scalePcs, showDegrees, root, overlay],
-  );
+        label: pc,
+        root: pc === overlay.root,
+      }));
+    }
+    return scalePcs.map((pc) => ({
+      pc,
+      label: showDegrees ? degreeLabel(pc, root) : pc,
+      root: pc === root,
+    }));
+  }, [scalePcs, showDegrees, root, overlay]);
 
   const scaleName = `${root} ${SCALE_TYPE_LABELS[type]}`;
 
@@ -382,7 +391,8 @@ export function SectionScalePicker({
           <MiniKeyboard
             octaves={2}
             marks={keyMarks}
-            showUnmarkedLabels={false}
+            size="roomy"
+            showUnmarkedLabels={!overlay}
             ariaLabel={`${scaleName} on the keyboard`}
           />
         ) : (
@@ -408,7 +418,9 @@ export function SectionScalePicker({
               {activeChord.detectedLabel ??
                 `${activeChord.root}${QUALITY_LABELS[activeChord.quality] ?? activeChord.quality}`}
             </span>
-            {' — the solid notes are that shape on the neck; the white ones are the rest of the scale you can move through.'}
+            {instrument === 'piano'
+              ? ' — the lit keys are that chord. Everything unlit is still in the scale.'
+              : ' — the solid notes are that shape on the neck; the white ones are the rest of the scale you can move through.'}
             {outside.length > 0 && (
               <> This chord adds <strong>{outside.join(', ')}</strong> from outside the key.</>
             )}

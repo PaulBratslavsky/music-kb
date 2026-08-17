@@ -24,6 +24,13 @@ export type KeyMark = {
 export type MiniKeyboardProps = {
   /** How many octaves to draw, starting at C. */
   octaves?: number;
+  /**
+   * 'roomy' lifts the natural-width cap so the keyboard fills its
+   * container. The svg is width:100% over a viewBox, so the cap — right for
+   * a diagram inline in lesson prose — is the only thing holding it back in
+   * a full-width panel. Same escape hatch MiniNeck has.
+   */
+  size?: 'compact' | 'roomy';
   marks: KeyMark[];
   /**
    * Draw W/H brackets between consecutive marks, walking up from the mark
@@ -117,6 +124,7 @@ const STEP_LABEL: Record<number, string> = { 1: 'H', 2: 'W', 3: 'W+H' };
 
 export function MiniKeyboard({
   octaves = 1,
+  size = 'compact',
   marks,
   showSteps = false,
   showUnmarkedLabels = true,
@@ -152,7 +160,7 @@ export function MiniKeyboard({
     <svg
       viewBox={`0 0 ${totalW} ${totalH}`}
       width="100%"
-      style={{ maxWidth: totalW }}
+      style={{ maxWidth: size === 'roomy' ? undefined : totalW }}
       role="img"
       aria-label={ariaLabel}
       className="select-none"
