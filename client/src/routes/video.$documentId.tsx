@@ -16,6 +16,7 @@ import { LoopBuilderProvider } from '#/components/LoopBuilderProvider';
 import { SavedLoopsList } from '#/components/SavedLoopsList';
 import { SectionChordStrip } from '#/components/SectionChordStrip';
 import { SectionScalePicker } from '#/components/SectionScalePicker';
+import { usePlayAlongInstrument } from '#/components/usePlayAlongInstrument';
 import type { StrapiLoop } from '#/lib/services/loops';
 import { SaveLoopButton } from '#/components/SaveLoopButton';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
@@ -107,6 +108,10 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
   // The section currently loaded into the player — drives the chord strip
   // under the video.
   const [selectedLoop, setSelectedLoop] = useState<StrapiLoop | null>(null);
+  // One instrument for the whole play-along block (chord strip + scale
+  // board) so the two can never disagree, persisted because it's a property
+  // of the player rather than of the video.
+  const [playInstrument, setPlayInstrument] = usePlayAlongInstrument();
   const [bottomTab, setBottomTab] = useState<BottomTab>('chords');
   const search = Route.useSearch();
 
@@ -157,11 +162,14 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
                 <SectionChordStrip
                   loop={selectedLoop}
                   onTimesSaved={() => setLoopsRefreshKey((k) => k + 1)}
+                  instrument={playInstrument}
+                  onInstrumentChange={setPlayInstrument}
                 />
               )}
               {search.loopId && (
                 <SectionScalePicker
                   chords={selectedLoop?.savedProgression?.chords ?? []}
+                  instrument={playInstrument}
                   timing={
                     selectedLoop
                       ? {

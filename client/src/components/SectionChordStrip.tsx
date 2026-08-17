@@ -17,6 +17,7 @@ import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
 import { PITCH_CLASSES, type ChordQuality, type PitchClass } from '#/lib/music/types';
 import type { StrapiLoop } from '#/lib/services/loops';
 import type { ProgressionChord } from '#/lib/services/progressions';
+import type { PlayAlongInstrument } from '#/components/usePlayAlongInstrument';
 
 const isPitchClass = (v: unknown): v is PitchClass =>
   typeof v === 'string' && (PITCH_CLASSES as readonly string[]).includes(v);
@@ -81,10 +82,15 @@ const fmt = (s: number) => {
 export function SectionChordStrip({
   loop,
   onTimesSaved,
+  instrument,
+  onInstrumentChange,
 }: {
   loop: StrapiLoop | null;
   /** Bump the loops list so the row shows the new range. */
   onTimesSaved?: () => void;
+  /** Shared with the scale panel — see usePlayAlongInstrument. */
+  instrument: PlayAlongInstrument;
+  onInstrumentChange: (next: PlayAlongInstrument) => void;
 }) {
   const { currentSeconds, loopStartSec, loopEndSec } = usePlayerControl();
   const [saving, setSaving] = useState(false);
@@ -180,6 +186,23 @@ export function SectionChordStrip({
             </span>
           </label>
         )}
+        <div className="ml-auto flex items-center gap-1">
+          {(['guitar', 'piano', 'bass'] as const).map((inst) => (
+            <button
+              key={inst}
+              type="button"
+              aria-pressed={instrument === inst}
+              onClick={() => onInstrumentChange(inst)}
+              className={`rounded-lg px-2 py-1 text-xs font-medium capitalize ${
+                instrument === inst
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'
+              }`}
+            >
+              {inst}
+            </button>
+          ))}
+        </div>
         {chords.length === 0 && (
           <span className="text-xs text-[var(--ink-muted)]">
             No progression linked — pick one on the section in the Loops panel.
@@ -199,7 +222,11 @@ export function SectionChordStrip({
               }`}
             >
               <div className="flex justify-center">
-                <ChordMini chord={c} instrument="guitar" orientation="horizontal" />
+                <ChordMini
+                  chord={c}
+                  instrument={instrument === 'piano' ? 'piano' : 'guitar'}
+                  orientation="horizontal"
+                />
               </div>
               <figcaption
                 className={`mt-1 text-center text-sm font-bold ${

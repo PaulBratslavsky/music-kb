@@ -14,6 +14,8 @@
 
 import { useMemo, useState } from 'react';
 import { MiniNeck, type NeckDot } from '#/components/lesson/MiniNeck';
+import { MiniKeyboard, type KeyMark } from '#/components/lesson/MiniKeyboard';
+import type { PlayAlongInstrument } from '#/components/usePlayAlongInstrument';
 import { usePlayerControl } from '#/components/player';
 import { activeIndex } from '#/components/SectionChordStrip';
 import { chordToneMap, outsideScaleTones } from '#/lib/music/theory/chord-overlay';
@@ -55,9 +57,16 @@ type Props = {
   /** Section bounds + bar count, so the chord overlay can follow the
    *  playhead exactly the way the chord strip above it does. */
   timing?: { startSec: number; endSec: number; bars: number | null } | null;
+  /** Shared with the chord strip — see usePlayAlongInstrument. */
+  instrument: PlayAlongInstrument;
 };
 
-export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Props>) {
+export function SectionScalePicker({
+  chords,
+  extractedKey,
+  timing,
+  instrument,
+}: Readonly<Props>) {
   // Where the default came from, so the UI can say so rather than looking
   // like it guessed arbitrarily.
   const suggestion = useMemo(() => {
@@ -77,7 +86,6 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
   const [override, setOverride] = useState<{ root: PitchClass; type: ScaleType } | null>(null);
   const [position, setPosition] = useState<number | 'all'>('all');
   const [showDegrees, setShowDegrees] = useState(false);
-  const [instrument, setInstrument] = useState<'guitar' | 'bass'>('guitar');
   const [overlayOn, setOverlayOn] = useState(false);
 
   // The chord currently sounding, from the same clock the chord strip uses —
@@ -147,40 +155,43 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
     tuning.forEach((openMidi, string) => {
       for (let fret = NECK_FROM; fret <= NECK_TO; fret += 1) {
         const pc = PITCH_CLASSES[(openMidi + fret) % 12];
-        const inScale = scalePcs.includes(pc);
-        const isChordTone = overlay?.tones.has(pc) ?? false;
-        // Without an overlay: the scale. With one: the scale PLUS any chord
-        // tone from outside it.
-        if (!inScale && !isChordTone) continue;
+        if (!scalePcs.includes(pc)) continue;
 
-        const outOfPosition = positionSet ? !positionSet.has(`${string}:${fret}`) : false;
+        // Under the overlay the neck is a quiet white field of scale notes
+        // with ONE thing solid on it: the shape actually being fretted
+        // above. Filling every instance of the chord's pitch classes was
+        // the wrong answer — it lit half the board and buried the shape.
+        const inShape = voicedKeys?.has(`${string}:${fret}`) ?? false;
 
         out.push({
           string,
           fret,
-          // With the overlay on, ONLY chord tones are labelled. Labelling
-          // the rest would put two different systems side by side (chord
-          // function "3 5 7" next to note names "F# A D") and neither
-          // would be scannable. The unlabelled rings still show the
-          // scale's shape.
-          label: overlay
-            ? overlay.labelFor.get(pc)
-            : showDegrees
-              ? degreeLabel(pc, root)
-              : pc,
-          // With the overlay on, the CHORD's root is the anchor worth
-          // accenting — that's the note that sounds like home right now.
-          root: overlay ? pc === overlay.root : pc === root,
-          // Non-chord scale tones recede to rings; they stay legal, just not
-          // load-bearing.
-          hollow: overlay ? !isChordTone : false,
-          ringed: voicedKeys?.has(`${string}:${fret}`) ?? false,
-          dim: outOfPosition,
+          label: showDegrees ? degreeLabel(pc, root) : pc,
+          // Overlay: only the chord's own root, and only where it is
+          // actually played, takes the accent. Plain view: every root.
+          root: overlay ? inShape && pc === overlay.root : pc === root,
+          // Overlay: everything except the shape is a white circle.
+          light: overlay ? !inShape : false,
+          dim: positionSet ? !positionSet.has(`${string}:${fret}`) : false,
         });
       }
     });
     return out;
   }, [scalePcs, instrument, showDegrees, root, positionSet, overlay, voicedKeys]);
+
+  // Piano board: the scale's notes, with the current chord's tones accented
+  // when the overlay is on. The keyboard has no position system and no
+  // fretted "shape", so it shows chord TONES rather than a voicing — the
+  // honest piano equivalent.
+  const keyMarks = useMemo<KeyMark[]>(
+    () =>
+      scalePcs.map((pc) => ({
+        pc,
+        label: showDegrees ? degreeLabel(pc, root) : pc,
+        root: overlay ? (overlay.tones.has(pc) ?? false) : pc === root,
+      })),
+    [scalePcs, showDegrees, root, overlay],
+  );
 
   const scaleName = `${root} ${SCALE_TYPE_LABELS[type]}`;
 
@@ -261,18 +272,6 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
               </button>
             </>
           )}
-          <span className="mx-1 h-4 w-px bg-[var(--line)]" />
-          {(['guitar', 'bass'] as const).map((inst) => (
-            <button
-              key={inst}
-              type="button"
-              aria-pressed={instrument === inst}
-              onClick={() => { setInstrument(inst); setPosition('all'); }}
-              className={`rounded-lg px-2 py-1 text-xs font-medium capitalize ${instrument === inst ? 'bg-[var(--accent)] text-white' : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'}`}
-            >
-              {inst}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -301,16 +300,25 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
       )}
 
       <div className="mt-3 overflow-x-auto">
-        <MiniNeck
-          instrument={instrument}
-          dots={dots}
-          fromFret={NECK_FROM}
-          toFret={NECK_TO}
-          size="roomy"
-          ariaLabel={`${scaleName} across the ${instrument} neck${
-            position === 'all' ? '' : `, position ${Number(position) + 1} highlighted`
-          }`}
-        />
+        {instrument === 'piano' ? (
+          <MiniKeyboard
+            octaves={2}
+            marks={keyMarks}
+            showUnmarkedLabels={false}
+            ariaLabel={`${scaleName} on the keyboard`}
+          />
+        ) : (
+          <MiniNeck
+            instrument={instrument === 'bass' ? 'bass' : 'guitar'}
+            dots={dots}
+            fromFret={NECK_FROM}
+            toFret={NECK_TO}
+            size="roomy"
+            ariaLabel={`${scaleName} across the ${instrument} neck${
+              position === 'all' ? '' : `, position ${Number(position) + 1} highlighted`
+            }`}
+          />
+        )}
       </div>
 
       <p className="mt-2 text-xs text-[var(--ink-muted)]">
@@ -322,7 +330,7 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
               {activeChord.detectedLabel ??
                 `${activeChord.root}${QUALITY_LABELS[activeChord.quality] ?? activeChord.quality}`}
             </span>
-            {' — solid dots are chord tones, rings are the rest of the scale. The circled notes are the shape shown above.'}
+            {' — the solid notes are that shape on the neck; the white ones are the rest of the scale you can move through.'}
             {outside.length > 0 && (
               <> This chord adds <strong>{outside.join(', ')}</strong> from outside the key.</>
             )}

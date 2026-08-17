@@ -40,6 +40,13 @@ export type NeckDot = {
    * "here is where else that note lives".
    */
   ringed?: boolean;
+  /**
+   * Draw filled white with a dark outline and dark text — a "cut-out" dot.
+   * Reads as brighter than the solid --ink dots without becoming an empty
+   * ring, so chord tones can stand out from the surrounding scale while
+   * still looking like real notes.
+   */
+  light?: boolean;
 };
 
 export type MiniNeckProps = {
@@ -267,9 +274,17 @@ export function MiniNeck({
             cx={xForFret(d.fret)}
             cy={yForString(d.string)}
             r={d.hollow && !d.label ? DOT_R * 0.42 : DOT_R}
-            fill={d.hollow ? 'var(--card)' : d.root ? 'var(--accent)' : 'var(--ink)'}
-            stroke={d.hollow ? 'var(--ink-muted)' : undefined}
-            strokeWidth={d.hollow ? (d.label ? 2 : 1.5) : undefined}
+            fill={
+              d.hollow
+                ? 'var(--card)'
+                : d.root
+                  ? 'var(--accent)'
+                  : d.light
+                    ? 'var(--card)'
+                    : 'var(--ink)'
+            }
+            stroke={d.hollow ? 'var(--ink-muted)' : d.light ? 'var(--ink)' : undefined}
+            strokeWidth={d.hollow ? (d.label ? 2 : 1.5) : d.light ? 2 : undefined}
           />
           {d.label && (
             <text
@@ -277,7 +292,15 @@ export function MiniNeck({
               y={yForString(d.string)}
               fontSize={d.label.length > 2 ? 7 * (DOT_R / 9) : 8.5 * (DOT_R / 9)}
               fontWeight={700}
-              fill={d.hollow ? 'var(--ink-soft)' : d.root ? '#ffffff' : 'var(--card)'}
+              fill={
+                d.hollow
+                  ? 'var(--ink-soft)'
+                  : d.root
+                    ? '#ffffff'
+                    : d.light
+                      ? 'var(--ink)'
+                      : 'var(--card)'
+              }
               textAnchor="middle"
               dominantBaseline="central"
             >

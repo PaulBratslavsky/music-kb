@@ -17,8 +17,9 @@ const STRING_COUNT = 6;
 
 type StringState =
   // `note` is the sounding pitch class ("E", "G#"). Supplying it draws the
-  // name inside the dot / in place of the open-string O, which is how a
-  // player connects a shape to the notes it actually produces.
+  // name inside the fretted dot, and in place of the open string's O — a
+  // sounding string is worth naming either way. Muted strings keep the
+  // conventional x, which is what carries the played-vs-not distinction.
   | { kind: 'fretted'; fret: number; isRoot?: boolean; note?: string }
   | { kind: 'open'; note?: string }
   | { kind: 'muted' };
