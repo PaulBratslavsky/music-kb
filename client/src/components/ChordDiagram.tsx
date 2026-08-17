@@ -44,6 +44,12 @@ export type ChordDiagramProps = {
    * the lessons, so the two never disagree about which way the neck runs.
    */
   orientation?: 'vertical' | 'horizontal';
+  /**
+   * 'fill' makes the svg responsive (width 100%, height from the viewBox)
+   * so a card can size the diagram. Default 'fixed' keeps the exact pixel
+   * box the lesson pages lay out around.
+   */
+  size?: 'fixed' | 'fill';
 };
 
 const WIDTH = 134;
@@ -61,6 +67,7 @@ export function ChordDiagram({
   fretCount = 5,
   startFret,
   orientation = 'vertical',
+  size = 'fixed',
 }: ChordDiagramProps) {
   if (strings.length !== STRING_COUNT) {
     throw new Error(`ChordDiagram expects ${STRING_COUNT} string states.`);
@@ -98,8 +105,8 @@ export function ChordDiagram({
   return (
     <svg
       viewBox={horizontal ? `0 0 ${HEIGHT} ${WIDTH}` : `0 0 ${WIDTH} ${HEIGHT}`}
-      width={horizontal ? HEIGHT : WIDTH}
-      height={horizontal ? WIDTH : HEIGHT}
+      width={size === 'fill' ? '100%' : horizontal ? HEIGHT : WIDTH}
+      height={size === 'fill' ? undefined : horizontal ? WIDTH : HEIGHT}
       role="img"
       aria-label="Chord diagram"
       className="select-none"

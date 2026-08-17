@@ -81,7 +81,7 @@ const BLACK: Array<{ pc: PitchClass; after: number }> = [
   { pc: 'A#', after: 5 },
 ];
 
-function MiniPiano({ chord }: { chord: MiniChord }) {
+function MiniPiano({ chord, responsive }: { chord: MiniChord; responsive?: boolean }) {
   // Detect-captured shapes light the exact played pitch classes; otherwise
   // the chord's theoretical tones from root+quality.
   const lit = new Set<PitchClass>(
@@ -99,7 +99,14 @@ function MiniPiano({ chord }: { chord: MiniChord }) {
   const fill = (pc: PitchClass, base: string) =>
     lit.has(pc) ? (pc === chord.root ? 'var(--accent)' : 'var(--note-lit, #6aa9ff)') : base;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label="Chord keys" className="select-none">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width={responsive ? '100%' : W}
+      height={responsive ? undefined : H}
+      role="img"
+      aria-label="Chord keys"
+      className="select-none"
+    >
       {WHITE.map((pc, i) => (
         <rect
           key={pc}
@@ -134,17 +141,20 @@ export function ChordMini({
   chord,
   instrument,
   orientation = 'vertical',
+  size = 'fixed',
 }: {
   chord: MiniChord;
   instrument: 'guitar' | 'piano';
+  /** 'fill' lets a grid cell size the diagram — see ChordDiagram.size. */
+  size?: 'fixed' | 'fill';
   /** Passed straight to ChordDiagram — see its `orientation` prop. */
   orientation?: 'vertical' | 'horizontal';
 }) {
-  if (instrument === 'piano') return <MiniPiano chord={chord} />;
+  if (instrument === 'piano') return <MiniPiano chord={chord} responsive={size === 'fill'} />;
   const diagram = guitarDiagram(chord);
   // No specific shape (pitch-class fallback) → render nothing; caller shows
   // the chord name on its own.
   return diagram ? (
-    <ChordDiagram {...diagram} orientation={orientation} />
+    <ChordDiagram {...diagram} orientation={orientation} size={size} />
   ) : null;
 }

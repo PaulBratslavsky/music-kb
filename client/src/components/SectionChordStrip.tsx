@@ -211,7 +211,7 @@ export function SectionChordStrip({
       </div>
 
       {chords.length > 0 && (
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {chords.map((c, i) => (
             <figure
               key={`${c.root}-${c.quality}-${c.voicingIndex ?? 0}-${i}`}
@@ -221,11 +221,12 @@ export function SectionChordStrip({
                   : 'border-[var(--line)] bg-[var(--bg-subtle)]'
               }`}
             >
-              <div className="flex justify-center">
+              <div className="flex w-full justify-center">
                 <ChordMini
                   chord={c}
                   instrument={instrument === 'piano' ? 'piano' : 'guitar'}
                   orientation="horizontal"
+                  size="fill"
                 />
               </div>
               <figcaption
