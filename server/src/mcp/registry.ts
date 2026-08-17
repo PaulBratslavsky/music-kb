@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { Core } from '@strapi/strapi';
 
 // Shape of a music-kb domain tool. Originally the interface of the
@@ -17,10 +17,13 @@ export type ToolDef<Input = unknown, Output = unknown> = {
   name: string;
   /** User-facing description. Includes when to use vs. not use. */
   description: string;
-  /** Zod (v4) schema for the tool input. The adapter re-declares the
-   * equivalent in @strapi/utils zod-3 for the official server; this stays
-   * for the execute body's parsed-arg typing. */
-  schema: z.ZodType<Input>;
+  /** Zod schema for the tool input — the SINGLE declaration of this tool's
+   * contract. Built with the `z` re-exported from @strapi/utils, which is
+   * the same zod instance Strapi uses internally (see ADR 0008): the
+   * official server validates against this object AND advertises its
+   * `.describe()` text to MCP clients, and `Input` is `z.infer` of it.
+   * Do NOT re-declare an equivalent schema anywhere else. */
+  schema: z.ZodObject<z.ZodRawShape>;
   /** The handler. Returns a string or JSON-serializable object. */
   execute: (args: Input, ctx: ToolContext) => Promise<Output>;
 };

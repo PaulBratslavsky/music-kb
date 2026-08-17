@@ -2,7 +2,7 @@
 // steps, and tags. Use searchTranscript or getTranscript for the transcript
 // body itself — this tool stays focused on the AI-generated view.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

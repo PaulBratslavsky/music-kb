@@ -6,7 +6,7 @@
 // Mirrors the getTranscript tool in strapi-plugin-ai-sdk-yt-transcripts so
 // prompts targeting that plugin work here unchanged.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

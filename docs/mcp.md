@@ -211,7 +211,11 @@ fetchTranscript(videoId: <id>, force: true)
   (that's an Ollama-bound pipeline). If you want full in-app chat
   grounding for a Claude-generated summary, regenerate from the app UI
   afterwards.
-- Adding a tool: author a `ToolDef` in `server/src/mcp/tools/`, then add a
-  zod-3 entry (read/write tier) to `server/src/mcp/catalog.ts`.
-  Registration is automatic. See ADR 0008 for the zod-4-vs-zod-3 reason
-  schemas are declared twice.
+- Adding a tool: author a `ToolDef` in `server/src/mcp/tools/` — importing
+  `z` from `@strapi/utils`, **not** from `zod` — then add a one-line entry
+  (`{ tool, title, access }`) to `server/src/mcp/catalog.ts`. Registration
+  is automatic.
+- The input schema is declared **once**, on the tool. Its `.describe()` text
+  is what MCP clients read to decide how to call the tool, so write it for an
+  agent. See ADR 0008 for why `@strapi/utils`' `z` is required and why the
+  schemas are no longer declared twice.

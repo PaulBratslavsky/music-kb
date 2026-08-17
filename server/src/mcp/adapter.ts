@@ -6,10 +6,12 @@
 //   - FROM the tool: its `execute(args, { strapi })` body and its
 //     human-facing `name` + `description`. These operate on plain parsed
 //     args, so they're host-agnostic.
-//   - ADDED here, per tool: the input/output schemas, declared with
-//     @strapi/utils z (zod 3) because the tool's own schemas use the app's
-//     zod 4 and the two are not interchangeable across the MCP SDK's
-//     schema conversion (see ADR 0008). Plus a `title` and an `access`
+//   - FROM the tool: its `schema` — the one declaration of its input
+//     contract, built with the `z` re-exported from @strapi/utils (the
+//     same zod instance Strapi uses internally; see ADR 0008). It is both
+//     what validates the args and what advertises parameter descriptions
+//     to MCP clients.
+//   - ADDED here, per tool: the output schema, a `title`, and an `access`
 //     tier (read|write|maintenance) mapping to a custom admin permission.
 import { z } from '@strapi/utils';
 import type { Core } from '@strapi/strapi';
@@ -28,8 +30,6 @@ export type DomainTool = {
    * expensive / external-side-effect / hard-to-undo (reindex, YouTube
    * fetch, digest). */
   access: 'read' | 'write' | 'maintenance';
-  /** Input schema re-declared in zod 3 (@strapi/utils). Omit for no input. */
-  input?: z.ZodObject<z.ZodRawShape>;
   /**
    * Output schema in zod 3. Defaults to a permissive object (any shape) —
    * the migration starts loose and tightens per tool later. structuredContent
@@ -74,7 +74,8 @@ export function registerDomainTool(
   strapi: Core.Strapi,
   def: DomainTool,
 ): void {
-  const { tool, title, access, input } = def;
+  const { tool, title, access } = def;
+  const input = tool.schema;
   const output = def.output ?? LOOSE_OUTPUT;
   const action =
     access === 'maintenance'

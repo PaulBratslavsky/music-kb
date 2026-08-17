@@ -6,7 +6,7 @@
 // enough signal to reason about tags without a separate getVideo call
 // per row (keeps the workflow to ~1 tagVideo call per untagged video).
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

@@ -2,7 +2,7 @@
 // header fields so the agent can decide which ones to pull full content
 // for via getTranscript.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

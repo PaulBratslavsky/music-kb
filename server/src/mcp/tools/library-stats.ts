@@ -3,7 +3,7 @@
 // buckets. Helps the agent answer "what do I have in here?" without
 // pulling the entire library.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

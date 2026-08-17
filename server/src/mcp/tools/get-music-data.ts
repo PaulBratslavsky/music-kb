@@ -3,7 +3,7 @@
 // practice Loops. Use getVideo for the summary/sections view — this
 // tool stays focused on the musical content.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

@@ -3,7 +3,7 @@
 // callable from an MCP client so a frontier model can pull topical
 // context when reasoning about a single video.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 import {
   cosineSimilarity,

@@ -2,7 +2,7 @@
 // findTranscripts (which searches the transcript body). Use this when the
 // question is about AI-generated summary content rather than raw captions.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 import { buildTokenAndFilter, tokenizeQuery } from './query-helpers';
 

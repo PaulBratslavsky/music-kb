@@ -51,15 +51,62 @@ official server instead, at the app level.**
   `src/mcp/server.ts`, `src/mcp/transport.ts`, and `src/mcp/tools/index.ts`
   (the old `registerAllTools` aggregator).
 
-### The load-bearing constraint: zod 4 vs zod 3
+### The load-bearing constraint: one zod instance, not one zod version
 
-The official API requires schemas built with `@strapi/utils`'s **zod 3**
-(3.25.x). The app uses **zod 4** (4.3.x); the two are not interchangeable
-across the MCP SDK's schema conversion. So the adapter reuses each tool's
-`execute` body (it operates on plain parsed args) but the **input/output
-schemas are re-declared in zod-3** in `src/mcp/catalog.ts`. Output
+**Corrected 2026-08-17.** This section previously claimed the official API
+required **zod 3** because `@strapi/utils` bundled 3.25.x while the app used
+zod 4. That was wrong, and it cost us: it justified a second hand-maintained
+copy of every input schema in `catalog.ts`, and the two copies drifted (see
+below).
+
+What is actually true. Strapi uses **zod v4** internally and re-exports it —
+`packages/core/utils/src/zod.ts` is `import * as z from 'zod/v4'; export { z }`.
+The `zod@3.25.67` in `node_modules/@strapi/*` is the npm package version;
+that package ships **both** majors, and v4 is reached via the `zod/v4`
+subpath. Runtime probe of `@strapi/utils`'s `z`: `toJSONSchema` present,
+schemas carry `_zod`, core version `4.0.0`.
+
+The real constraint is **instance and minor-version skew between two zod v4
+copies**:
+
+| | zod core |
+|---|---|
+| `@strapi/utils` z (Strapi 5.48) | 4.0.0 |
+| the app's `zod` dependency | 4.3.6 |
+
+`$ZodType`'s internals changed between those, so the two do not structurally
+unify. Handing an app-zod schema to Strapi's MCP registry is a compile error:
+
+```
+TS2345: Argument of type 'ZodObject<{ page: ZodDefault<ZodNumber>; }, $strip>'
+is not assignable to parameter of type
+'ZodObject<Readonly<{ [k: string]: $ZodType<unknown, unknown, $ZodTypeInternals<unknown, unknown>>; }>, $strip>'
+```
+
+Strapi enforces the same thing at runtime elsewhere — `content-api/index.ts`
+states it only accepts "schemas from the same zod/v4 instance used here" —
+and their `zod.ts` doc block tells integrators to use the re-exported `z`
+"so your code stays compatible across Strapi minor/patch updates."
+
+**So: build MCP schemas with `z` from `@strapi/utils`, and build them once.**
+Each tool's `ToolDef.schema` is the single declaration; `catalog.ts` supplies
+only `title` + `access`, and the adapter reads the schema off the tool. Output
 schemas must be a top-level `ZodObject`; the adapter normalizes any
 array/scalar result into an object to satisfy that.
+
+Everything outside `server/src/mcp/` stays on the app's own zod 4.
+
+**Why the duplication was worth removing, not just tidying.** The two copies
+were the same contract typed twice, and only the `catalog.ts` copy was ever
+advertised to MCP clients. `listVideos`' `verdict` parameter had been
+carefully documented in the tool file — "worth_it = dense/actionable, skim =
+mixed, skip = generic. Use `worth_it` to find videos the summary alone cannot
+replace." — while clients saw only the catalog's "Filter by the AI watch
+verdict." Descriptions *are* the prompt an agent reads to decide how to call a
+tool, so that drift silently degraded every client. The other direction was
+worse: zod `z.object()` strips unknown keys, so a field added to the tool
+schema but not the catalog copy would arrive at `execute` as `undefined` with
+TypeScript still insisting it was present.
 
 ### Auth
 

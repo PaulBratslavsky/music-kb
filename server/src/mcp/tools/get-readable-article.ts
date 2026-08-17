@@ -10,7 +10,7 @@
 //   at the in-app UI for generation. Matches the "MCP reads, in-app
 //   writes" split we use for digests too.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

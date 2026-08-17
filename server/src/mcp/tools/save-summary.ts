@@ -9,7 +9,7 @@
 // are for the frontier-path UX (Claude Desktop), and if the user later
 // wants in-app BM25 they can regenerate from the UI.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const SectionSchema = z.object({

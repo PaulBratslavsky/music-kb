@@ -8,7 +8,7 @@
 // (including the 244-char preview hint) so prompts from that plugin work
 // here verbatim.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 import { buildTokenAndFilter, tokenizeQuery } from './query-helpers';
 

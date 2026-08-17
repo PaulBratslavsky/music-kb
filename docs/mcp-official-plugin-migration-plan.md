@@ -1,6 +1,15 @@
 # Migration plan: hand-rolled MCP server → official Strapi MCP plugin
 
 **Status:** ✅ COMPLETE (2026-06-14). All phases shipped — Strapi 5.48, official `/mcp` enabled, all 24 tools ported app-level and verified live (read + write round-trip), client docs updated, hand-rolled `/api/mcp` retired. Decision recorded in [ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md). Plan retained below as the execution record. (Created 2026-06-12.)
+**⚠️ One "verified" claim below is wrong (corrected 2026-08-17):** this plan
+asserts `@strapi/utils` ships **zod 3** and that every schema must therefore
+be **re-declared** in it. Strapi actually re-exports **zod v4**; the real
+constraint is instance/minor skew (Strapi core 4.0.0 vs the app's 4.3.6), so
+the "use `@strapi/utils`' `z`" rule stands but the re-declaration does not —
+schemas are now declared once, on the tool. The text below is left as-written
+as a record of what we believed at the time. See
+[ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md) for the
+corrected reasoning.
 **Source guide:** Paul's own write-up — [`strapi-mcp-demo-and-tool-extension/BLOG-strapi-mcp-custom-tools.md`](https://github.com/PaulBratslavsky/strapi-mcp-demo-and-tool-extension/blob/main/BLOG-strapi-mcp-custom-tools.md) — plus the [official docs](https://docs.strapi.io/cms/features/strapi-mcp-server).
 
 ## Why migrate
@@ -130,6 +139,9 @@ Non-negotiables (verified):
   re-declared with `@strapi/utils` z (zod-3)** — the legacy `def.schema`
   (zod-4) cannot be passed through. The adapter reuses `execute`; schemas
   are hand-written in z3.
+
+  > **⚠️ Wrong on the *why*, and the re-declaration was reverted** — see the
+  > correction in the status banner at the top of this file, and ADR 0008.
 - **Handler takes one object `{ args, extra }`** — not a positional `input`.
   `args` is `never` when there's no input schema (omit it).
 - **Return is a strict discriminated union.** Success: `{ content,

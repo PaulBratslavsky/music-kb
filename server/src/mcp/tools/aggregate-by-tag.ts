@@ -7,7 +7,7 @@
 // summary overview, sections, takeaways) so the payload stays small
 // enough for 40+ videos to fit inside one tool-call response.
 
-import { z } from 'zod';
+import { z } from '@strapi/utils';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({
