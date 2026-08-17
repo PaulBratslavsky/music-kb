@@ -67,6 +67,88 @@ function classifySeventh(
   return { quality: null, suffix: '?', romanCase: 'upper', ornament: '' };
 }
 
+export type DiatonicTriad = {
+  /** 1-based scale degree the triad is built on. */
+  degree: number;
+  root: PitchClass;
+  /** Display name for the root, using the scale's enharmonic spelling. */
+  rootDisplay: string;
+  quality: 'maj' | 'min' | 'dim' | 'aug';
+  /** Short suffix after the root ("", "m", "dim", "aug"). */
+  qualitySuffix: string;
+  /** Roman numeral — case carries the quality, ° marks diminished. */
+  roman: string;
+  /** Full display name, e.g. "C", "Dm", "Bdim". */
+  chordName: string;
+  /** Root, 3rd and 5th. */
+  pitchClasses: PitchClass[];
+  /** Half steps root→3rd and 3rd→5th, e.g. "4 + 3". */
+  stackedThirds: string;
+};
+
+const TRIAD_META: Record<
+  DiatonicTriad['quality'],
+  { suffix: string; case: 'upper' | 'lower'; ornament: string }
+> = {
+  maj: { suffix: '', case: 'upper', ornament: '' },
+  min: { suffix: 'm', case: 'lower', ornament: '' },
+  dim: { suffix: 'dim', case: 'lower', ornament: '°' },
+  aug: { suffix: 'aug', case: 'upper', ornament: '+' },
+};
+
+function classifyTriad(third: number, fifth: number): DiatonicTriad['quality'] {
+  if (third === 4 && fifth === 7) return 'maj';
+  if (third === 3 && fifth === 7) return 'min';
+  if (third === 3 && fifth === 6) return 'dim';
+  return 'aug';
+}
+
+/**
+ * The diatonic TRIADS of a scale — the same every-other-note stacking as
+ * getDiatonicChords, stopped at three notes instead of four.
+ *
+ * The quality is derived from the interval sizes rather than looked up, so
+ * it stays correct for the modes and for harmonic/melodic minor (where the
+ * major-scale "maj min min maj maj min dim" pattern does not hold). Returns
+ * [] for scales that aren't 7 notes, matching getDiatonicChords.
+ */
+export function getDiatonicTriads(
+  selection: ScaleSelection,
+  preferFlats = false,
+): DiatonicTriad[] {
+  const pcs = getScalePitchClasses(selection);
+  if (pcs.length !== 7) return [];
+
+  const noteNames = getScaleNoteNames(selection, preferFlats);
+  const display: Partial<Record<PitchClass, string>> = {};
+  noteNames.forEach((name, idx) => {
+    if (idx < pcs.length) display[pcs[idx]] = name.replace(/[0-9]/g, '');
+  });
+
+  return pcs.map((root, i) => {
+    const thirdPc = pcs[(i + 2) % 7];
+    const fifthPc = pcs[(i + 4) % 7];
+    const third = semitonesBetween(root, thirdPc);
+    const fifth = semitonesBetween(root, fifthPc);
+    const quality = classifyTriad(third, fifth);
+    const meta = TRIAD_META[quality];
+    const rootDisplay = display[root] ?? root;
+
+    return {
+      degree: i + 1,
+      root,
+      rootDisplay,
+      quality,
+      qualitySuffix: meta.suffix,
+      roman:
+        (meta.case === 'upper' ? ROMAN_UPPER[i] : ROMAN_LOWER[i]) + meta.ornament,
+      chordName: `${rootDisplay}${meta.suffix}`,
+      pitchClasses: [root, thirdPc, fifthPc],
+      stackedThirds: `${third} + ${fifth - third}`,
+    };
+  });
+}
+
 /**
  * Build the diatonic triads of a scale by stacking thirds on each scale degree.
  * Only meaningful for 7-note scales (major, modes, harmonic/melodic minor) —

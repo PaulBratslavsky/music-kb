@@ -7,6 +7,9 @@
 //   (empty)        → { kind: 'home' }         — the visualizer home
 //   #/music        → { kind: 'library' }      — saved videos list
 //   #/video/<id>   → { kind: 'player', id }   — saved video player
+//   #/theory       → { kind: 'theory' }       — theory reference
+//   #/lessons      → { kind: 'lessons' }      — lessons index
+//   #/lessons/<s>  → { kind: 'lesson', slug } — one lesson
 //
 // `useRoute()` is reactive: components re-render on hash change.
 // `navigate(route)` programmatically sets the hash.
@@ -16,7 +19,10 @@ import { useEffect, useState } from 'react';
 export type Route =
   | { kind: 'home' }
   | { kind: 'library' }
-  | { kind: 'player'; id: string };
+  | { kind: 'player'; id: string }
+  | { kind: 'theory' }
+  | { kind: 'lessons' }
+  | { kind: 'lesson'; slug: string };
 
 export function parseHash(hash: string): Route {
   // hash includes the leading '#'; strip it before splitting
@@ -26,6 +32,12 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'music' && parts.length === 1) return { kind: 'library' };
   if (parts[0] === 'video' && parts.length === 2) {
     return { kind: 'player', id: parts[1] };
+  }
+  if (parts[0] === 'theory' && parts.length === 1) return { kind: 'theory' };
+  if (parts[0] === 'lessons') {
+    return parts.length === 1
+      ? { kind: 'lessons' }
+      : { kind: 'lesson', slug: parts[1] };
   }
   return { kind: 'home' };
 }
@@ -38,6 +50,12 @@ export function routeToHash(route: Route): string {
       return '#/music';
     case 'player':
       return `#/video/${route.id}`;
+    case 'theory':
+      return '#/theory';
+    case 'lessons':
+      return '#/lessons';
+    case 'lesson':
+      return `#/lessons/${route.slug}`;
   }
 }
 

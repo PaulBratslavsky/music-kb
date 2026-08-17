@@ -19,9 +19,36 @@ import { TabView } from './instruments/notation/TabView';
 import { useRoute, navigate } from './music/useHashRoute';
 import { LibraryPage } from './music/LibraryPage';
 import { PlayerPage } from './music/PlayerPage';
+import LessonsIndexPage from './lessons';
+import { LessonPage } from './lessons/LessonPage';
+import { TheoryPage } from './theory-page/TheoryPage';
 
 export default function App() {
   const route = useRoute();
+  if (route.kind === 'lessons') {
+    return (
+      <div className="app-wide">
+        <Header active="lessons" />
+        <LessonsIndexPage />
+      </div>
+    );
+  }
+  if (route.kind === 'lesson') {
+    return (
+      <div className="app-wide">
+        <Header active="lessons" />
+        <LessonPage slug={route.slug} />
+      </div>
+    );
+  }
+  if (route.kind === 'theory') {
+    return (
+      <div className="app-wide">
+        <Header active="theory" />
+        <TheoryPage />
+      </div>
+    );
+  }
   if (route.kind === 'library') {
     return (
       <div className="app-wide">
@@ -41,26 +68,36 @@ export default function App() {
   return <VisualizerHome />;
 }
 
-function Header({ active }: { active: 'visualizer' | 'music' }) {
+// Mirrors music-kb's music-side navigation: Builder · Theory · Lessons ·
+// Music. ("Builder" is music-kb's name for what this app called the
+// Visualizer.)
+const NAV = [
+  { key: 'visualizer' as const, label: 'Builder', route: { kind: 'home' } as const },
+  { key: 'theory' as const, label: 'Theory', route: { kind: 'theory' } as const },
+  { key: 'lessons' as const, label: 'Lessons', route: { kind: 'lessons' } as const },
+  { key: 'music' as const, label: 'Music', route: { kind: 'library' } as const },
+];
+
+function Header({
+  active,
+}: {
+  active: 'visualizer' | 'music' | 'theory' | 'lessons';
+}) {
   return (
     <header className="app-header">
       <h1>Paul's Music Helper</h1>
       <span className="tagline" style={{ flex: 1, minWidth: 0 }} />
       <nav style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }}>
-        <button
-          type="button"
-          className={`chip${active === 'visualizer' ? ' active' : ''}`}
-          onClick={() => navigate({ kind: 'home' })}
-        >
-          Visualizer
-        </button>
-        <button
-          type="button"
-          className={`chip${active === 'music' ? ' active' : ''}`}
-          onClick={() => navigate({ kind: 'library' })}
-        >
-          Music
-        </button>
+        {NAV.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={`chip${active === item.key ? ' active' : ''}`}
+            onClick={() => navigate(item.route)}
+          >
+            {item.label}
+          </button>
+        ))}
       </nav>
       <ThemeToggle />
     </header>
@@ -142,14 +179,16 @@ function VisualizerHome() {
           tracks and find their key with the Circle of Fifths.
         </span>
         <nav style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }}>
-          <button type="button" className="chip active">Visualizer</button>
-          <button
-            type="button"
-            className="chip"
-            onClick={() => navigate({ kind: 'library' })}
-          >
-            Music
-          </button>
+          {NAV.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`chip${item.key === 'visualizer' ? ' active' : ''}`}
+              onClick={() => navigate(item.route)}
+            >
+              {item.label}
+            </button>
+          ))}
         </nav>
         <ThemeToggle />
         <button

@@ -1,3 +1,8 @@
+/* Tailwind v4 — the lesson pages ported from music-kb are written in
+   Tailwind classes. The rest of this app uses plain CSS + inline
+   styles; both coexist fine. */
+@import "tailwindcss";
+
 :root {
   /* Dark theme (default). Light theme overrides come after. */
   --bg: #0f1115;
@@ -23,6 +28,25 @@
   /* Slightly-lighter chip background on hover in dark theme. */
   --chip-hover: #252a37;
 
+  /* --- music-kb token aliases -------------------------------------------
+     Components ported from music-kb reference its palette by name. Aliasing
+     here means they work unchanged instead of needing a find-and-replace on
+     every copy — which is exactly what caused the invisible chord box and
+     the black-on-black PNG export. */
+  --ink: var(--text);
+  --ink-soft: var(--text-dim);
+  --ink-muted: var(--text-dim);
+  --ink-faint: #6b7280;
+  --line: var(--border);
+  --line-strong: #3a4150;
+  --card: var(--panel);
+  --bg-subtle: var(--panel-2);
+  --accent-soft: rgba(79, 140, 255, 0.14);
+  --accent-hover: var(--accent-2);
+  --band-red-bg: rgba(239, 68, 68, 0.14);
+  --band-red-text: #f87171;
+  --band-red-dot: #ef4444;
+
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, 'Helvetica Neue', Arial, sans-serif;
   color-scheme: dark;
@@ -43,6 +67,12 @@
   --accent: #1e6ae6;
   --accent-2: #3e8aff;
   --root: #d85936;
+  --ink-faint: #9aa0a6;
+  --line-strong: #c3bfb4;
+  --accent-soft: rgba(30, 106, 230, 0.10);
+  --band-red-bg: #fef2f2;
+  --band-red-text: #991b1b;
+  --band-red-dot: #ef4444;
   --highlight: #2ea675;
   --white-key: #ffffff;
   --black-key: #1c1f27;
