@@ -33,6 +33,13 @@ export type NeckDot = {
    * become hollow so the chord tones read as the solid ones.
    */
   hollow?: boolean;
+  /**
+   * Draw a halo ring around this dot. Marks the notes actually fretted in
+   * the chord shape being played, as opposed to the same pitch classes
+   * occurring elsewhere on the neck — "here is where your hand is" versus
+   * "here is where else that note lives".
+   */
+  ringed?: boolean;
 };
 
 export type MiniNeckProps = {
@@ -43,6 +50,9 @@ export type MiniNeckProps = {
   toFret?: number;
   /** Minimum number of frets in the auto-fitted window. */
   minSpan?: number;
+  /** 'roomy' scales the board up ~35% — for dense whole-neck views where
+   *  compact spacing makes the labels hard to read. */
+  size?: 'compact' | 'roomy';
   ariaLabel: string;
 };
 
@@ -54,12 +64,12 @@ const BASS_STRINGS = ['G', 'D', 'A', 'E'] as const;
 // three notes, and every real guitar has at least 20 frets anyway.
 const MAX_FRET = { guitar: 22, bass: 20 } as const;
 
-const FRET_W = 40;
-const STRING_GAP = 22;
+const FRET_W_BASE = 40;
+const STRING_GAP_BASE = 22;
 const PADDING_X = 54;
 const PADDING_Y = 18;
 const FRET_NUM_H = 18;
-const DOT_R = 9;
+const DOT_R_BASE = 9;
 
 const INLAYS_SINGLE = new Set([3, 5, 7, 9, 15, 17, 19]);
 const INLAYS_DOUBLE = new Set([12]);
@@ -98,8 +108,24 @@ export function MiniNeck({
   fromFret,
   toFret,
   minSpan = 5,
+  size = 'compact',
   ariaLabel,
 }: MiniNeckProps) {
+  // 'roomy' is for the dense whole-neck scale views, where a wide window
+  // puts a dot on nearly every position.
+  //
+  // The svg is `width="100%"` over a viewBox, so scaling the coordinate
+  // space does nothing on its own — it gets fitted straight back into the
+  // same box. What actually constrains the board is the `maxWidth: totalW`
+  // cap below, which stops it growing past its natural pixel width (~708px
+  // for a 15-fret guitar neck). That cap is right for a lesson diagram
+  // inline in prose and wrong for a full-width panel, so 'roomy' lifts it
+  // and the board scales up to whatever room the container gives it.
+  const roomy = size === 'roomy';
+  const FRET_W = FRET_W_BASE;
+  const STRING_GAP = STRING_GAP_BASE;
+  const DOT_R = DOT_R_BASE;
+
   const stringNames = instrument === 'bass' ? BASS_STRINGS : GUITAR_STRINGS;
   const stringCount = stringNames.length;
   const { lo, hi } = resolveWindow(
@@ -131,7 +157,7 @@ export function MiniNeck({
     <svg
       viewBox={`0 0 ${totalW} ${totalH}`}
       width="100%"
-      style={{ maxWidth: totalW }}
+      style={{ maxWidth: roomy ? undefined : totalW }}
       role="img"
       aria-label={ariaLabel}
       className="select-none"
@@ -222,21 +248,36 @@ export function MiniNeck({
           both themes (the two tokens invert together). */}
       {visible.map((d) => (
         <g key={`dot-${d.string}-${d.fret}`} pointerEvents="none" opacity={d.dim ? 0.22 : 1}>
+          {/* Halo for a note that is actually fretted in the current shape.
+              Drawn first so the dot sits on top of it. */}
+          {d.ringed && (
+            <circle
+              cx={xForFret(d.fret)}
+              cy={yForString(d.string)}
+              r={DOT_R + 4}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth={2.5}
+            />
+          )}
+          {/* An unlabelled hollow dot is pure context (the rest of the
+              scale under a chord overlay) — draw it small so it shows the
+              scale's shape without competing with the labelled notes. */}
           <circle
             cx={xForFret(d.fret)}
             cy={yForString(d.string)}
-            r={DOT_R}
+            r={d.hollow && !d.label ? DOT_R * 0.42 : DOT_R}
             fill={d.hollow ? 'var(--card)' : d.root ? 'var(--accent)' : 'var(--ink)'}
             stroke={d.hollow ? 'var(--ink-muted)' : undefined}
-            strokeWidth={d.hollow ? 1.5 : undefined}
+            strokeWidth={d.hollow ? (d.label ? 2 : 1.5) : undefined}
           />
           {d.label && (
             <text
               x={xForFret(d.fret)}
               y={yForString(d.string)}
-              fontSize={d.label.length > 2 ? 7 : 8.5}
+              fontSize={d.label.length > 2 ? 7 * (DOT_R / 9) : 8.5 * (DOT_R / 9)}
               fontWeight={700}
-              fill={d.hollow ? 'var(--ink-muted)' : d.root ? '#ffffff' : 'var(--card)'}
+              fill={d.hollow ? 'var(--ink-soft)' : d.root ? '#ffffff' : 'var(--card)'}
               textAnchor="middle"
               dominantBaseline="central"
             >

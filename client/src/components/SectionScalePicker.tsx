@@ -17,6 +17,7 @@ import { MiniNeck, type NeckDot } from '#/components/lesson/MiniNeck';
 import { usePlayerControl } from '#/components/player';
 import { activeIndex } from '#/components/SectionChordStrip';
 import { chordToneMap, outsideScaleTones } from '#/lib/music/theory/chord-overlay';
+import { voicingPositionKeys } from '#/lib/music/theory/voicing-positions';
 import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
 import { inferKeyFromChords, parseExtractedKey } from '#/lib/music/theory/key-inference';
 import { threeNotesPerString } from '#/lib/music/theory/neck-patterns';
@@ -126,6 +127,17 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
     [overlay, scalePcs],
   );
 
+  // The exact positions fretted in the shape shown above — haloed so the
+  // neck says "your hand is here", not merely "this note is in the chord".
+  // Guitar only: the shapes are guitar voicings.
+  const voicedKeys = useMemo(
+    () =>
+      activeChord && instrument === 'guitar'
+        ? voicingPositionKeys(activeChord)
+        : null,
+    [activeChord, instrument],
+  );
+
   const dots = useMemo<NeckDot[]>(() => {
     if (scalePcs.length === 0) return [];
     const tuning =
@@ -146,8 +158,13 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
         out.push({
           string,
           fret,
+          // With the overlay on, ONLY chord tones are labelled. Labelling
+          // the rest would put two different systems side by side (chord
+          // function "3 5 7" next to note names "F# A D") and neither
+          // would be scannable. The unlabelled rings still show the
+          // scale's shape.
           label: overlay
-            ? (overlay.labelFor.get(pc) ?? (showDegrees ? degreeLabel(pc, root) : pc))
+            ? overlay.labelFor.get(pc)
             : showDegrees
               ? degreeLabel(pc, root)
               : pc,
@@ -157,12 +174,13 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
           // Non-chord scale tones recede to rings; they stay legal, just not
           // load-bearing.
           hollow: overlay ? !isChordTone : false,
+          ringed: voicedKeys?.has(`${string}:${fret}`) ?? false,
           dim: outOfPosition,
         });
       }
     });
     return out;
-  }, [scalePcs, instrument, showDegrees, root, positionSet, overlay]);
+  }, [scalePcs, instrument, showDegrees, root, positionSet, overlay, voicedKeys]);
 
   const scaleName = `${root} ${SCALE_TYPE_LABELS[type]}`;
 
@@ -288,6 +306,7 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
           dots={dots}
           fromFret={NECK_FROM}
           toFret={NECK_TO}
+          size="roomy"
           ariaLabel={`${scaleName} across the ${instrument} neck${
             position === 'all' ? '' : `, position ${Number(position) + 1} highlighted`
           }`}
@@ -303,7 +322,7 @@ export function SectionScalePicker({ chords, extractedKey, timing }: Readonly<Pr
               {activeChord.detectedLabel ??
                 `${activeChord.root}${QUALITY_LABELS[activeChord.quality] ?? activeChord.quality}`}
             </span>
-            {' — solid dots are chord tones (land on these), rings are the rest of the scale (pass through these).'}
+            {' — solid dots are chord tones, rings are the rest of the scale. The circled notes are the shape shown above.'}
             {outside.length > 0 && (
               <> This chord adds <strong>{outside.join(', ')}</strong> from outside the key.</>
             )}
