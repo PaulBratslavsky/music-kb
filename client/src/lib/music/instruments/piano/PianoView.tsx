@@ -14,6 +14,15 @@ type Props = {
   emphasizedPitchClasses?: Set<PitchClass> | null;
   gameMode?: GameModeState;
   onGameGuess?: (pos: GuessPosition) => void;
+  /**
+   * Reverse-detect: click keys to build a chord by ear/shape and let tonal
+   * name it, the keyboard counterpart to the fretboard's detectMode. Keys
+   * are addressed by absolute midi (not pitch class) so an inversion or a
+   * wide voicing is captured as played.
+   */
+  detectMode?: boolean;
+  playedMidis?: Set<number>;
+  onToggleMidi?: (midi: number) => void;
 };
 
 type GameMark = 'pending' | 'correct' | 'wrong' | null;
@@ -35,6 +44,9 @@ export function PianoView({
   pcLabels,
   emphasizedPitchClasses,
   gameMode,
+  detectMode = false,
+  playedMidis,
+  onToggleMidi,
   onGameGuess,
 }: Props) {
   const inGame = gameMode?.enabled === true;
@@ -46,6 +58,9 @@ export function PianoView({
 
   const highlightedMidis = new Set(highlighted.map(midiFromNote));
   const highlightedPCs = new Set<PitchClass>(highlighted.map((n) => n.pitchClass));
+
+  const isDetected = (key: PianoKey) =>
+    detectMode && (playedMidis?.has(midiFromNote(key.note)) ?? false);
 
   const isLit = (key: PianoKey) =>
     matchByPitchClass
@@ -90,6 +105,11 @@ export function PianoView({
 
   const handle = (key: PianoKey) => () => {
     const midi = midiFromNote(key.note);
+    if (detectMode) {
+      onToggleMidi?.(midi);
+      onPlayNote?.(midi);
+      return;
+    }
     if (inGame) {
       onGameGuess?.({ kind: 'piano', midi });
       onPlayNote?.(midi);
@@ -109,7 +129,7 @@ export function PianoView({
       {whiteKeys.map((key, i) => {
         const x = PADDING_X + i * WHITE_W;
         const midi = midiFromNote(key.note);
-        const lit = !inGame && isLit(key);
+        const lit = detectMode ? isDetected(key) : !inGame && isLit(key);
         const root = !inGame && isRoot(key);
         const focused = !inGame && isFocused(key);
         const mark = inGame ? gameMark(midi) : null;
@@ -118,7 +138,7 @@ export function PianoView({
             key={`w-${i}`}
             className="clickable"
             onClick={handle(key)}
-            style={{ cursor: inGame || onPickPitchClass ? 'pointer' : 'default' }}
+            style={{ cursor: detectMode || inGame || onPickPitchClass ? 'pointer' : 'default' }}
           >
             <rect
               x={x}
@@ -219,7 +239,7 @@ export function PianoView({
       {blackKeys.map((key, i) => {
         const x = PADDING_X + key.index * WHITE_W - BLACK_W / 2;
         const midi = midiFromNote(key.note);
-        const lit = !inGame && isLit(key);
+        const lit = detectMode ? isDetected(key) : !inGame && isLit(key);
         const root = !inGame && isRoot(key);
         const focused = !inGame && isFocused(key);
         const mark = inGame ? gameMark(midi) : null;
@@ -228,7 +248,7 @@ export function PianoView({
             key={`b-${i}`}
             className="clickable"
             onClick={handle(key)}
-            style={{ cursor: inGame || onPickPitchClass ? 'pointer' : 'default' }}
+            style={{ cursor: detectMode || inGame || onPickPitchClass ? 'pointer' : 'default' }}
           >
             <rect
               x={x}

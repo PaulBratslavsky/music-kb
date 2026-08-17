@@ -23,7 +23,7 @@ import { exportFretboardPng } from '#/lib/music/png-export';
 import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positions';
 import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
-import { detectFromFrets } from '#/lib/music/theory/detect-chord';
+import { detectFromFrets, detectFromMidis } from '#/lib/music/theory/detect-chord';
 import { parseTheoryParam } from '#/lib/music/deep-link';
 import type { ProgressionChord } from '#/lib/services/progressions';
 import type { PitchClass, ChordQuality, ScalePosition } from '#/lib/music/types';
@@ -93,19 +93,43 @@ export function ChordBuilder({
       else next.set(string, fret); // one note per string
       return next;
     });
-  const clearShape = () => setPlayedFrets(new Map());
-  const detected = useMemo(
-    () => (detectMode ? detectFromFrets(playedFrets) : null),
-    [detectMode, playedFrets],
-  );
+  // Piano detect: keys are absolute midi, so an inversion or a spread
+  // voicing is captured exactly as clicked rather than collapsed to pitch
+  // classes the way a chord symbol would.
+  const [playedMidis, setPlayedMidis] = useState<Set<number>>(new Set());
+  const toggleMidi = (midi: number) =>
+    setPlayedMidis((prev) => {
+      const next = new Set(prev);
+      if (next.has(midi)) next.delete(midi);
+      else next.add(midi);
+      return next;
+    });
+  const clearShape = () => {
+    setPlayedFrets(new Map());
+    setPlayedMidis(new Set());
+  };
+  const detected = useMemo(() => {
+    if (!detectMode) return null;
+    return instrument === 'piano'
+      ? detectFromMidis([...playedMidis])
+      : detectFromFrets(playedFrets);
+  }, [detectMode, instrument, playedFrets, playedMidis]);
   // The detected chord as a progression chord: its exact positions + the
   // tonal name. root/quality are a best-effort fallback (bass note + maj)
   // when the shape doesn't map to a known quality; positions carry the truth.
   const detectedChord = useMemo<ProgressionChord | null>(() => {
-    if (!detected || playedFrets.size === 0) return null;
-    const positions = [...playedFrets.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([s, f]) => `${s}-${f}`);
+    const anyNotes =
+      instrument === 'piano' ? playedMidis.size > 0 : playedFrets.size > 0;
+    if (!detected || !anyNotes) return null;
+    // `positions` are guitar fret coordinates and have no piano meaning, so
+    // a piano-detected chord deliberately carries none rather than a made-up
+    // fingering.
+    const positions =
+      instrument === 'piano'
+        ? undefined
+        : [...playedFrets.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([s, f]) => `${s}-${f}`);
     const best = detected.candidates[0];
     // For a clean, parseable triad/seventh, leave detectedLabel unset so the
     // progression shows the app-style name (root+quality, e.g. "Cmaj", "G7"),
@@ -120,7 +144,7 @@ export function ChordBuilder({
       positions,
       detectedLabel: useRaw ? (best ?? detected.notes.join(' ')) : undefined,
     };
-  }, [detected, playedFrets]);
+  }, [detected, playedFrets, playedMidis, instrument]);
 
   // The current chord for the progression panel. In detect mode it's the
   // tapped shape; otherwise the builder's selection (null unless chord mode).
@@ -434,9 +458,9 @@ export function ChordBuilder({
             ))}
           </div>
 
-          {/* Reverse-detect toggle (guitar only) — tap the fretboard to build
+          {/* Reverse-detect toggle — tap the fretboard or the keys to build
               a shape; the readout above names it; "Add chord" saves it. */}
-          {instrument === 'guitar' && (
+          {(
             <button
               type="button"
               onClick={() => setDetectMode((d) => !d)}
@@ -446,12 +470,12 @@ export function ChordBuilder({
                   ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
                   : 'border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--accent)]'
               }`}
-              title="Reverse-detect: tap the fretboard to build a custom shape and auto-name the chord"
+              title="Reverse-detect: tap the instrument to build a custom shape and auto-name the chord"
             >
               🔍 Detect chord
             </button>
           )}
-          {detectMode && playedFrets.size > 0 && (
+          {detectMode && (playedFrets.size > 0 || playedMidis.size > 0) && (
             <button
               type="button"
               onClick={clearShape}
@@ -462,8 +486,9 @@ export function ChordBuilder({
           )}
           {detectMode && (
             <span className="text-xs text-[var(--ink-muted)]">
-              Tap frets to place a note per string (tap again to remove);
-              untouched strings are muted.
+              {instrument === 'piano'
+                ? 'Click keys to build the chord (click again to remove). The lowest key is treated as the bass.'
+                : 'Tap frets to place a note per string (tap again to remove); untouched strings are muted.'}
             </span>
           )}
         </div>
@@ -504,6 +529,9 @@ export function ChordBuilder({
               emphasizedPitchClasses={resolved.previewedChordPCs}
               gameMode={appState.gameMode.piano}
               onGameGuess={(pos) => appState.submitGuess('piano', pos)}
+              detectMode={detectMode}
+              playedMidis={playedMidis}
+              onToggleMidi={toggleMidi}
             />
           </>
         )}
