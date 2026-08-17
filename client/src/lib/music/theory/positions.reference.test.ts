@@ -64,6 +64,23 @@ describe('E minor boxes match guitarscale.org/e-minor.html', () => {
   });
 });
 
+describe('E major boxes match guitarscale.org/e-major.html', () => {
+  // "Shape N (Xth position)" on the page; X is the box's starting fret.
+  const EXPECTED_START: Record<number, number> = {
+    1: 11, // Shape 1 (11th position)
+    2: 2,  // Shape 2 (2nd position)
+    3: 4,  // Shape 3 (4th position)
+    4: 6,  // Shape 4 (6th position)
+    5: 8,  // Shape 5 (8th position)
+  };
+
+  for (const [box, start] of Object.entries(EXPECTED_START)) {
+    it(`box ${box} starts at fret ${start}`, () => {
+      expect(fretSpan(Number(box) as 1, 'E', 'major').lo).toBe(start);
+    });
+  }
+});
+
 describe('C major boxes', () => {
   it('offers the five CAGED shapes', () => {
     expect(availablePositions('major')).toEqual([1, 2, 3, 4, 5]);
