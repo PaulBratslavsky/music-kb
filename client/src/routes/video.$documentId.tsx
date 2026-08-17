@@ -170,6 +170,9 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
                 <SectionScalePicker
                   chords={selectedLoop?.savedProgression?.chords ?? []}
                   instrument={playInstrument}
+                  loopDocumentId={selectedLoop?.documentId ?? null}
+                  savedKey={selectedLoop?.key ?? null}
+                  onScaleSaved={() => setLoopsRefreshKey((k) => k + 1)}
                   timing={
                     selectedLoop
                       ? {

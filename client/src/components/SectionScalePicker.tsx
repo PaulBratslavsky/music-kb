@@ -38,6 +38,8 @@ import {
 
 type PositionId = ScalePosition;
 import type { ProgressionChord } from '#/lib/services/progressions';
+import type { KeySig } from '#/lib/services/loops';
+import { updateLoop } from '#/data/server-functions/loops';
 import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
 import { STANDARD_BASS_TUNING_MIDI } from '#/lib/music/instruments/bass/layout';
 
@@ -71,6 +73,12 @@ type Props = {
   timing?: { startSec: number; endSec: number; bars: number | null } | null;
   /** Shared with the chord strip — see usePlayAlongInstrument. */
   instrument: PlayAlongInstrument;
+  /** The section to persist a chosen scale onto (Loop.key). */
+  loopDocumentId?: string | null;
+  /** Scale already saved on the section, if any. Outranks inference. */
+  savedKey?: KeySig | null;
+  /** Fired after a successful save so the parent can refetch the loop. */
+  onScaleSaved?: () => void;
 };
 
 export function SectionScalePicker({
@@ -78,10 +86,23 @@ export function SectionScalePicker({
   extractedKey,
   timing,
   instrument,
+  loopDocumentId,
+  savedKey,
+  onScaleSaved,
 }: Readonly<Props>) {
   // Where the default came from, so the UI can say so rather than looking
   // like it guessed arbitrarily.
   const suggestion = useMemo(() => {
+    // An explicitly saved scale is a human decision about this exact
+    // section, so it outranks anything we can infer.
+    if (savedKey?.root && savedKey?.type) {
+      return {
+        root: savedKey.root as PitchClass,
+        type: savedKey.type as ScaleType,
+        confidence: 1,
+        source: 'saved' as const,
+      };
+    }
     const inferred = inferKeyFromChords(chords);
     // A progression whose chords don't agree on a key is worse evidence
     // than an explicit extraction, so prefer the extraction below 0.75.
@@ -92,13 +113,14 @@ export function SectionScalePicker({
     if (fromVideo) return { ...fromVideo, confidence: 1, source: 'video' as const };
     if (inferred) return { ...inferred, source: 'chords' as const };
     return null;
-  }, [chords, extractedKey]);
+  }, [chords, extractedKey, savedKey]);
 
   // null = follow the suggestion; set = the user has taken manual control.
   const [override, setOverride] = useState<{ root: PitchClass; type: ScaleType } | null>(null);
   const [position, setPosition] = useState<PositionId>('all');
   const [showDegrees, setShowDegrees] = useState(false);
   const [overlayOn, setOverlayOn] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // The chord currently sounding, from the same clock the chord strip uses —
   // so the overlay and the highlighted chord box can never disagree.
@@ -115,6 +137,9 @@ export function SectionScalePicker({
 
   const root = override?.root ?? suggestion?.root ?? 'C';
   const type = override?.type ?? suggestion?.type ?? 'major';
+
+  const scaleMatchesSaved =
+    savedKey?.root === root && savedKey?.type === type;
 
   const scalePcs = useMemo(
     () => getScalePitchClasses({ root, type }),
@@ -246,9 +271,11 @@ export function SectionScalePicker({
         {/* Provenance — without this the default looks arbitrary. */}
         {!override && suggestion && (
           <span className="text-xs text-[var(--ink-muted)]">
-            {suggestion.source === 'chords'
-              ? 'from these chords'
-              : "from the video's detected key"}
+            {suggestion.source === 'saved'
+              ? 'saved on this section'
+              : suggestion.source === 'chords'
+                ? 'from these chords'
+                : "from the video's detected key"}
           </span>
         )}
         {override && suggestion && (
@@ -259,6 +286,38 @@ export function SectionScalePicker({
           >
             reset to {suggestion.root} {SCALE_TYPE_LABELS[suggestion.type]}
           </button>
+        )}
+
+        {/* Explicit save rather than persisting on every dropdown change —
+            a stray click shouldn't silently rewrite the section. Matches how
+            the loop's own times are saved. */}
+        {loopDocumentId && !scaleMatchesSaved && (
+          <button
+            type="button"
+            disabled={saveState === 'saving'}
+            onClick={async () => {
+              setSaveState('saving');
+              const res = await updateLoop({
+                data: { documentId: loopDocumentId, key: { root, type } },
+              });
+              if (res?.status === 'ok') {
+                setSaveState('saved');
+                onScaleSaved?.();
+              } else {
+                setSaveState('error');
+              }
+            }}
+            className="rounded-lg border border-[var(--accent)] px-2 py-0.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white disabled:opacity-50"
+          >
+            {saveState === 'saving'
+              ? 'Saving…'
+              : saveState === 'error'
+                ? 'Retry save'
+                : 'Save to section'}
+          </button>
+        )}
+        {saveState === 'saved' && scaleMatchesSaved && (
+          <span className="text-xs text-[var(--ink-muted)]">Saved</span>
         )}
 
         <div className="ml-auto flex items-center gap-1">
