@@ -57,6 +57,14 @@ const LESSONS: LessonEntry[] = [
     duration: '~10 min reference',
     level: 'Beginner',
   },
+  {
+    href: '/lessons/half-steps-to-chords',
+    title: 'Half steps → every chord in a key',
+    blurb:
+      'One skill — counting half steps — builds the major and minor scales, the numbers 1–7, the major/minor difference (4+3 vs 3+4), all seven chords of any key, and the circle of fifths. Includes what a whole step and a half step look like when you cross strings, so you can build a scale anywhere instead of memorizing boxes. Shown inline on piano, guitar and bass.',
+    duration: '~30 min read',
+    level: 'Beginner',
+  },
 ];
 
 function LessonsIndexPage() {

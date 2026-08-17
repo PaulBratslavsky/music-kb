@@ -24,6 +24,7 @@ import { Route as LessonsIndexRouteImport } from './routes/lessons.index'
 import { Route as VideoDocumentIdRouteImport } from './routes/video.$documentId'
 import { Route as LessonsScaleSystemsOnTheNeckRouteImport } from './routes/lessons.scale-systems-on-the-neck'
 import { Route as LessonsMusicTheoryFundamentalsRouteImport } from './routes/lessons.music-theory-fundamentals'
+import { Route as LessonsHalfStepsToChordsRouteImport } from './routes/lessons.half-steps-to-chords'
 import { Route as LessonsFindAnyChordRouteImport } from './routes/lessons.find-any-chord'
 import { Route as LessonsEssentialChordsRouteImport } from './routes/lessons.essential-chords'
 import { Route as LessonsCagedAndRomanNumeralsRouteImport } from './routes/lessons.caged-and-roman-numerals'
@@ -110,6 +111,12 @@ const LessonsMusicTheoryFundamentalsRoute =
     path: '/lessons/music-theory-fundamentals',
     getParentRoute: () => rootRouteImport,
   } as any)
+const LessonsHalfStepsToChordsRoute =
+  LessonsHalfStepsToChordsRouteImport.update({
+    id: '/lessons/half-steps-to-chords',
+    path: '/lessons/half-steps-to-chords',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const LessonsFindAnyChordRoute = LessonsFindAnyChordRouteImport.update({
   id: '/lessons/find-any-chord',
   path: '/lessons/find-any-chord',
@@ -171,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
+  '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
   '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
   '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
@@ -196,6 +204,7 @@ export interface FileRoutesByTo {
   '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
+  '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
   '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
   '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
@@ -222,6 +231,7 @@ export interface FileRoutesById {
   '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
+  '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
   '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
   '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
@@ -249,6 +259,7 @@ export interface FileRouteTypes {
     | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
+    | '/lessons/half-steps-to-chords'
     | '/lessons/music-theory-fundamentals'
     | '/lessons/scale-systems-on-the-neck'
     | '/video/$documentId'
@@ -274,6 +285,7 @@ export interface FileRouteTypes {
     | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
+    | '/lessons/half-steps-to-chords'
     | '/lessons/music-theory-fundamentals'
     | '/lessons/scale-systems-on-the-neck'
     | '/video/$documentId'
@@ -299,6 +311,7 @@ export interface FileRouteTypes {
     | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
+    | '/lessons/half-steps-to-chords'
     | '/lessons/music-theory-fundamentals'
     | '/lessons/scale-systems-on-the-neck'
     | '/video/$documentId'
@@ -325,6 +338,7 @@ export interface RootRouteChildren {
   LessonsCagedAndRomanNumeralsRoute: typeof LessonsCagedAndRomanNumeralsRoute
   LessonsEssentialChordsRoute: typeof LessonsEssentialChordsRoute
   LessonsFindAnyChordRoute: typeof LessonsFindAnyChordRoute
+  LessonsHalfStepsToChordsRoute: typeof LessonsHalfStepsToChordsRoute
   LessonsMusicTheoryFundamentalsRoute: typeof LessonsMusicTheoryFundamentalsRoute
   LessonsScaleSystemsOnTheNeckRoute: typeof LessonsScaleSystemsOnTheNeckRoute
   VideoDocumentIdRoute: typeof VideoDocumentIdRoute
@@ -439,6 +453,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LessonsMusicTheoryFundamentalsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lessons/half-steps-to-chords': {
+      id: '/lessons/half-steps-to-chords'
+      path: '/lessons/half-steps-to-chords'
+      fullPath: '/lessons/half-steps-to-chords'
+      preLoaderRoute: typeof LessonsHalfStepsToChordsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lessons/find-any-chord': {
       id: '/lessons/find-any-chord'
       path: '/lessons/find-any-chord'
@@ -517,6 +538,7 @@ const rootRouteChildren: RootRouteChildren = {
   LessonsCagedAndRomanNumeralsRoute: LessonsCagedAndRomanNumeralsRoute,
   LessonsEssentialChordsRoute: LessonsEssentialChordsRoute,
   LessonsFindAnyChordRoute: LessonsFindAnyChordRoute,
+  LessonsHalfStepsToChordsRoute: LessonsHalfStepsToChordsRoute,
   LessonsMusicTheoryFundamentalsRoute: LessonsMusicTheoryFundamentalsRoute,
   LessonsScaleSystemsOnTheNeckRoute: LessonsScaleSystemsOnTheNeckRoute,
   VideoDocumentIdRoute: VideoDocumentIdRoute,
