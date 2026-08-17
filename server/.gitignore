@@ -41,6 +41,10 @@ $RECYCLE.BIN/
 *.dat
 *.dmg
 *.gz
+# Seed archives contain the personal library (videos, transcripts,
+# notes). They are restored from a local copy, never committed.
+*.gz.bak
+*.tar.gz
 *.iso
 *.jar
 *.rar
