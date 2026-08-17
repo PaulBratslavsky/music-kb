@@ -63,6 +63,13 @@ export type ProgressionChord = {
    */
   positions?: string[];
   /**
+   * Pitch classes actually played, set only for chords captured with
+   * Detect chord on the KEYBOARD. `positions` is a fretboard concept and
+   * doesn't apply there, but the mini keyboard still needs to light what
+   * was played rather than the theoretical tones of root + quality.
+   */
+  pitchClasses?: PitchClass[];
+  /**
    * tonal's name for a detected shape (e.g. "Cmaj7/E"). Root + quality is
    * only a fallback for shapes that map onto a known quality.
    */

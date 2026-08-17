@@ -22,15 +22,18 @@ const BLACK: Array<{ pc: PitchClass; after: number }> = [
 ];
 
 function MiniPiano({ chord }: { chord: ProgressionChord }) {
-  // A detect-captured shape lights the exact played pitch classes;
-  // otherwise the chord's theoretical tones from root + quality.
+  // A detect-captured shape lights the exact played pitch classes —
+  // straight from the keyboard capture, or derived from the fretted
+  // positions. Everything else lights root + quality's theoretical tones.
   const lit = new Set<PitchClass>(
-    chord.positions && chord.positions.length > 0
-      ? chord.positions.map((key) => {
-          const [s, f] = key.split('-').map(Number);
-          return pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + f);
-        })
-      : getChordPitchClasses(chord.root, chord.quality),
+    chord.pitchClasses && chord.pitchClasses.length > 0
+      ? chord.pitchClasses
+      : chord.positions && chord.positions.length > 0
+        ? chord.positions.map((key) => {
+            const [s, f] = key.split('-').map(Number);
+            return pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + f);
+          })
+        : getChordPitchClasses(chord.root, chord.quality),
   );
 
   const W = 112;

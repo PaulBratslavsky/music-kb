@@ -14,6 +14,12 @@ type Props = {
   emphasizedPitchClasses?: Set<PitchClass> | null;
   gameMode?: GameModeState;
   onGameGuess?: (pos: GuessPosition) => void;
+  /** Reverse-detect mode: the keyboard becomes an input surface. Clicking
+   *  a key calls `onToggleKey`; the played notes come from `playedMidis`
+   *  instead of `highlighted`. Mirrors GuitarView's detect mode. */
+  detectMode?: boolean;
+  playedMidis?: Set<number>;
+  onToggleKey?: (midi: number) => void;
 };
 
 type GameMark = 'pending' | 'correct' | 'wrong' | null;
@@ -32,6 +38,9 @@ export function PianoView({
   focusedPitchClass,
   onPickPitchClass,
   onPlayNote,
+  detectMode = false,
+  playedMidis,
+  onToggleKey,
   pcLabels,
   emphasizedPitchClasses,
   gameMode,
@@ -51,6 +60,8 @@ export function PianoView({
     matchByPitchClass
       ? highlightedPCs.has(key.note.pitchClass)
       : highlightedMidis.has(midiFromNote(key.note));
+  const isPlayed = (key: PianoKey) =>
+    playedMidis?.has(midiFromNote(key.note)) ?? false;
 
   const isRoot = (key: PianoKey) =>
     rootPitchClass != null && key.note.pitchClass === rootPitchClass && isLit(key);
@@ -95,6 +106,11 @@ export function PianoView({
       onPlayNote?.(midi);
       return;
     }
+    if (detectMode) {
+      onToggleKey?.(midi);
+      onPlayNote?.(midi);
+      return;
+    }
     onPickPitchClass?.(key.note.pitchClass);
     onPlayNote?.(midi);
   };
@@ -109,8 +125,8 @@ export function PianoView({
       {whiteKeys.map((key, i) => {
         const x = PADDING_X + i * WHITE_W;
         const midi = midiFromNote(key.note);
-        const lit = !inGame && isLit(key);
-        const root = !inGame && isRoot(key);
+        const lit = !inGame && (detectMode ? isPlayed(key) : isLit(key));
+        const root = !inGame && !detectMode && isRoot(key);
         const focused = !inGame && isFocused(key);
         const mark = inGame ? gameMark(midi) : null;
         return (
@@ -219,8 +235,8 @@ export function PianoView({
       {blackKeys.map((key, i) => {
         const x = PADDING_X + key.index * WHITE_W - BLACK_W / 2;
         const midi = midiFromNote(key.note);
-        const lit = !inGame && isLit(key);
-        const root = !inGame && isRoot(key);
+        const lit = !inGame && (detectMode ? isPlayed(key) : isLit(key));
+        const root = !inGame && !detectMode && isRoot(key);
         const focused = !inGame && isFocused(key);
         const mark = inGame ? gameMark(midi) : null;
         return (

@@ -24,23 +24,19 @@ export type DetectedChord = {
 };
 
 /**
- * Detect the chord for a per-string fret map (string index 0 = high E …
- * 5 = low E; value is the fret, 0 = open). Strings absent from the map are
- * muted. Returns null when nothing is played.
+ * Detect the chord for a set of sounding MIDI notes. Instrument-agnostic —
+ * the fretboard and the keyboard both funnel through here.
+ *
+ * Notes are ordered by absolute pitch so the lowest is treated as the bass
+ * (that's what drives slash-chord detection), then pitch classes are
+ * deduped preserving that order.
  */
-export function detectFromFrets(
-  playedFrets: Map<number, number>,
-): DetectedChord | null {
-  if (playedFrets.size === 0) return null;
+export function detectFromMidis(midis: number[]): DetectedChord | null {
+  if (midis.length === 0) return null;
 
-  // Order by absolute pitch so the lowest note is the bass (drives slash
-  // detection), then dedup pitch classes preserving that order.
-  const midis = [...playedFrets.entries()]
-    .map(([string, fret]) => STANDARD_TUNING_MIDI[string] + fret)
-    .sort((a, b) => a - b);
   const seen = new Set<PitchClass>();
   const notes: PitchClass[] = [];
-  for (const midi of midis) {
+  for (const midi of [...midis].sort((a, b) => a - b)) {
     const pc = pitchClassFromMidi(midi);
     if (!seen.has(pc)) {
       seen.add(pc);
@@ -56,4 +52,19 @@ export function detectFromFrets(
     selection: parsed ? { root: parsed.root, quality: parsed.quality } : null,
     notes,
   };
+}
+
+/**
+ * Detect the chord for a per-string fret map (string index 0 = high E …
+ * 5 = low E; value is the fret, 0 = open). Strings absent from the map are
+ * muted. Returns null when nothing is played.
+ */
+export function detectFromFrets(
+  playedFrets: Map<number, number>,
+): DetectedChord | null {
+  return detectFromMidis(
+    [...playedFrets.entries()].map(
+      ([string, fret]) => STANDARD_TUNING_MIDI[string] + fret,
+    ),
+  );
 }

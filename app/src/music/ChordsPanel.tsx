@@ -23,7 +23,7 @@ import { exportFretboardPng } from './png-export';
 import { ChordFormulaStrip } from './ChordFormulaStrip';
 import { chordLabel } from './chordShapes';
 import { addProgression, deleteProgression, updateProgression } from './storage';
-import { detectFromFrets } from '../theory/detect-chord';
+import { detectFromFrets, detectFromMidis } from '../theory/detect-chord';
 import type { ProgressionChord, SavedProgression } from './types';
 
 type Instrument = 'guitar' | 'piano';
@@ -50,11 +50,21 @@ export function ChordsPanel({
   // string and the shape is named back to you.
   const [detectMode, setDetectMode] = useState(false);
   const [playedFrets, setPlayedFrets] = useState<Map<number, number>>(new Map());
+  const [playedMidis, setPlayedMidis] = useState<Set<number>>(new Set());
 
-  const detected = useMemo(
-    () => (detectMode ? detectFromFrets(playedFrets) : null),
-    [detectMode, playedFrets],
-  );
+  // Detection reads whichever instrument is on screen — one fretboard shape
+  // or one set of keys, never both at once.
+  const detected = useMemo(() => {
+    if (!detectMode) return null;
+    return instrument === 'guitar'
+      ? detectFromFrets(playedFrets)
+      : detectFromMidis([...playedMidis]);
+  }, [detectMode, instrument, playedFrets, playedMidis]);
+
+  const clearShape = () => {
+    setPlayedFrets(new Map());
+    setPlayedMidis(new Set());
+  };
 
   /** Tap a cell: same string+fret toggles off, a different fret moves it. */
   const toggleFret = (string: number, fret: number) =>
@@ -62,6 +72,15 @@ export function ChordsPanel({
       const next = new Map(prev);
       if (next.get(string) === fret) next.delete(string);
       else next.set(string, fret);
+      return next;
+    });
+
+  /** Tap a key: toggles that exact note on or off. */
+  const toggleKey = (midi: number) =>
+    setPlayedMidis((prev) => {
+      const next = new Set(prev);
+      if (next.has(midi)) next.delete(midi);
+      else next.add(midi);
       return next;
     });
 
@@ -78,16 +97,25 @@ export function ChordsPanel({
   const addChord = () => {
     // In detect mode the tapped shape wins — it pins the exact fingering,
     // which may not match any generated voicing.
-    if (detectMode && detected?.selection && playedFrets.size > 0) {
-      setChords((prev) => [
-        ...prev,
-        {
-          ...detected.selection!,
-          positions: [...playedFrets].map(([s, f]) => `${s}-${f}`),
-          detectedLabel: detected.candidates[0],
-        },
-      ]);
-      return;
+    if (detectMode && detected?.selection) {
+      const guitarShape = instrument === 'guitar' && playedFrets.size > 0;
+      const pianoShape = instrument === 'piano' && playedMidis.size > 0;
+      if (guitarShape || pianoShape) {
+        setChords((prev) => [
+          ...prev,
+          {
+            ...detected.selection!,
+            // Positions are a fretboard concept; a keyboard-captured chord
+            // keeps its pitch classes instead so the mini keyboard lights
+            // exactly what was played.
+            ...(guitarShape
+              ? { positions: [...playedFrets].map(([s, f]) => `${s}-${f}`) }
+              : { pitchClasses: detected.notes }),
+            detectedLabel: detected.candidates[0],
+          },
+        ]);
+        return;
+      }
     }
     setChords((prev) => [
       ...prev,
@@ -174,7 +202,7 @@ export function ChordsPanel({
             <button
               type="button"
               className="chip"
-              onClick={() => setPlayedFrets(new Map())}
+              onClick={clearShape}
             >
               Clear shape
             </button>
@@ -183,7 +211,9 @@ export function ChordsPanel({
             {detectMode
               ? detected?.candidates[0]
                 ? `Detected: ${detected.candidates[0]}`
-                : 'Tap frets to place a note per string; untouched strings are muted.'
+                : instrument === 'guitar'
+                  ? 'Tap frets to place a note per string; untouched strings are muted.'
+                  : 'Tap keys to build a chord.'
               : resolved.label}
           </span>
         </div>
@@ -216,6 +246,9 @@ export function ChordsPanel({
               onPlayNote={(midi) => synth.playNote(midi)}
               pcLabels={pcLabels}
               emphasizedPitchClasses={resolved.previewedChordPCs}
+              detectMode={detectMode}
+              playedMidis={playedMidis}
+              onToggleKey={toggleKey}
             />
           )}
         </div>
