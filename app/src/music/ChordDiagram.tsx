@@ -17,8 +17,12 @@
 const STRING_COUNT = 6;
 
 type StringState =
-  | { kind: 'fretted'; fret: number; isRoot?: boolean }
-  | { kind: 'open' }
+  // `note` is the sounding pitch class ("E", "G#"). Supplying it draws the
+  // name inside the fretted dot, and in place of the open string's O — a
+  // sounding string is worth naming either way. Muted strings keep the
+  // conventional x, which is what carries the played-vs-not distinction.
+  | { kind: 'fretted'; fret: number; isRoot?: boolean; note?: string }
+  | { kind: 'open'; note?: string }
   | { kind: 'muted' };
 
 export type ChordDiagramProps = {
@@ -41,6 +45,12 @@ export type ChordDiagramProps = {
    * the lessons, so the two never disagree about which way the neck runs.
    */
   orientation?: 'vertical' | 'horizontal';
+  /**
+   * 'fill' makes the svg responsive (width 100%, height from the viewBox)
+   * so a card can size the diagram. Default 'fixed' keeps the exact pixel
+   * box the lesson pages lay out around.
+   */
+  size?: 'fixed' | 'fill';
 };
 
 const WIDTH = 134;
@@ -58,6 +68,7 @@ export function ChordDiagram({
   fretCount = 5,
   startFret,
   orientation = 'vertical',
+  size = 'fixed',
 }: ChordDiagramProps) {
   if (strings.length !== STRING_COUNT) {
     throw new Error(`ChordDiagram expects ${STRING_COUNT} string states.`);
@@ -95,8 +106,8 @@ export function ChordDiagram({
   return (
     <svg
       viewBox={horizontal ? `0 0 ${HEIGHT} ${WIDTH}` : `0 0 ${WIDTH} ${HEIGHT}`}
-      width={horizontal ? HEIGHT : WIDTH}
-      height={horizontal ? WIDTH : HEIGHT}
+      width={size === 'fill' ? '100%' : horizontal ? HEIGHT : WIDTH}
+      height={size === 'fill' ? undefined : horizontal ? WIDTH : HEIGHT}
       role="img"
       aria-label="Chord diagram"
       className="select-none"
@@ -111,13 +122,14 @@ export function ChordDiagram({
               key={`top-${i}`}
               x={x}
               y={PAD_TOP - 10}
-              fontSize={11}
+              fontSize={s.note ? (s.note.length > 1 ? 9 : 10) : 11}
+              fontWeight={s.note ? 700 : 400}
               textAnchor="middle"
-              fill="var(--text)"
+              fill="var(--ink)"
               fontFamily="ui-monospace, monospace"
               {...upright(x, PAD_TOP - 10)}
             >
-              O
+              {s.note ?? 'O'}
             </text>
           );
         }
@@ -129,7 +141,7 @@ export function ChordDiagram({
               y={PAD_TOP - 10}
               fontSize={11}
               textAnchor="middle"
-              fill="var(--text-dim)"
+              fill="var(--ink-muted)"
               fontFamily="ui-monospace, monospace"
               {...upright(x, PAD_TOP - 10)}
             >
@@ -147,7 +159,7 @@ export function ChordDiagram({
           y={PAD_TOP - 3}
           width={fretBoxW}
           height={3}
-          fill="var(--text)"
+          fill="var(--ink)"
         />
       ) : (
         <text
@@ -157,7 +169,7 @@ export function ChordDiagram({
           y={PAD_TOP + fretGap / 2 + 3}
           fontSize={9}
           textAnchor={horizontal ? 'middle' : 'end'}
-          fill="var(--text-dim)"
+          fill="var(--ink-muted)"
           fontFamily="ui-monospace, monospace"
           {...upright(
             horizontal ? PAD_LEFT - 20 : PAD_LEFT - 7,
@@ -176,7 +188,7 @@ export function ChordDiagram({
           x2={PAD_LEFT + fretBoxW}
           y1={PAD_TOP + (i + 1) * fretGap}
           y2={PAD_TOP + (i + 1) * fretGap}
-          stroke="var(--border)"
+          stroke="var(--line)"
           strokeWidth={1}
         />
       ))}
@@ -189,7 +201,7 @@ export function ChordDiagram({
           x2={PAD_LEFT + i * stringGap}
           y1={PAD_TOP}
           y2={PAD_TOP + fretBoxH}
-          stroke="var(--border)"
+          stroke="var(--line)"
           strokeWidth={1}
         />
       ))}
@@ -205,25 +217,43 @@ export function ChordDiagram({
           height={10}
           rx={5}
           ry={5}
-          fill="var(--text)"
+          fill="var(--ink)"
           opacity={0.85}
         />
       )}
 
-      {/* Fingered dots */}
+      {/* Fingered dots. A labelled dot grows slightly so a two-character
+          name ("G#") still fits inside it without touching the edge. */}
       {strings.map((s, i) => {
         if (s.kind !== 'fretted') return null;
         if (s.fret < computedStart || s.fret >= computedStart + fretCount) return null;
+        const cx = xForString(i);
+        const cy = yForFret(s.fret);
         return (
-          <circle
-            key={`dot-${i}`}
-            cx={xForString(i)}
-            cy={yForFret(s.fret)}
-            r={6.5}
-            fill={s.isRoot ? 'var(--accent)' : 'var(--text)'}
-            stroke="#0b0d12"
-            strokeWidth={1}
-          />
+          <g key={`dot-${i}`}>
+            <circle
+              cx={cx}
+              cy={cy}
+              r={s.note ? 7.5 : 6.5}
+              fill={s.isRoot ? 'var(--accent)' : 'var(--ink)'}
+              stroke="#0b0d12"
+              strokeWidth={1}
+            />
+            {s.note && (
+              <text
+                x={cx}
+                y={cy}
+                fontSize={s.note.length > 1 ? 7 : 8.5}
+                fontWeight={700}
+                fill={s.isRoot ? '#ffffff' : 'var(--card)'}
+                textAnchor="middle"
+                dominantBaseline="central"
+                {...upright(cx, cy)}
+              >
+                {s.note}
+              </text>
+            )}
+          </g>
         );
       })}
       </g>

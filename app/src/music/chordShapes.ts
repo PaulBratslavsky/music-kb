@@ -81,9 +81,13 @@ export function chordDiagramProps(
     (_, s) => {
       const fret = fretByString.get(s);
       if (fret === undefined) return { kind: 'muted' as const };
-      if (fret === 0) return { kind: 'open' as const };
       const pc = pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + fret);
-      return { kind: 'fretted' as const, fret, isRoot: pc === root };
+      // Every sounding string carries its note name so the shape reads as
+      // notes, not just finger positions — including open strings, which are
+      // often most of the chord in first position (Em is E-B-E-G-B-E).
+      // Strings absent from the map stay muted and render the conventional x.
+      if (fret === 0) return { kind: 'open' as const, note: pc };
+      return { kind: 'fretted' as const, fret, isRoot: pc === root, note: pc };
     },
   );
 

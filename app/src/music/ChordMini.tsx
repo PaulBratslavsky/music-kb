@@ -21,7 +21,7 @@ const BLACK: Array<{ pc: PitchClass; after: number }> = [
   { pc: 'A#', after: 5 },
 ];
 
-function MiniPiano({ chord }: { chord: ProgressionChord }) {
+function MiniPiano({ chord, responsive }: { chord: ProgressionChord; responsive?: boolean }) {
   // A detect-captured shape lights the exact played pitch classes —
   // straight from the keyboard capture, or derived from the fretted
   // positions. Everything else lights root + quality's theoretical tones.
@@ -51,8 +51,8 @@ function MiniPiano({ chord }: { chord: ProgressionChord }) {
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
-      width={W}
-      height={H}
+      width={responsive ? '100%' : W}
+      height={responsive ? undefined : H}
       role="img"
       aria-label="Chord keys"
     >
@@ -90,16 +90,21 @@ export function ChordMini({
   chord,
   instrument,
   orientation = 'horizontal',
+  size = 'fixed',
 }: {
   chord: ProgressionChord;
   instrument: 'guitar' | 'piano';
+  /** 'fill' lets a grid cell size the diagram — see ChordDiagram.size. */
+  size?: 'fixed' | 'fill';
   /** Guitar only. Defaults to horizontal (nut on the left), matching the
    *  full fretboard view. */
   orientation?: 'vertical' | 'horizontal';
 }) {
-  if (instrument === 'piano') return <MiniPiano chord={chord} />;
+  if (instrument === 'piano') return <MiniPiano chord={chord} responsive={size === 'fill'} />;
   const props = chordDiagramProps(chord);
   // No defined fingering (the exotic extensions) — the caller shows the
   // chord name on its own.
-  return props ? <ChordDiagram {...props} orientation={orientation} /> : null;
+  return props ? (
+    <ChordDiagram {...props} orientation={orientation} size={size} />
+  ) : null;
 }

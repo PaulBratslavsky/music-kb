@@ -10,8 +10,9 @@
 import { useState } from 'react';
 import { CircleOfFifths } from '../music/CircleOfFifths';
 import { TheoryReference } from './TheoryReference';
+import { ScaleChordFinder } from './ScaleChordFinder';
 
-type Tab = 'tools' | 'reference';
+type Tab = 'tools' | 'practice' | 'reference';
 
 export function TheoryPage() {
   const [tab, setTab] = useState<Tab>('tools');
@@ -31,6 +32,7 @@ export function TheoryPage() {
           {(
             [
               ['tools', 'Theory tools'],
+              ['practice', 'Practice'],
               ['reference', 'Reference'],
             ] as const
           ).map(([id, label]) => (
@@ -46,7 +48,23 @@ export function TheoryPage() {
         </div>
       </header>
 
-      {tab === 'tools' ? (
+      {tab === 'practice' ? (
+        <section className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+          <h2 className="text-base font-semibold text-[var(--ink)]">
+            Find the chords in a scale
+          </h2>
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">
+            Pick a key and a box, then go find that chord inside the shape on
+            your own instrument before revealing it. Triads are the three-note
+            chords hiding in every scale position; power chords strip them to
+            root and fifth. Boxes are the same ones the rest of the app uses,
+            transcribed from guitarscale.org.
+          </p>
+          <div className="mt-6">
+            <ScaleChordFinder />
+          </div>
+        </section>
+      ) : tab === 'tools' ? (
         <section className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
           <h2 className="text-base font-semibold text-[var(--ink)]">
             Circle of fifths

@@ -42,6 +42,13 @@ export type SavedLoop = {
    * length. Absent = fall back to one equal slice per chord.
    */
   bars?: number | null;
+  /**
+   * The scale to play over this section, chosen by the user. Absent means
+   * "work it out" — the scale panel infers one from the progression's own
+   * chords instead. Mirrors music-kb's Loop.key so the two apps store the
+   * same thing under the same name.
+   */
+  key?: { root: string; type: string } | null;
 };
 
 /**

@@ -22,6 +22,8 @@ import {
   updateVideo,
 } from './storage';
 import { SectionChordStrip } from './SectionChordStrip';
+import { SectionScalePicker } from './SectionScalePicker';
+import { usePlayAlongInstrument } from './usePlayAlongInstrument';
 import { ChordsPanel } from './ChordsPanel';
 import { chordLabel } from './chordShapes';
 import { navigate } from './useHashRoute';
@@ -75,6 +77,11 @@ function PlayerInner({ video }: { video: SavedVideo }) {
     // A delete unlinks sections, so the loop rows need re-reading too.
     setLoops(loopsForVideo(video.id));
   };
+
+  // One instrument for the whole play-along block (chord cards + scale
+  // board) so the two can never disagree; persisted because it's a property
+  // of the player, not of the video.
+  const [playInstrument] = usePlayAlongInstrument();
 
   const selectedLoop = loops.find((l) => l.id === selectedLoopId) ?? null;
   const selectedProgression =
@@ -201,6 +208,7 @@ function PlayerInner({ video }: { video: SavedVideo }) {
             <LoopControls />
           </div>
           {selectedLoop && (
+            <>
             <SectionChordStrip
               loop={selectedLoop}
               progression={selectedProgression}
@@ -209,6 +217,19 @@ function PlayerInner({ video }: { video: SavedVideo }) {
                 patchLoop(selectedLoop.id, { startSec, endSec })
               }
             />
+            <SectionScalePicker
+              chords={selectedProgression?.chords ?? []}
+              instrument={playInstrument}
+              loopDocumentId={selectedLoop.id}
+              savedKey={selectedLoop.key ?? null}
+              timing={{
+                startSec: selectedLoop.startSec,
+                endSec: selectedLoop.endSec,
+                bars: selectedLoop.bars ?? null,
+              }}
+              onScaleSaved={() => refresh()}
+            />
+            </>
           )}
         </section>
 

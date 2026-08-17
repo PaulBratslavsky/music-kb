@@ -6,10 +6,10 @@
 //
 // Timing is per BAR, not per chord. See activeIndex.
 
-import { useState } from 'react';
 import { ChordMini } from './ChordMini';
 import { chordLabel } from './chordShapes';
 import { usePlayerControl } from './Player';
+import { usePlayAlongInstrument } from './usePlayAlongInstrument';
 import type { SavedLoop, SavedProgression } from './types';
 
 /**
@@ -59,8 +59,9 @@ export function SectionChordStrip({
 }) {
   const { currentSeconds, loopStartSec, loopEndSec } = usePlayerControl();
   // Play-along on either instrument — the chords are the same, only the
-  // picture changes.
-  const [instrument, setInstrument] = useState<'guitar' | 'piano'>('guitar');
+  // picture changes. The setting is shared with the scale board below (and
+  // persisted), so the two panels can never show different instruments.
+  const [instrument, setInstrument] = usePlayAlongInstrument();
   if (!loop) return null;
 
   const chords = progression?.chords ?? [];
@@ -189,7 +190,13 @@ export function SectionChordStrip({
       </div>
 
       {chords.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+            gap: 12,
+          }}
+        >
           {chords.map((c, i) => {
             const isActive = active === i;
             return (
@@ -204,7 +211,13 @@ export function SectionChordStrip({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'center', minHeight: 60 }}>
-                  <ChordMini chord={c} instrument={instrument} />
+                  <ChordMini
+                    chord={c}
+                    // Bass reads the same chord charts a guitarist does —
+                    // the shapes are guitar voicings either way.
+                    instrument={instrument === 'piano' ? 'piano' : 'guitar'}
+                    size="fill"
+                  />
                 </div>
                 <figcaption
                   style={{

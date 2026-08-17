@@ -19,11 +19,25 @@ export type KeyMark = {
   root?: boolean;
   /** Attention fill (red). Used for the E–F and B–C half-step pairs. */
   flag?: boolean;
+  /**
+   * Restrict this mark to one drawn octave (0 = the leftmost). Marks are
+   * matched by pitch class by default, which lights the note in EVERY
+   * octave — right for a scale, wrong for a chord, where the repeat reads
+   * as playing the root twice.
+   */
+  octave?: number;
 };
 
 export type MiniKeyboardProps = {
   /** How many octaves to draw, starting at C. */
   octaves?: number;
+  /**
+   * 'roomy' lifts the natural-width cap so the keyboard fills its
+   * container. The svg is width:100% over a viewBox, so the cap — right for
+   * a diagram inline in lesson prose — is the only thing holding it back in
+   * a full-width panel. Same escape hatch MiniNeck has.
+   */
+  size?: 'compact' | 'roomy';
   marks: KeyMark[];
   /**
    * Draw W/H brackets between consecutive marks, walking up from the mark
@@ -117,13 +131,22 @@ const STEP_LABEL: Record<number, string> = { 1: 'H', 2: 'W', 3: 'W+H' };
 
 export function MiniKeyboard({
   octaves = 1,
+  size = 'compact',
   marks,
   showSteps = false,
   showUnmarkedLabels = true,
   ariaLabel,
 }: MiniKeyboardProps) {
   const keys = buildKeys(octaves);
-  const byPc = new Map<PitchClass, KeyMark>(marks.map((m) => [m.pc, m]));
+  // Octave-scoped marks win over pitch-class ones for the same key.
+  const byPc = new Map<PitchClass, KeyMark>(
+    marks.filter((m) => m.octave === undefined).map((m) => [m.pc, m]),
+  );
+  const byOctavePc = new Map<string, KeyMark>(
+    marks.filter((m) => m.octave !== undefined).map((m) => [`${m.octave}:${m.pc}`, m]),
+  );
+  const markFor = (k: RenderedKey) =>
+    byOctavePc.get(`${Math.floor(k.absSemitone / 12)}:${k.pc}`) ?? byPc.get(k.pc);
 
   const stepSemitones = showSteps ? ascendingFromRoot(marks) : [];
   const centerBySemitone = new Map(keys.map((k) => [k.absSemitone, k.centerX]));
@@ -152,7 +175,7 @@ export function MiniKeyboard({
     <svg
       viewBox={`0 0 ${totalW} ${totalH}`}
       width="100%"
-      style={{ maxWidth: totalW }}
+      style={{ maxWidth: size === 'roomy' ? undefined : totalW }}
       role="img"
       aria-label={ariaLabel}
       className="select-none"
@@ -161,7 +184,7 @@ export function MiniKeyboard({
       {keys
         .filter((k) => !k.isBlack)
         .map((k) => {
-          const mark = byPc.get(k.pc);
+          const mark = markFor(k);
           return (
             <g key={`w-${k.absSemitone}`}>
               <rect
@@ -193,7 +216,7 @@ export function MiniKeyboard({
       {keys
         .filter((k) => k.isBlack)
         .map((k) => {
-          const mark = byPc.get(k.pc);
+          const mark = markFor(k);
           return (
             <g key={`b-${k.absSemitone}`}>
               <rect
