@@ -188,6 +188,9 @@ export function VideoNotesEditor({ videoDocumentId }: Readonly<Props>) {
   }, [performSave]);
 
   const editor = useEditor({
+    // See MarkdownEditor — Tiptap v3's synchronous first render throws under
+    // SSR and drops the route to client-only rendering. Defer it.
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({}),
       Link.configure({

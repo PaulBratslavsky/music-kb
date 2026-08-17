@@ -65,6 +65,11 @@ export function MarkdownEditor({
   toolbar = true,
 }: Readonly<Props>) {
   const editor = useEditor({
+    // Tiptap v3 renders synchronously on creation by default, which throws
+    // under TanStack Start's SSR pass ("SSR has been detected...") and makes
+    // the route fall back to client rendering. ProseMirror needs a real DOM,
+    // so defer the first render to the client.
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({}),
       Link.configure({
