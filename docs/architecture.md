@@ -8,6 +8,7 @@ Deep dive into how music-kb is wired. Covers data model, generation pipeline, re
 > - **Field-by-field schema reference:** [`./data-model.md`](./data-model.md). Section 2 below is a short overview; the detailed table is there.
 > - **When something breaks:** [`./operations.md`](./operations.md) (runbook).
 > - **MCP integration:** [`./mcp.md`](./mcp.md).
+> - **The companion web app** (the light, backend-free version): [`./companion-web-app.md`](./companion-web-app.md).
 >
 > This document covers the **flows** — share, generation, chat, retrieval, scoring. For static facts about a field or a decision, follow one of the links above.
 
