@@ -54,7 +54,7 @@ export function ProgressionSheet({
         return (
           <g key={`${c.root}-${c.quality}-${c.voicingIndex ?? 0}-${i}`}>
             <g transform={`translate(${dx}, ${dy})`}>
-              <ChordMini chord={c} instrument={instrument} />
+              <ChordMini chord={c} instrument={instrument} orientation="horizontal" />
             </g>
             <text
               x={x + cellW / 2}

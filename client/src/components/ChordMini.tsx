@@ -129,13 +129,16 @@ function MiniPiano({ chord }: { chord: MiniChord }) {
 export function ChordMini({
   chord,
   instrument,
+  orientation = 'vertical',
 }: {
   chord: MiniChord;
   instrument: 'guitar' | 'piano';
+  /** Passed straight to ChordDiagram — see its `orientation` prop. */
+  orientation?: 'vertical' | 'horizontal';
 }) {
   if (instrument === 'piano') return <MiniPiano chord={chord} />;
   const diagram = guitarDiagram(chord);
   // No specific shape (pitch-class fallback) → render nothing; caller shows
   // the chord name on its own.
-  return diagram ? <ChordDiagram {...diagram} /> : null;
+  return diagram ? <ChordDiagram {...diagram} orientation={orientation} /> : null;
 }

@@ -328,7 +328,7 @@ export function ProgressionPanel({
                     : 'Edit this chord: load it into the builder, then tweak its voicing or change the chord'
               }
             >
-              <ChordMini chord={c} instrument={instrument} />
+              <ChordMini chord={c} instrument={instrument} orientation="horizontal" />
             </button>
             <div className="flex items-center gap-0.5">
               <button

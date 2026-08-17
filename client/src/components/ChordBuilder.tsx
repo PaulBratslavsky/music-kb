@@ -15,6 +15,7 @@ import { CircleOfFifths } from '#/components/CircleOfFifths';
 import type { KeyMode } from '#/lib/music/circle-of-fifths';
 import { GuitarView } from '#/lib/music/instruments/guitar/GuitarView';
 import { PianoView } from '#/lib/music/instruments/piano/PianoView';
+import { ChordFormulaStrip } from '#/components/ChordFormulaStrip';
 import { ProgressionPanel } from '#/components/ProgressionPanel';
 import { synth } from '#/lib/music/audio/synth';
 import { Button } from '#/components/ui/button';
@@ -505,6 +506,19 @@ export function ChordBuilder({
               onGameGuess={(pos) => appState.submitGuess('piano', pos)}
             />
           </>
+        )}
+
+        {/* The instrument shows WHERE the notes are; this shows how to get
+            to them. Root position only — an inversion re-stacks the notes,
+            so its adjacent gaps are not the chord's formula. */}
+        {appState.state.mode === 'chord' && appState.state.chord.inversion === 0 && (
+          <div className="mt-4">
+            <ChordFormulaStrip
+              root={appState.state.chord.root}
+              quality={appState.state.chord.quality}
+              preferFlats={appState.state.preferFlats}
+            />
+          </div>
         )}
       </div>
 

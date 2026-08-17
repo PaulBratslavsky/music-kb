@@ -32,6 +32,14 @@ export type ChordDiagramProps = {
   /** Override the fret shown at the top. When omitted, derived from the
    *  lowest fretted note (with at-the-nut chords starting at fret 1). */
   startFret?: number;
+  /**
+   * 'vertical' (default) is the songbook chord box: nut across the top,
+   * strings running down. 'horizontal' rotates it so the strings run left
+   * to right with the nut on the LEFT and the low E at the bottom —
+   * matching the full fretboard on /builder and every fretboard diagram in
+   * the lessons, so the two never disagree about which way the neck runs.
+   */
+  orientation?: 'vertical' | 'horizontal';
 };
 
 const WIDTH = 134;
@@ -48,6 +56,7 @@ export function ChordDiagram({
   barre,
   fretCount = 5,
   startFret,
+  orientation = 'vertical',
 }: ChordDiagramProps) {
   if (strings.length !== STRING_COUNT) {
     throw new Error(`ChordDiagram expects ${STRING_COUNT} string states.`);
@@ -76,15 +85,22 @@ export function ChordDiagram({
   const yForFret = (absoluteFret: number) =>
     PAD_TOP + (absoluteFret - computedStart + 1) * fretGap - fretGap / 2;
 
+  const horizontal = orientation === 'horizontal';
+  // Text has to be counter-rotated so labels stay upright inside the
+  // rotated group.
+  const upright = (x: number, y: number) =>
+    horizontal ? { transform: `rotate(90, ${x}, ${y})` } : {};
+
   return (
     <svg
-      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-      width={WIDTH}
-      height={HEIGHT}
+      viewBox={horizontal ? `0 0 ${HEIGHT} ${WIDTH}` : `0 0 ${WIDTH} ${HEIGHT}`}
+      width={horizontal ? HEIGHT : WIDTH}
+      height={horizontal ? WIDTH : HEIGHT}
       role="img"
       aria-label="Chord diagram"
       className="select-none"
     >
+      <g transform={horizontal ? `translate(0, ${WIDTH}) rotate(-90)` : undefined}>
       {/* Open / muted markers above the diagram */}
       {strings.map((s, i) => {
         const x = xForString(i);
@@ -98,6 +114,7 @@ export function ChordDiagram({
               textAnchor="middle"
               fill="var(--ink)"
               fontFamily="ui-monospace, monospace"
+              {...upright(x, PAD_TOP - 10)}
             >
               O
             </text>
@@ -113,6 +130,7 @@ export function ChordDiagram({
               textAnchor="middle"
               fill="var(--ink-muted)"
               fontFamily="ui-monospace, monospace"
+              {...upright(x, PAD_TOP - 10)}
             >
               ×
             </text>
@@ -132,12 +150,18 @@ export function ChordDiagram({
         />
       ) : (
         <text
-          x={PAD_LEFT - 7}
+          // Rotated, the vertical position would land on top of the low-E
+          // dot; shifting it past the string block puts it under the board.
+          x={horizontal ? PAD_LEFT - 20 : PAD_LEFT - 7}
           y={PAD_TOP + fretGap / 2 + 3}
           fontSize={9}
-          textAnchor="end"
+          textAnchor={horizontal ? 'middle' : 'end'}
           fill="var(--ink-muted)"
           fontFamily="ui-monospace, monospace"
+          {...upright(
+            horizontal ? PAD_LEFT - 20 : PAD_LEFT - 7,
+            PAD_TOP + fretGap / 2 + 3,
+          )}
         >
           {computedStart}fr
         </text>
@@ -201,6 +225,7 @@ export function ChordDiagram({
           />
         );
       })}
+      </g>
     </svg>
   );
 }
