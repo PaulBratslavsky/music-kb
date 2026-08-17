@@ -15,20 +15,18 @@
 // The chip set is what `getDiatonicChords` returns — major key gets the
 // 7 sevenths (Imaj7, iim7, ...); minor key gets the natural-minor 7ths.
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { getDiatonicChords, type DiatonicChord } from '#/lib/music/theory/diatonic';
-import { getChordPitchClasses, stackAscending } from '#/lib/music/theory/chords';
-import { midiFromPitchOctave } from '#/lib/music/theory/notes';
-import { synth } from '#/lib/music/audio/synth';
+import {
+  useProgressionPlayback,
+  type ChordStep,
+} from '#/components/practice/useProgressionPlayback';
 import { PITCH_CLASSES, type ChordQuality, type PitchClass } from '#/lib/music/types';
-
-type ChordStep = {
-  root: PitchClass;
-  /** ChordQuality used by getChordPitchClasses to compute the triad. */
-  quality: ChordQuality;
-  /** Display chord name (e.g. "Cmaj7", "Dm7"). */
-  chordName: string;
-};
+import {
+  generateProgression,
+  STYLE_OPTIONS,
+  type ProgressionStyle,
+} from '#/lib/music/theory/progression-generator';
 
 // Pick a sensible triad-level quality for each diatonic chord. We use the
 // triad (not the 7th) so playback sounds clean — adding a 7th to every
@@ -51,9 +49,36 @@ export function ProgressionPlayer() {
   const [bpm, setBpm] = useState(90);
   const [beatsPerChord, setBeatsPerChord] = useState(2);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentIdx, setCurrentIdx] = useState<number | null>(null);
+  const [style, setStyle] = useState<ProgressionStyle>('pop');
+  const [genLength, setGenLength] = useState(4);
+  const [rationale, setRationale] = useState<string | null>(null);
 
   const diatonic = getDiatonicChords({ root: keyRoot, type: keyMode });
+
+  /**
+   * Roll a new progression. The musical rules live in
+   * generateProgression (functional harmony + a real cadence); this only
+   * maps the returned scale degrees onto the key's actual chords.
+   */
+  const generate = () => {
+    const result = generateProgression({ mode: keyMode, style, length: genLength });
+    const steps: ChordStep[] = [];
+    for (const degree of result.degrees) {
+      const d = diatonic[degree - 1];
+      if (!d) continue;
+      // A raised 7th turns the minor v into a major V — the whole point of
+      // the borrow, so the chord has to change with it.
+      if (result.raisedSeventh && degree === 5) {
+        steps.push({ root: d.root, quality: 'maj', chordName: `${d.rootDisplay}` });
+        continue;
+      }
+      const q = triadQualityOf(d);
+      if (!q) continue;
+      steps.push({ root: d.root, quality: q, chordName: d.chordName });
+    }
+    setProgression(steps);
+    setRationale(result.rationale);
+  };
 
   const addChord = (d: DiatonicChord) => {
     const q = triadQualityOf(d);
@@ -62,42 +87,26 @@ export function ProgressionPlayer() {
       ...prev,
       { root: d.root, quality: q, chordName: d.chordName },
     ]);
+    setRationale(null);
   };
 
-  const removeAt = (i: number) =>
+  const removeAt = (i: number) => {
     setProgression((prev) => prev.filter((_, idx) => idx !== i));
+    setRationale(null);
+  };
 
   const clear = () => {
     setIsPlaying(false);
     setProgression([]);
-    setCurrentIdx(null);
+    setRationale(null);
   };
 
-  // Play loop. We re-arm the setInterval each time bpm/beats/progression
-  // change while playing so live tempo + progression edits take effect on
-  // the next beat boundary.
-  const idxRef = useRef(0);
-  useEffect(() => {
-    if (!isPlaying || progression.length === 0) {
-      setCurrentIdx(null);
-      return;
-    }
-    const tickMs = (60_000 / bpm) * beatsPerChord;
-    idxRef.current = 0;
-    const playChord = (step: ChordStep) => {
-      const pcs = getChordPitchClasses(step.root, step.quality);
-      const notes = stackAscending(pcs, 4);
-      synth.playChord(notes.map((n) => midiFromPitchOctave(n.pitchClass, n.octave)));
-    };
-    setCurrentIdx(0);
-    playChord(progression[0]);
-    const id = setInterval(() => {
-      idxRef.current = (idxRef.current + 1) % progression.length;
-      setCurrentIdx(idxRef.current);
-      playChord(progression[idxRef.current]);
-    }, tickMs);
-    return () => clearInterval(id);
-  }, [isPlaying, progression, bpm, beatsPerChord]);
+  const { currentIdx } = useProgressionPlayback({
+    steps: progression,
+    bpm,
+    beatsPerChord,
+    isPlaying,
+  });
 
   return (
     <div className="flex flex-col gap-4">
@@ -172,6 +181,85 @@ export function ProgressionPlayer() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Generator. Sits between the chips and the progression strip: the
+          chips are for building by hand, this is for being handed a starting
+          point that already obeys functional harmony. */}
+      <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={generate}
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--accent)] bg-[var(--accent)] px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)]"
+          >
+            <span aria-hidden>🎲</span> Generate
+          </button>
+
+          <div
+            className="inline-flex flex-wrap items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-xs"
+            role="radiogroup"
+            aria-label="Progression style"
+          >
+            {STYLE_OPTIONS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                role="radio"
+                aria-checked={style === s.id}
+                onClick={() => setStyle(s.id)}
+                className={`rounded-full px-3 py-1 font-medium transition ${
+                  style === s.id
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="inline-flex items-center gap-1 text-xs"
+            role="radiogroup"
+            aria-label="Number of chords"
+          >
+            <span className="mr-1 font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+              Bars
+            </span>
+            <div className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5">
+              {[2, 4, 8].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  role="radio"
+                  aria-checked={genLength === n}
+                  onClick={() => setGenLength(n)}
+                  className={`rounded-full px-2.5 py-1 font-medium transition ${
+                    genLength === n
+                      ? 'bg-[var(--accent)] text-white'
+                      : 'text-[var(--ink-soft)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink)]'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {rationale ? (
+          <p className="mt-2.5 text-xs text-[var(--ink-soft)]">
+            <span className="font-semibold text-[var(--ink)]">Why it works:</span>{' '}
+            {rationale}
+          </p>
+        ) : (
+          <p className="mt-2.5 text-xs text-[var(--ink-muted)]">
+            Rolls a progression that follows functional harmony — starts on the
+            tonic, moves tonic → predominant → dominant, and lands on a real
+            cadence instead of stopping wherever a random walk happened to end.
+          </p>
+        )}
       </div>
 
       <div>
