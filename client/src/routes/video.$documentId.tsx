@@ -15,6 +15,7 @@ import { LoopControls } from '#/components/LoopControls';
 import { LoopBuilderProvider } from '#/components/LoopBuilderProvider';
 import { SavedLoopsList } from '#/components/SavedLoopsList';
 import { SectionChordStrip } from '#/components/SectionChordStrip';
+import { SectionScalePicker } from '#/components/SectionScalePicker';
 import type { StrapiLoop } from '#/lib/services/loops';
 import { SaveLoopButton } from '#/components/SaveLoopButton';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
@@ -156,6 +157,25 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
                 <SectionChordStrip
                   loop={selectedLoop}
                   onTimesSaved={() => setLoopsRefreshKey((k) => k + 1)}
+                />
+              )}
+              {search.loopId && (
+                <SectionScalePicker
+                  chords={selectedLoop?.savedProgression?.chords ?? []}
+                  timing={
+                    selectedLoop
+                      ? {
+                          startSec: selectedLoop.startSec,
+                          endSec: selectedLoop.endSec,
+                          bars: selectedLoop.bars,
+                        }
+                      : null
+                  }
+                  extractedKey={
+                    video.musicExtraction?.key
+                      ? `${video.musicExtraction.key.root} ${video.musicExtraction.key.type}`
+                      : null
+                  }
                 />
               )}
               {video.caption && (

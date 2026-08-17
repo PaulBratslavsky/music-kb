@@ -19,6 +19,20 @@ export type NeckDot = {
   label?: string;
   /** Roots get the accent fill so the shape's anchor is obvious. */
   root?: boolean;
+  /**
+   * Draw this dot faded. Lets a caller show the whole scale across the neck
+   * while spotlighting one position — the out-of-position notes stay visible
+   * (so you can see where the box sits in the larger shape) without
+   * competing with the ones you're meant to play.
+   */
+  dim?: boolean;
+  /**
+   * Draw as an outlined ring instead of a filled disc. Pairs with `dim` to
+   * push a note into the background while keeping it readable — used by the
+   * chord overlay, where scale tones that are NOT in the current chord
+   * become hollow so the chord tones read as the solid ones.
+   */
+  hollow?: boolean;
 };
 
 export type MiniNeckProps = {
@@ -207,12 +221,14 @@ export function MiniNeck({
       {/* Dots. --ink fill against --card text keeps the label legible in
           both themes (the two tokens invert together). */}
       {visible.map((d) => (
-        <g key={`dot-${d.string}-${d.fret}`} pointerEvents="none">
+        <g key={`dot-${d.string}-${d.fret}`} pointerEvents="none" opacity={d.dim ? 0.22 : 1}>
           <circle
             cx={xForFret(d.fret)}
             cy={yForString(d.string)}
             r={DOT_R}
-            fill={d.root ? 'var(--accent)' : 'var(--ink)'}
+            fill={d.hollow ? 'var(--card)' : d.root ? 'var(--accent)' : 'var(--ink)'}
+            stroke={d.hollow ? 'var(--ink-muted)' : undefined}
+            strokeWidth={d.hollow ? 1.5 : undefined}
           />
           {d.label && (
             <text
@@ -220,7 +236,7 @@ export function MiniNeck({
               y={yForString(d.string)}
               fontSize={d.label.length > 2 ? 7 : 8.5}
               fontWeight={700}
-              fill={d.root ? '#ffffff' : 'var(--card)'}
+              fill={d.hollow ? 'var(--ink-muted)' : d.root ? '#ffffff' : 'var(--card)'}
               textAnchor="middle"
               dominantBaseline="central"
             >

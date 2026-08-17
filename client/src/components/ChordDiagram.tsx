@@ -16,8 +16,11 @@
 const STRING_COUNT = 6;
 
 type StringState =
-  | { kind: 'fretted'; fret: number; isRoot?: boolean }
-  | { kind: 'open' }
+  // `note` is the sounding pitch class ("E", "G#"). Supplying it draws the
+  // name inside the dot / in place of the open-string O, which is how a
+  // player connects a shape to the notes it actually produces.
+  | { kind: 'fretted'; fret: number; isRoot?: boolean; note?: string }
+  | { kind: 'open'; note?: string }
   | { kind: 'muted' };
 
 export type ChordDiagramProps = {
@@ -110,13 +113,14 @@ export function ChordDiagram({
               key={`top-${i}`}
               x={x}
               y={PAD_TOP - 10}
-              fontSize={11}
+              fontSize={s.note ? (s.note.length > 1 ? 9 : 10) : 11}
+              fontWeight={s.note ? 700 : 400}
               textAnchor="middle"
               fill="var(--ink)"
               fontFamily="ui-monospace, monospace"
               {...upright(x, PAD_TOP - 10)}
             >
-              O
+              {s.note ?? 'O'}
             </text>
           );
         }
@@ -209,20 +213,38 @@ export function ChordDiagram({
         />
       )}
 
-      {/* Fingered dots */}
+      {/* Fingered dots. A labelled dot grows slightly so a two-character
+          name ("G#") still fits inside it without touching the edge. */}
       {strings.map((s, i) => {
         if (s.kind !== 'fretted') return null;
         if (s.fret < computedStart || s.fret >= computedStart + fretCount) return null;
+        const cx = xForString(i);
+        const cy = yForFret(s.fret);
         return (
-          <circle
-            key={`dot-${i}`}
-            cx={xForString(i)}
-            cy={yForFret(s.fret)}
-            r={6.5}
-            fill={s.isRoot ? 'var(--accent)' : 'var(--ink)'}
-            stroke="#0b0d12"
-            strokeWidth={1}
-          />
+          <g key={`dot-${i}`}>
+            <circle
+              cx={cx}
+              cy={cy}
+              r={s.note ? 7.5 : 6.5}
+              fill={s.isRoot ? 'var(--accent)' : 'var(--ink)'}
+              stroke="#0b0d12"
+              strokeWidth={1}
+            />
+            {s.note && (
+              <text
+                x={cx}
+                y={cy}
+                fontSize={s.note.length > 1 ? 7 : 8.5}
+                fontWeight={700}
+                fill={s.isRoot ? '#ffffff' : 'var(--card)'}
+                textAnchor="middle"
+                dominantBaseline="central"
+                {...upright(cx, cy)}
+              >
+                {s.note}
+              </text>
+            )}
+          </g>
         );
       })}
       </g>
