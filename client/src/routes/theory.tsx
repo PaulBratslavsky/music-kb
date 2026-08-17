@@ -1,7 +1,8 @@
 // /theory — standalone music-theory tools page. Hosts the Circle of Fifths
-// visualizer and friends in the "Tools" tab, plus the full instrument
+// visualizer and friends in the "Tools" tab, the full instrument
 // visualizer (piano + guitar + push) in the "Visualizer" tab — the same
-// component the /learn/$videoId Theory tab uses.
+// component the /learn/$videoId Theory tab uses — and the generated
+// cheat sheet in the "Reference" tab.
 
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
@@ -18,6 +19,7 @@ import { ProgressionPlayer } from '#/components/practice/ProgressionPlayer';
 import { EarTrainer } from '#/components/practice/EarTrainer';
 import { RomanAnalyzer } from '#/components/practice/RomanAnalyzer';
 import { Composer } from '#/components/compose/Composer';
+import { TheoryReference } from '#/components/TheoryReference';
 import {
   CIRCLE_MAJORS,
   CIRCLE_MAJOR_DISPLAY,
@@ -26,7 +28,7 @@ import {
 } from '#/lib/music/circle-of-fifths';
 
 const TheorySearchSchema = z.object({
-  tab: z.enum(['tools', 'practice', 'visualizer', 'compose']).optional(),
+  tab: z.enum(['tools', 'practice', 'visualizer', 'compose', 'reference']).optional(),
 });
 
 export const Route = createFileRoute('/theory')({
@@ -35,13 +37,14 @@ export const Route = createFileRoute('/theory')({
   head: () => ({ meta: [{ title: 'Music theory · Music KB' }] }),
 });
 
-type TheoryTab = 'tools' | 'practice' | 'visualizer' | 'compose';
+type TheoryTab = 'tools' | 'practice' | 'visualizer' | 'compose' | 'reference';
 
 const TABS: Array<{ id: TheoryTab; label: string }> = [
   { id: 'tools', label: 'Theory tools' },
   { id: 'practice', label: 'Practice' },
   { id: 'visualizer', label: 'Visualizer' },
   { id: 'compose', label: 'Compose' },
+  { id: 'reference', label: 'Reference' },
 ];
 
 function TheoryPage() {
@@ -76,7 +79,9 @@ function TheoryPage() {
         </h1>
         <p className="mt-2 text-sm text-[var(--ink-soft)]">
           Interactive theory tools that work independently of any video or
-          instrument. Click around to explore.
+          instrument. Click around to explore — or jump to{' '}
+          <strong className="text-[var(--ink)]">Reference</strong> when you
+          just need to look a formula up.
         </p>
         <div className="mt-4">
           <ViewTabs<TheoryTab>
@@ -93,6 +98,8 @@ function TheoryPage() {
         <PracticeTab />
       ) : activeTab === 'compose' ? (
         <ComposeTab tonicIdx={tonicIdx} />
+      ) : activeTab === 'reference' ? (
+        <TheoryReference />
       ) : (
         <ToolsTab
           tonicIdx={tonicIdx}
