@@ -38,6 +38,10 @@ a section, and work out the chords.
 - Sections linked to progressions, bar-based chord timing, play-along
 - **Lessons** — they are static content and belong in both
 - Theory reference (the generated cheat sheet)
+- The play-along scale board: key inference from a section's chords,
+  guitarscale.org box positions, the chord-tone overlay that follows the
+  playhead
+- "Find the chords in a scale" — triads and power chords inside a box
 
 **Do not port** — these are the knowledge-base half and need a backend, an
 LLM, or a corpus:
@@ -63,7 +67,7 @@ As of 2026-08-16 the web app carries all four (it previously had only
 | Section | music-kb | Web app | Notes |
 |---|---|---|---|
 | **Builder** | `/builder` | `#/` home | ✅ Parity. The home view *is* the builder; the nav label was renamed. |
-| **Theory** | `/theory` — 5 tabs: tools, practice, visualizer, compose, **reference** | `#/theory` — 2 tabs: tools, reference | ⚠️ Partial. Circle of fifths + the generated cheat sheet are ported. **Practice** and **Compose** are not; *visualizer* needs no port (it is this app's home). |
+| **Theory** | `/theory` — 5 tabs: tools, practice, visualizer, compose, **reference** | `#/theory` — 3 tabs: tools, practice, reference | ⚠️ Mostly there. Tools, the cheat sheet and the scale/chord finder are across. **Compose** is not; *visualizer* needs no port (it is this app's home), and Practice carries only the finder, not the ear trainer / progression player. |
 | **Lessons** | `/lessons` (index + 6 lessons) | `#/lessons` | ✅ Parity — all 6 lessons, verified in light and dark. |
 | **Music** | `/music`, `/video/$documentId` | `#/music`, `#/video/<id>` | ✅ Closest to parity already. |
 
@@ -98,7 +102,13 @@ music-kb's `client/src/lib/music/` and the web app's `app/src/` (`theory/`,
 `instruments/`, `state/`) are near-identical, and music-kb's copy is the
 one that usually gets improved first.
 
-Measured 2026-08-16 — **28 shared files, ~4,600 lines**, of which 16 are
+Measured 2026-08-17 — the theory layer now moves **verbatim**. The four
+modules added for the scale board (`key-inference`, `chord-overlay`,
+`voicing-positions`, `scale-chord-finder`) and their 44 tests were copied
+across with zero edits and passed first run, because `theory/` sits at the
+same relative depth in both trees and imports `../types` either way.
+
+Earlier measurement — **28 shared files, ~4,600 lines**, of which 16 are
 byte-identical:
 
 | Byte-identical (safe to `cp`) | Diverged (port by hand) |
