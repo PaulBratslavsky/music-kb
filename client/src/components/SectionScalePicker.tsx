@@ -19,6 +19,8 @@ import type { PlayAlongInstrument } from '#/components/usePlayAlongInstrument';
 import { usePlayerControl } from '#/components/player';
 import { activeIndex } from '#/components/SectionChordStrip';
 import { chordToneMap, outsideScaleTones } from '#/lib/music/theory/chord-overlay';
+import { pianoVoicing } from '#/lib/music/theory/voicings/piano';
+import { midiFromPitchOctave } from '#/lib/music/theory/notes';
 import { voicingPositionKeys } from '#/lib/music/theory/voicing-positions';
 import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
 import { inferKeyFromChords, parseExtractedKey } from '#/lib/music/theory/key-inference';
@@ -232,19 +234,32 @@ export function SectionScalePicker({
     // whole scale lit almost every key and said nothing — the question the
     // overlay answers is "which notes are this chord", so everything else
     // has to stay unmarked.
-    if (overlay) {
-      return [...overlay.tones].map((pc) => ({
-        pc,
-        label: pc,
-        root: pc === overlay.root,
-      }));
+    if (overlay && activeChord) {
+      // Draw the ACTUAL piano voicing, not a set of pitch classes. That
+      // means inversions read correctly — a Cmaj7/E puts E in the bass and
+      // the rest above it — and it's why the board spans two octaves: a
+      // voicing that crosses the octave has somewhere to go. The lowest
+      // sounding note is pinned to the lower drawn octave.
+      const notes = pianoVoicing(activeChord);
+      if (notes.length > 0) {
+        const midis = notes.map((n) => midiFromPitchOctave(n.pitchClass, n.octave));
+        const lowest = Math.min(...midis);
+        return notes.map((n, i) => ({
+          pc: n.pitchClass,
+          // 0 or 1 — which drawn octave this note lands in, relative to the
+          // bass note. Clamped so a wide spread can't fall off the board.
+          octave: Math.min(1, Math.floor((midis[i] - lowest) / 12)),
+          label: showDegrees ? degreeLabel(n.pitchClass, root) : n.pitchClass,
+          root: midis[i] === lowest,
+        }));
+      }
     }
     return scalePcs.map((pc) => ({
       pc,
       label: showDegrees ? degreeLabel(pc, root) : pc,
       root: pc === root,
     }));
-  }, [scalePcs, showDegrees, root, overlay]);
+  }, [scalePcs, showDegrees, root, overlay, activeChord]);
 
   const scaleName = `${root} ${SCALE_TYPE_LABELS[type]}`;
 
@@ -388,13 +403,23 @@ export function SectionScalePicker({
 
       <div className="mt-3 overflow-x-auto">
         {instrument === 'piano' ? (
-          <MiniKeyboard
-            octaves={2}
-            marks={keyMarks}
-            size="roomy"
-            showUnmarkedLabels={!overlay}
-            ariaLabel={`${scaleName} on the keyboard`}
-          />
+          // A scale is a pattern that repeats, so two octaves earn their
+          // space. A chord is ONE grip — showing it twice reads as playing
+          // the root twice. So the overlay drops to a single octave, capped
+          // in width because a lone octave stretched across a full-width
+          // panel gives absurdly large keys.
+          <div>
+            <MiniKeyboard
+              octaves={2}
+              marks={keyMarks}
+              size="roomy"
+              // MiniKeyboard's own warning: an unlit "F" sitting in a row of
+              // numbers reads as part of the numbering. So note names on
+              // unmarked keys only when the marks are note names too.
+              showUnmarkedLabels={!overlay && !showDegrees}
+              ariaLabel={`${scaleName} on the keyboard`}
+            />
+          </div>
         ) : (
           <MiniNeck
             instrument={instrument === 'bass' ? 'bass' : 'guitar'}

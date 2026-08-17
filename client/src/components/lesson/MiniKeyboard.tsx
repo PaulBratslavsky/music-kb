@@ -19,6 +19,13 @@ export type KeyMark = {
   root?: boolean;
   /** Attention fill (red). Used for the E–F and B–C half-step pairs. */
   flag?: boolean;
+  /**
+   * Restrict this mark to one drawn octave (0 = the leftmost). Marks are
+   * matched by pitch class by default, which lights the note in EVERY
+   * octave — right for a scale, wrong for a chord, where the repeat reads
+   * as playing the root twice.
+   */
+  octave?: number;
 };
 
 export type MiniKeyboardProps = {
@@ -131,7 +138,15 @@ export function MiniKeyboard({
   ariaLabel,
 }: MiniKeyboardProps) {
   const keys = buildKeys(octaves);
-  const byPc = new Map<PitchClass, KeyMark>(marks.map((m) => [m.pc, m]));
+  // Octave-scoped marks win over pitch-class ones for the same key.
+  const byPc = new Map<PitchClass, KeyMark>(
+    marks.filter((m) => m.octave === undefined).map((m) => [m.pc, m]),
+  );
+  const byOctavePc = new Map<string, KeyMark>(
+    marks.filter((m) => m.octave !== undefined).map((m) => [`${m.octave}:${m.pc}`, m]),
+  );
+  const markFor = (k: RenderedKey) =>
+    byOctavePc.get(`${Math.floor(k.absSemitone / 12)}:${k.pc}`) ?? byPc.get(k.pc);
 
   const stepSemitones = showSteps ? ascendingFromRoot(marks) : [];
   const centerBySemitone = new Map(keys.map((k) => [k.absSemitone, k.centerX]));
@@ -169,7 +184,7 @@ export function MiniKeyboard({
       {keys
         .filter((k) => !k.isBlack)
         .map((k) => {
-          const mark = byPc.get(k.pc);
+          const mark = markFor(k);
           return (
             <g key={`w-${k.absSemitone}`}>
               <rect
@@ -201,7 +216,7 @@ export function MiniKeyboard({
       {keys
         .filter((k) => k.isBlack)
         .map((k) => {
-          const mark = byPc.get(k.pc);
+          const mark = markFor(k);
           return (
             <g key={`b-${k.absSemitone}`}>
               <rect

@@ -73,7 +73,12 @@ const MAX_FRET = { guitar: 22, bass: 20 } as const;
 
 const FRET_W_BASE = 40;
 const STRING_GAP_BASE = 22;
-const PADDING_X = 54;
+// Asymmetric on purpose: the LEFT gutter carries the string names and the
+// open-string dots, which sit outside the nut. Nothing lives to the right
+// of the last fret, so padding there is dead space — and at full width it
+// showed as the board stopping short of the panel edge.
+const PADDING_L = 54;
+const PADDING_R = 14;
 const PADDING_Y = 18;
 const FRET_NUM_H = 18;
 const DOT_R_BASE = 9;
@@ -145,10 +150,10 @@ export function MiniNeck({
 
   const fretCount = Math.max(1, hi - lo);
   const boardW = fretCount * FRET_W;
-  const totalW = PADDING_X * 2 + boardW;
+  const totalW = PADDING_L + PADDING_R + boardW;
   const totalH = PADDING_Y * 2 + STRING_GAP * (stringCount - 1) + FRET_NUM_H;
 
-  const boardLeft = PADDING_X;
+  const boardLeft = PADDING_L;
   // Fret n is drawn in the gap between fret line n-1 and n, so its dot sits
   // at the midpoint. Open strings sit in the left gutter, before the nut.
   const xForFret = (fret: number) =>
