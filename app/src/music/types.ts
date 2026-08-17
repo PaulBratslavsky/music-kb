@@ -55,6 +55,18 @@ export type ProgressionChord = {
   quality: ChordQuality;
   inversion?: number;
   voicingIndex?: number;
+  /**
+   * Exact tapped `${string}-${fret}` positions, set only for chords
+   * captured with Detect chord. A detected shape is whatever the user
+   * actually fretted — it may not correspond to any generated voicing, so
+   * it has to be stored verbatim or it would be redrawn as something else.
+   */
+  positions?: string[];
+  /**
+   * tonal's name for a detected shape (e.g. "Cmaj7/E"). Root + quality is
+   * only a fallback for shapes that map onto a known quality.
+   */
+  detectedLabel?: string;
 };
 
 export type SavedProgression = {

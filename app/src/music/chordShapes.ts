@@ -16,10 +16,29 @@ import type { ProgressionChord } from './types';
 
 const STRING_COUNT = 6;
 
-/** "C" / "Am" / "Cmaj7" — root glued to the short quality label. */
-export function chordLabel(c: { root: PitchClass; quality: ChordQuality }): string {
+/**
+ * "C" / "Am" / "Cmaj7" — root glued to the short quality label. A
+ * detect-captured chord shows tonal's own name (e.g. "Cmaj7/E"), since
+ * root + quality can't express a slash chord.
+ */
+export function chordLabel(c: {
+  root: PitchClass;
+  quality: ChordQuality;
+  detectedLabel?: string;
+}): string {
+  if (c.detectedLabel) return c.detectedLabel;
   const suffix = QUALITY_LABELS[c.quality] ?? c.quality;
   return `${c.root}${suffix === 'maj' ? '' : suffix}`;
+}
+
+/** Parse `${string}-${fret}` keys into a string → fret map. */
+function fretMapFrom(positions: string[]): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const key of positions) {
+    const [s, f] = key.split('-').map(Number);
+    m.set(s, f);
+  }
+  return m;
 }
 
 export function toSelection(c: ProgressionChord): ChordSelection {
@@ -40,13 +59,18 @@ export function chordDiagramProps(
   chord: ProgressionChord,
 ): ChordDiagramProps | null {
   const selection = toSelection(chord);
-  const voicing = guitarVoicing(selection);
-  if (!voicing.positions || voicing.positions.size === 0) return null;
 
-  const fretByString = new Map<number, number>();
-  for (const key of voicing.positions) {
-    const [s, f] = key.split('-').map(Number);
-    fretByString.set(s, f);
+  // A detect-captured chord pins the exact shape the user fretted; only
+  // fall back to a generated voicing when there is none.
+  let fretByString: Map<number, number>;
+  let barre: ChordDiagramProps['barre'];
+  if (chord.positions && chord.positions.length > 0) {
+    fretByString = fretMapFrom(chord.positions);
+  } else {
+    const voicing = guitarVoicing(selection);
+    if (!voicing.positions || voicing.positions.size === 0) return null;
+    fretByString = fretMapFrom([...voicing.positions]);
+    barre = voicing.barre ?? undefined;
   }
 
   const rootPcs = getChordPitchClasses(selection.root, selection.quality);
@@ -66,9 +90,5 @@ export function chordDiagramProps(
   const frets = [...fretByString.values()].filter((f) => f > 0);
   const span = frets.length ? Math.max(...frets) - Math.min(...frets) + 1 : 5;
 
-  return {
-    strings,
-    barre: voicing.barre ?? undefined,
-    fretCount: Math.max(5, span),
-  };
+  return { strings, barre, fretCount: Math.max(5, span) };
 }

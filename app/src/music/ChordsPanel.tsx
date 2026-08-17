@@ -21,6 +21,7 @@ import { ChordDiagram } from './ChordDiagram';
 import { ChordFormulaStrip } from './ChordFormulaStrip';
 import { chordDiagramProps, chordLabel } from './chordShapes';
 import { addProgression, deleteProgression, updateProgression } from './storage';
+import { detectFromFrets } from '../theory/detect-chord';
 import type { ProgressionChord, SavedProgression } from './types';
 
 type Instrument = 'guitar' | 'piano';
@@ -43,6 +44,24 @@ export function ChordsPanel({
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  // Detect mode turns the fretboard into an input surface: tap a fret per
+  // string and the shape is named back to you.
+  const [detectMode, setDetectMode] = useState(false);
+  const [playedFrets, setPlayedFrets] = useState<Map<number, number>>(new Map());
+
+  const detected = useMemo(
+    () => (detectMode ? detectFromFrets(playedFrets) : null),
+    [detectMode, playedFrets],
+  );
+
+  /** Tap a cell: same string+fret toggles off, a different fret moves it. */
+  const toggleFret = (string: number, fret: number) =>
+    setPlayedFrets((prev) => {
+      const next = new Map(prev);
+      if (next.get(string) === fret) next.delete(string);
+      else next.set(string, fret);
+      return next;
+    });
 
   const resolved = useMemo(
     () => resolveSelection(appState.state, appState.previewedChordDegree),
@@ -54,7 +73,20 @@ export function ChordsPanel({
   const current = appState.state.chord;
   const inChordMode = appState.state.mode === 'chord';
 
-  const addChord = () =>
+  const addChord = () => {
+    // In detect mode the tapped shape wins — it pins the exact fingering,
+    // which may not match any generated voicing.
+    if (detectMode && detected?.selection && playedFrets.size > 0) {
+      setChords((prev) => [
+        ...prev,
+        {
+          ...detected.selection!,
+          positions: [...playedFrets].map(([s, f]) => `${s}-${f}`),
+          detectedLabel: detected.candidates[0],
+        },
+      ]);
+      return;
+    }
     setChords((prev) => [
       ...prev,
       {
@@ -64,6 +96,7 @@ export function ChordsPanel({
         voicingIndex: current.voicingIndex,
       },
     ]);
+  };
 
   const defaultName = chords.map(chordLabel).join(' ').slice(0, 60);
 
@@ -103,8 +136,32 @@ export function ChordsPanel({
               {i === 'guitar' ? 'Guitar' : 'Piano'}
             </button>
           ))}
+          <button
+            type="button"
+            className={`chip${detectMode ? ' active' : ''}`}
+            onClick={() => {
+              setDetectMode((d) => !d);
+              setPlayedFrets(new Map());
+            }}
+            title="Tap frets on the board to place a note per string, and have the chord named"
+          >
+            🔍 Detect chord
+          </button>
+          {detectMode && (
+            <button
+              type="button"
+              className="chip"
+              onClick={() => setPlayedFrets(new Map())}
+            >
+              Clear shape
+            </button>
+          )}
           <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-dim)' }}>
-            {resolved.label}
+            {detectMode
+              ? detected?.candidates[0]
+                ? `Detected: ${detected.candidates[0]}`
+                : 'Tap frets to place a note per string; untouched strings are muted.'
+              : resolved.label}
           </span>
         </div>
 
@@ -122,6 +179,9 @@ export function ChordsPanel({
               barre={resolved.guitarBarre}
               showNaturals={appState.showNaturals}
               emphasizedPitchClasses={resolved.previewedChordPCs}
+              detectMode={detectMode}
+              playedFrets={playedFrets}
+              onToggleFret={toggleFret}
             />
           ) : (
             <PianoView
@@ -137,7 +197,7 @@ export function ChordsPanel({
           )}
         </div>
 
-        {inChordMode && current.inversion === 0 && (
+        {!detectMode && inChordMode && current.inversion === 0 && (
           <ChordFormulaStrip root={current.root} quality={current.quality} />
         )}
       </div>
@@ -190,11 +250,15 @@ export function ChordsPanel({
             type="button"
             className="chip active"
             onClick={addChord}
-            disabled={!inChordMode}
+            disabled={detectMode ? !detected?.selection : !inChordMode}
             title={
-              inChordMode
-                ? `Add ${chordLabel(current)} to the progression`
-                : 'Switch Mode to Chord to add a chord'
+              detectMode
+                ? detected?.candidates[0]
+                  ? `Add the detected ${detected.candidates[0]}`
+                  : 'Tap a shape on the fretboard first'
+                : inChordMode
+                  ? `Add ${chordLabel(current)} to the progression`
+                  : 'Switch Mode to Chord to add a chord'
             }
           >
             + Add chord

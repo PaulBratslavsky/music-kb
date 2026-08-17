@@ -12,15 +12,30 @@ type Props = {
   onPlayNote?: (midi: number) => void;
   pcLabels?: Partial<Record<PitchClass, string>>;
   shapePositions?: Set<string> | null;
-  /** Absolute barre fret + string range to render as a thick translucent
-   *  bar across the fretboard. Drives the "this is a barre chord" visual
-   *  for E-shape / A-shape barre voicings. null when the voicing isn't a
-   *  barre. See voicings/guitar.ts:GuitarVoicing.barre. */
+  /** Per-cell color override map. Keys are `${string}-${fret}`,
+   *  values are CSS colors. When the highlight at that position renders, the
+   *  override replaces the default `--highlight` fill — used by /builder's
+   *  "All positions" scale view to color each note by which CAGED shape it
+   *  belongs to, giving a clear visual separation between shapes without an
+   *  outline. Root notes always keep `--root` regardless of this map. */
+  cellColors?: Map<string, string> | null;
+  /** Absolute barre fret + string range to render as a
+   *  thick translucent bar across the fretboard. Drives the "this is a
+   *  barre chord" visual for E-shape / A-shape barre voicings. null when
+   *  the voicing isn't a barre. See voicings/guitar.ts:GuitarVoicing.barre. */
   barre?: { fret: number; fromString: number; toString: number } | null;
   showNaturals?: boolean;
   emphasizedPitchClasses?: Set<PitchClass> | null;
   gameMode?: GameModeState;
   onGameGuess?: (pos: GuessPosition) => void;
+  /** Reverse-detect mode: the fretboard becomes an input
+   *  surface. Tapping a cell calls `onToggleFret`; the played shape is driven
+   *  by `playedFrets` (string index → fret, 0 = open; absent = muted) instead
+   *  of `highlighted`. Used by ChordBuilder to build a shape and auto-detect
+   *  the chord. */
+  detectMode?: boolean;
+  playedFrets?: Map<number, number>;
+  onToggleFret?: (string: number, fret: number) => void;
 };
 
 type GameMark = 'pending' | 'correct' | 'wrong';
@@ -51,11 +66,15 @@ export function GuitarView({
   onPlayNote,
   pcLabels,
   shapePositions,
+  cellColors,
   barre,
   showNaturals = false,
   emphasizedPitchClasses,
   gameMode,
   onGameGuess,
+  detectMode = false,
+  playedFrets,
+  onToggleFret,
 }: Props) {
   const inGame = gameMode?.enabled === true;
   const grid = buildGuitarLayout();
@@ -225,7 +244,7 @@ export function GuitarView({
         />
       ))}
 
-      {!inGame && grid.map((row, s) => (
+      {!inGame && !detectMode && grid.map((row, s) => (
         <text
           key={`open-${s}`}
           x={fretboardLeft - NUT_W - 14}
@@ -238,6 +257,28 @@ export function GuitarView({
           {row[0].note.pitchClass}
         </text>
       ))}
+
+      {/* (detect mode) Per-string open (O) / muted (×) markers at the nut. A
+          string with fret 0 in playedFrets is open; one absent is muted; a
+          fretted string shows its dot on the board (no nut marker). */}
+      {detectMode && grid.map((_, s) => {
+        const fret = playedFrets?.get(s);
+        const mark = fret === 0 ? 'O' : fret === undefined ? '×' : null;
+        if (mark === null) return null;
+        return (
+          <text
+            key={`oxmark-${s}`}
+            x={fretboardLeft - NUT_W - 14}
+            y={yForString(s) + 4}
+            fontSize={12}
+            fill={mark === 'O' ? 'var(--text)' : 'var(--text-dim)'}
+            textAnchor="end"
+            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+          >
+            {mark}
+          </text>
+        );
+      })}
 
       {Array.from({ length: FRET_COUNT }, (_, i) => i + 1).map((f) => (
         <text
@@ -254,7 +295,7 @@ export function GuitarView({
       ))}
 
       {/* invisible click hit-areas for every position */}
-      {(onPickPitchClass || inGame) &&
+      {(onPickPitchClass || inGame || detectMode) &&
         grid.flatMap((row, s) =>
           row.map((p) => {
             const cx = xForFret(p.fret);
@@ -272,6 +313,11 @@ export function GuitarView({
                 pointerEvents="all"
                 style={{ cursor: 'pointer' }}
                 onClick={() => {
+                  if (detectMode) {
+                    onToggleFret?.(p.string, p.fret);
+                    onPlayNote?.(midiFromNote(p.note));
+                    return;
+                  }
                   if (inGame) {
                     onGameGuess?.({ kind: 'guitar', string: p.string, fret: p.fret });
                     onPlayNote?.(midiFromNote(p.note));
@@ -291,8 +337,8 @@ export function GuitarView({
           }),
         )}
 
-      {/* Barre indicator — a thick translucent bar across the
-          fretboard at the barre fret, spanning the strings the index
+      {/* Barre indicator — a thick translucent bar across
+          the fretboard at the barre fret, spanning the strings the index
           finger covers. Rendered before the note markers so the dots
           stack on top. */}
       {barre && (() => {
@@ -320,7 +366,7 @@ export function GuitarView({
       })()}
 
       {/* focus rings: every position whose PC matches focusedPitchClass */}
-      {!inGame && focusedPitchClass &&
+      {!inGame && !detectMode && focusedPitchClass &&
         grid.flatMap((row) =>
           row
             .filter((p) => isFocused(p.note))
@@ -339,8 +385,8 @@ export function GuitarView({
             )),
         )}
 
-      {/* note markers (chord/scale highlights) — suppressed in game mode */}
-      {!inGame && grid.flatMap((row) =>
+      {/* note markers (chord/scale highlights) — suppressed in game/detect mode */}
+      {!inGame && !detectMode && grid.flatMap((row) =>
         row
           .filter((p) => isLit(p.note) && inShape(p.string, p.fret))
           .map((p) => {
@@ -351,6 +397,14 @@ export function GuitarView({
             const dimmed =
               emphasizedPitchClasses != null &&
               !emphasizedPitchClasses.has(p.note.pitchClass);
+            // Per-cell color override drives the CAGED-shape
+            // coloring on /builder's All-positions view. Root always wins
+            // — keeping the orange root signal across the neck is more
+            // useful than letting it disappear into shape colors.
+            const override = cellColors?.get(`${p.string}-${p.fret}`);
+            const fill = root
+              ? 'var(--root)'
+              : (override ?? 'var(--highlight)');
             return (
               <g
                 key={`pos-${p.string}-${p.fret}`}
@@ -361,7 +415,7 @@ export function GuitarView({
                   cx={cx}
                   cy={cy}
                   r={9}
-                  fill={root ? 'var(--root)' : 'var(--highlight)'}
+                  fill={fill}
                   stroke="#0b0d12"
                   strokeWidth={1.5}
                 />
@@ -428,7 +482,7 @@ export function GuitarView({
         Yellow circle on every C/D/E/F/G/A/B position. We skip the root note's
         positions so the orange root marker stays visible underneath.
       */}
-      {!inGame && showNaturals &&
+      {!inGame && !detectMode && showNaturals &&
         grid.flatMap((row) =>
           row
             .filter((p) => NATURAL_PCS.has(p.note.pitchClass))
@@ -457,6 +511,38 @@ export function GuitarView({
               </g>
             )),
         )}
+
+      {/* (detect mode) Dots for the tapped shape — one per played string,
+          labeled with the note's pitch class. Drawn last, pointer-transparent
+          so taps fall through to the hit-areas beneath. */}
+      {detectMode && playedFrets != null &&
+        [...playedFrets.entries()].map(([s, fret]) => {
+          const note = grid[s]?.[fret]?.note;
+          if (!note) return null;
+          return (
+            <g key={`played-${s}`} pointerEvents="none">
+              <circle
+                cx={xForFret(fret)}
+                cy={yForString(s)}
+                r={9}
+                fill="var(--accent)"
+                stroke="#0b0d12"
+                strokeWidth={1.5}
+              />
+              <text
+                x={xForFret(fret)}
+                y={yForString(s) + 3}
+                fontSize={9}
+                fill="#fff"
+                textAnchor="middle"
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fontWeight={600}
+              >
+                {note.pitchClass}
+              </text>
+            </g>
+          );
+        })}
     </svg>
   );
 }
