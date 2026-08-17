@@ -57,15 +57,18 @@ Music · About · Settings`. The web app should carry the music subset:
 Builder · Theory · Lessons · Music
 ```
 
-Today it only has `Visualizer · Music`, where "Visualizer" is roughly
-music-kb's Builder. The gap to close:
+As of 2026-08-16 the web app carries all four (it previously had only
+`Visualizer · Music`). Remaining gaps:
 
 | Section | music-kb | Web app | Notes |
 |---|---|---|---|
-| **Builder** | `/builder` | "Visualizer" home | Rename to Builder for parity |
-| **Theory** | `/theory` — 5 tabs: tools, practice, visualizer, compose, **reference** (the generated cheat sheet) | — | Circle of fifths exists inside the player page only |
-| **Lessons** | `/lessons` (index + 6 lessons) | — | Pure static content; nothing blocks porting |
-| **Music** | `/music`, `/video/$documentId` | `#/music`, `#/video/<id>` | Closest to parity already |
+| **Builder** | `/builder` | `#/` home | ✅ Parity. The home view *is* the builder; the nav label was renamed. |
+| **Theory** | `/theory` — 5 tabs: tools, practice, visualizer, compose, **reference** | `#/theory` — 2 tabs: tools, reference | ⚠️ Partial. Circle of fifths + the generated cheat sheet are ported. **Practice** and **Compose** are not; *visualizer* needs no port (it is this app's home). |
+| **Lessons** | `/lessons` (index + 6 lessons) | `#/lessons` | ✅ Parity — all 6 lessons, verified in light and dark. |
+| **Music** | `/music`, `/video/$documentId` | `#/music`, `#/video/<id>` | ✅ Closest to parity already. |
+
+The Tailwind v4 setup added for the lesson port means future ports can keep
+their `className` markup instead of being converted to inline styles.
 
 Routing in the web app is hash-based (`useHashRoute.ts`), so new sections
 are `#/lessons`, `#/theory`, etc.
