@@ -22,9 +22,21 @@ import { chordToneMap, outsideScaleTones } from '#/lib/music/theory/chord-overla
 import { voicingPositionKeys } from '#/lib/music/theory/voicing-positions';
 import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
 import { inferKeyFromChords, parseExtractedKey } from '#/lib/music/theory/key-inference';
-import { threeNotesPerString } from '#/lib/music/theory/neck-patterns';
+import {
+  availablePositions,
+  realizeCagedShape,
+  shapeName,
+  supportsCaged,
+} from '#/lib/music/theory/positions';
 import { getScalePitchClasses, SCALE_TYPE_LABELS } from '#/lib/music/theory/scales';
-import { PITCH_CLASSES, type PitchClass, type ScaleType } from '#/lib/music/types';
+import {
+  PITCH_CLASSES,
+  type PitchClass,
+  type ScalePosition,
+  type ScaleType,
+} from '#/lib/music/types';
+
+type PositionId = ScalePosition;
 import type { ProgressionChord } from '#/lib/services/progressions';
 import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
 import { STANDARD_BASS_TUNING_MIDI } from '#/lib/music/instruments/bass/layout';
@@ -84,7 +96,7 @@ export function SectionScalePicker({
 
   // null = follow the suggestion; set = the user has taken manual control.
   const [override, setOverride] = useState<{ root: PitchClass; type: ScaleType } | null>(null);
-  const [position, setPosition] = useState<number | 'all'>('all');
+  const [position, setPosition] = useState<PositionId>('all');
   const [showDegrees, setShowDegrees] = useState(false);
   const [overlayOn, setOverlayOn] = useState(false);
 
@@ -109,18 +121,25 @@ export function SectionScalePicker({
     [root, type],
   );
 
-  // The spotlighted box. 3NPS needs 7 degrees, so pentatonic/blues scales
-  // get no position picker — there is nothing meaningful to generate.
-  const supportsPositions = scalePcs.length === 7 && instrument === 'guitar';
+  // The spotlighted box comes from positions.ts — the CAGED fingerings and
+  // fret-window boxes transcribed dot-for-dot from guitarscale.org, which
+  // is the reference this app has always used. An earlier version of this
+  // panel generated 3-notes-per-string patterns instead; those are a real
+  // system but a DIFFERENT one, so "Pos 4" here disagreed with "box 4"
+  // everywhere else in the app.
+  const supportsPositions = supportsCaged(type) && instrument === 'guitar';
+
+  const positionOptions = useMemo(
+    () => (supportsPositions ? availablePositions(type) : []),
+    [supportsPositions, type],
+  );
 
   const positionSet = useMemo(() => {
     if (!supportsPositions || position === 'all') return null;
-    const notes = threeNotesPerString(scalePcs, position, {
-      tuning: STANDARD_TUNING_MIDI,
-      minFret: 1,
-    });
+    const notes = realizeCagedShape(position, root, scalePcs, type);
+    if (notes.length === 0) return null;
     return new Set(notes.map((n) => `${n.string}:${n.fret}`));
-  }, [supportsPositions, position, scalePcs]);
+  }, [supportsPositions, position, root, scalePcs, type]);
 
   const overlay = useMemo(
     () => (activeChord ? chordToneMap(activeChord.root, activeChord.quality) : null),
@@ -285,15 +304,15 @@ export function SectionScalePicker({
           >
             All
           </button>
-          {scalePcs.map((_, i) => (
+          {positionOptions.map((p) => (
             <button
-              key={i}
+              key={p}
               type="button"
-              aria-pressed={position === i}
-              onClick={() => setPosition(i)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${position === i ? 'bg-[var(--accent)] text-white' : 'border border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--accent)]'}`}
+              aria-pressed={position === p}
+              onClick={() => setPosition(p)}
+              className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${position === p ? 'bg-[var(--accent)] text-white' : 'border border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--accent)]'}`}
             >
-              Pos {i + 1}
+              {shapeName(p, type)}
             </button>
           ))}
         </div>
@@ -315,7 +334,7 @@ export function SectionScalePicker({
             toFret={NECK_TO}
             size="roomy"
             ariaLabel={`${scaleName} across the ${instrument} neck${
-              position === 'all' ? '' : `, position ${Number(position) + 1} highlighted`
+              position === 'all' ? '' : `, ${shapeName(position, type)} highlighted`
             }`}
           />
         )}
