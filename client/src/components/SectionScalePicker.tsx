@@ -240,7 +240,12 @@ export function SectionScalePicker({
       // the rest above it — and it's why the board spans two octaves: a
       // voicing that crosses the octave has somewhere to go. The lowest
       // sounding note is pinned to the lower drawn octave.
-      const notes = pianoVoicing(activeChord);
+      // voicingIndex is a GUITAR index (which barre shape); piano voicings
+      // are a different list entirely, so reusing the number turns a
+      // 5th-fret barre into a wide two-octave spread and the board stops
+      // matching the card above. Pin the closed voicing and let `inversion`
+      // — which IS instrument-neutral — do the work.
+      const notes = pianoVoicing({ ...activeChord, voicingIndex: 0 });
       if (notes.length > 0) {
         const midis = notes.map((n) => midiFromPitchOctave(n.pitchClass, n.octave));
         const lowest = Math.min(...midis);
