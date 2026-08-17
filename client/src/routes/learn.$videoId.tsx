@@ -549,6 +549,7 @@ function LearnLayout({
             <SavedLoopsList
               videoDocumentId={video.documentId}
               refreshKey={loopsRefreshKey}
+              selectedLoopId={search.loopId}
             />
             <VideoChat
               videoId={videoId}

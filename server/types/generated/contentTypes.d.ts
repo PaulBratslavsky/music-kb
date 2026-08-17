@@ -557,6 +557,14 @@ export interface ApiLoopLoop extends Struct.CollectionTypeSchema {
     draftAndPublish: false;
   };
   attributes: {
+    bars: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 512;
+          min: 1;
+        },
+        number
+      >;
     bpm: Schema.Attribute.Integer &
       Schema.Attribute.SetMinMax<
         {
@@ -593,6 +601,10 @@ export interface ApiLoopLoop extends Struct.CollectionTypeSchema {
       }>;
     progression: Schema.Attribute.JSON;
     publishedAt: Schema.Attribute.DateTime;
+    savedProgression: Schema.Attribute.Relation<
+      'manyToOne',
+      'api::progression.progression'
+    >;
     startSec: Schema.Attribute.Integer &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<
@@ -670,6 +682,7 @@ export interface ApiProgressionProgression extends Struct.CollectionTypeSchema {
       'api::progression.progression'
     > &
       Schema.Attribute.Private;
+    loops: Schema.Attribute.Relation<'oneToMany', 'api::loop.loop'>;
     name: Schema.Attribute.String &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMaxLength<{

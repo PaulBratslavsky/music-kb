@@ -82,7 +82,9 @@ const SaveLoopSchema = z.object({
   key: KeySchema.nullable(),
   progression: z.array(ChordEntrySchema).max(64),
   bpm: z.number().int().min(20).max(400).nullable().optional(),
+  bars: z.number().int().min(1).max(512).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
+  savedProgression: z.string().min(1).max(64).nullable().optional(),
 });
 
 export type SaveLoopResult =
@@ -125,7 +127,9 @@ const UpdateLoopSchema = z.object({
   key: KeySchema.nullable().optional(),
   progression: z.array(ChordEntrySchema).max(64).optional(),
   bpm: z.number().int().min(20).max(400).nullable().optional(),
+  bars: z.number().int().min(1).max(512).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
+  savedProgression: z.string().min(1).max(64).nullable().optional(),
 });
 
 export type UpdateLoopResult =

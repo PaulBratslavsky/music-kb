@@ -13,8 +13,12 @@ import { Link } from '@tanstack/react-router';
 import {
   listLoopsForVideo,
   deleteLoopFn,
+  updateLoop,
 } from '#/data/server-functions/loops';
-import type { StrapiLoop } from '#/lib/services/loops';
+import type { StrapiLoop, StrapiLoopProgression } from '#/lib/services/loops';
+import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
+import type { ChordQuality } from '#/lib/music/types';
+import { LoopProgressionView } from '#/components/LoopProgressionView';
 
 function formatRange(startSec: number, endSec: number): string {
   const fmt = (s: number) => {
@@ -41,14 +45,59 @@ export function SavedLoopsList({
   // 'video' goes to /video/$documentId?loopId=... — the music-page
   // flow where /learn doesn't make sense (no transcript / AI summary).
   target = 'learn',
+  selectedLoopId,
+  onSelectedLoopChange,
 }: {
   videoDocumentId: string;
   refreshKey: number;
   target?: 'learn' | 'video';
+  /**
+   * The loop currently loaded into the player (from `?loopId=`). Its row
+   * expands to show that section's own chord progression — the whole point
+   * being that chords belong to a section, not to one flat global list.
+   */
+  selectedLoopId?: string;
+  /**
+   * The selected loop's current data, pushed up whenever it changes. The
+   * chord strip under the player renders from this — without it the strip
+   * kept a stale copy fetched at navigation time and showed "no
+   * progression" immediately after one was linked here.
+   */
+  onSelectedLoopChange?: (loop: StrapiLoop | null) => void;
 }) {
   const [loops, setLoops] = useState<StrapiLoop[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Inline rename: the row being renamed + its draft label.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+
+  const startRename = (loop: StrapiLoop) => {
+    setRenamingId(loop.documentId);
+    setRenameValue(loop.label);
+  };
+
+  const commitRename = async (loop: StrapiLoop) => {
+    const label = renameValue.trim();
+    setRenamingId(null);
+    if (!label || label === loop.label) return;
+    // Optimistic — the row is the only thing that changes and a failed
+    // write is visible on the next load.
+    setLoops((prev) =>
+      prev.map((l) => (l.documentId === loop.documentId ? { ...l, label } : l)),
+    );
+    await updateLoop({ data: { documentId: loop.documentId, label } });
+  };
+
+  useEffect(() => {
+    if (!onSelectedLoopChange) return;
+    onSelectedLoopChange(
+      loops.find((l) => l.documentId === selectedLoopId) ?? null,
+    );
+    // onSelectedLoopChange is a fresh closure each render; including it
+    // would re-run this on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loops, selectedLoopId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,15 +171,57 @@ export function SavedLoopsList({
       <ul className="space-y-1.5">
         {loops.map((loop) => {
           const key = keyLabel(loop.key);
-          const chordCount = Array.isArray(loop.progression)
-            ? loop.progression.length
-            : 0;
+          // The section's chords come from the linked saved progression —
+          // sections reference a progression rather than owning chords.
+          const linked = loop.savedProgression ?? null;
+          const linkedChords = Array.isArray(linked?.chords) ? linked!.chords : [];
+          const chordSummary = linkedChords
+            .slice(0, 4)
+            .map(
+              (c) =>
+                `${c.root}${
+                  c.quality === 'maj'
+                    ? ''
+                    : (QUALITY_LABELS[c.quality as ChordQuality] ?? c.quality)
+                }`,
+            )
+            .join(' ');
+          const isSelected = selectedLoopId === loop.documentId;
           return (
             <li
               key={loop.documentId}
-              className="flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg-subtle)] px-2.5 py-1.5 text-xs"
+              className={`rounded-md border bg-[var(--bg-subtle)] px-2.5 py-1.5 text-xs ${
+                isSelected
+                  ? 'border-[var(--accent)]'
+                  : 'border-[var(--line)]'
+              }`}
             >
-              {target === 'video' ? (
+              <div className="flex items-center gap-2">
+              {renamingId === loop.documentId ? (
+                <>
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => void commitRename(loop)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void commitRename(loop);
+                      if (e.key === 'Escape') setRenamingId(null);
+                    }}
+                    maxLength={120}
+                    aria-label={`Rename ${loop.label}`}
+                    className="min-w-0 flex-1 rounded border border-[var(--accent)] bg-[var(--card)] px-1.5 py-0.5 text-xs text-[var(--ink)]"
+                  />
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => void commitRename(loop)}
+                    className="text-[var(--accent)] hover:underline"
+                  >
+                    save
+                  </button>
+                </>
+              ) : target === 'video' ? (
                 <Link
                   to="/video/$documentId"
                   params={{ documentId: videoDocumentId }}
@@ -148,8 +239,10 @@ export function SavedLoopsList({
                       {key}
                     </span>
                   )}
-                  <span className="text-[var(--ink-muted)]">
-                    {chordCount} chord{chordCount === 1 ? '' : 's'}
+                  <span className="truncate text-[var(--ink-muted)]">
+                    {linkedChords.length === 0
+                      ? 'no progression'
+                      : `${chordSummary}${linkedChords.length > 4 ? ' …' : ''}`}
                   </span>
                 </Link>
               ) : (
@@ -170,10 +263,23 @@ export function SavedLoopsList({
                     {key}
                   </span>
                 )}
-                <span className="text-[var(--ink-muted)]">
-                  {chordCount} chord{chordCount === 1 ? '' : 's'}
+                <span className="truncate text-[var(--ink-muted)]">
+                  {linkedChords.length === 0
+                    ? 'no progression'
+                    : `${chordSummary}${linkedChords.length > 4 ? ' …' : ''}`}
                 </span>
               </Link>
+              )}
+              {renamingId !== loop.documentId && (
+                <button
+                  type="button"
+                  onClick={() => startRename(loop)}
+                  aria-label={`Rename loop ${loop.label}`}
+                  title="Rename this section"
+                  className="text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                >
+                  ✎
+                </button>
               )}
               <button
                 type="button"
@@ -183,6 +289,25 @@ export function SavedLoopsList({
               >
                 ×
               </button>
+              </div>
+
+              {/* The selected section opens its own chord progression. */}
+              {isSelected && (
+                <LoopProgressionView
+                  loopDocumentId={loop.documentId}
+                  videoDocumentId={videoDocumentId}
+                  linked={linked}
+                  onLinkChange={(next: StrapiLoopProgression | null) =>
+                    setLoops((prev) =>
+                      prev.map((l) =>
+                        l.documentId === loop.documentId
+                          ? { ...l, savedProgression: next }
+                          : l,
+                      ),
+                    )
+                  }
+                />
+              )}
             </li>
           );
         })}

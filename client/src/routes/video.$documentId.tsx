@@ -14,6 +14,8 @@ import {
 import { LoopControls } from '#/components/LoopControls';
 import { LoopBuilderProvider } from '#/components/LoopBuilderProvider';
 import { SavedLoopsList } from '#/components/SavedLoopsList';
+import { SectionChordStrip } from '#/components/SectionChordStrip';
+import type { StrapiLoop } from '#/lib/services/loops';
 import { SaveLoopButton } from '#/components/SaveLoopButton';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
 import { SongContent } from '#/components/SongContent';
@@ -101,6 +103,9 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
   // Bumped after a save so SavedLoopsList refetches.
   const [loopsRefreshKey, setLoopsRefreshKey] = useState(0);
   const [sideTab, setSideTab] = useState<SideTab>('loops');
+  // The section currently loaded into the player — drives the chord strip
+  // under the video.
+  const [selectedLoop, setSelectedLoop] = useState<StrapiLoop | null>(null);
   const [bottomTab, setBottomTab] = useState<BottomTab>('chords');
   const search = Route.useSearch();
 
@@ -147,6 +152,12 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
                 </div>
                 <LoopControls />
               </div>
+              {search.loopId && (
+                <SectionChordStrip
+                  loop={selectedLoop}
+                  onTimesSaved={() => setLoopsRefreshKey((k) => k + 1)}
+                />
+              )}
               {video.caption && (
                 <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4 text-sm text-[var(--ink-soft)]">
                   {video.caption}
@@ -176,6 +187,8 @@ function MusicVideoPage({ video }: { video: StrapiVideo }) {
                     videoDocumentId={video.documentId}
                     refreshKey={loopsRefreshKey}
                     target="video"
+                    selectedLoopId={search.loopId}
+                    onSelectedLoopChange={setSelectedLoop}
                   />
                 </>
               ) : (
@@ -260,7 +273,7 @@ function LoopHydrator({ loopId }: { loopId?: string }) {
     void getLoopServerFn({ data: { documentId: loopId } }).then((raw) => {
       if (cancelled) return;
       // Server-fn return type widens to unknown; narrow back to what we need.
-      const res = raw as { status: 'ok' | 'error'; loop?: { startSec: number; endSec: number } | null };
+      const res = raw as { status: 'ok' | 'error'; loop?: StrapiLoop | null };
       if (res.status === 'error' || !res.loop) return;
       const loop = res.loop;
       setLoopStart(loop.startSec);

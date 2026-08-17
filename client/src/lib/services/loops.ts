@@ -34,12 +34,25 @@ export type ChordEntry = {
   durationBeats: number | null;
 };
 
+import type { ProgressionChord } from '#/lib/services/progressions';
+
 export type StrapiLoopVideo = {
   id: number;
   documentId: string;
   youtubeVideoId: string;
   videoTitle: string | null;
   videoAuthor: string | null;
+};
+
+/** The saved Progression a section is linked to, as populated on a Loop. */
+export type StrapiLoopProgression = {
+  id: number;
+  documentId: string;
+  name: string;
+  /** Full builder selections — inversion / voicingIndex / positions pin the
+   *  exact on-screen shape, so a section renders the same diagram the
+   *  Chord Progression panel does. */
+  chords: ProgressionChord[] | null;
 };
 
 export type StrapiLoop = {
@@ -56,7 +69,10 @@ export type StrapiLoop = {
   // and breaks the createServerFn handler typing. Retype when v3 lands.
   melody: null; // reserved for v3
   bpm: number | null;
+  bars: number | null;
   notes: string | null;
+  /** Populated link to the saved progression this section plays. */
+  savedProgression?: StrapiLoopProgression | null;
   video: StrapiLoopVideo | null;
   createdAt: string;
   updatedAt: string;
@@ -67,8 +83,10 @@ export type StrapiLoop = {
 // =============================================================================
 
 // Loops always populate `video` so the right-column list can show
-// label + range without a second round-trip per loop.
-const loopQuery: StrapiQuery = { populate: ['video'] };
+// label + range without a second round-trip per loop, and
+// `savedProgression` so each section row can show its chords without one
+// request per row.
+const loopQuery: StrapiQuery = { populate: ['video', 'savedProgression'] };
 
 export async function listLoopsForVideoService(
   videoDocumentId: string,
@@ -142,7 +160,10 @@ export type UpdateLoopInput = {
   key?: KeySig | null;
   progression?: ChordEntry[];
   bpm?: number | null;
+  bars?: number | null;
   notes?: string | null;
+  /** documentId of the saved Progression to link, or null to unlink. */
+  savedProgression?: string | null;
 };
 
 export async function updateLoopService(
@@ -155,7 +176,12 @@ export async function updateLoopService(
   if (input.key !== undefined) data.key = input.key;
   if (input.progression !== undefined) data.progression = input.progression;
   if (input.bpm !== undefined) data.bpm = input.bpm;
+  if (input.bars !== undefined) data.bars = input.bars;
   if (input.notes !== undefined) data.notes = input.notes;
+  // Strapi 5 relations accept a documentId (or null to detach) directly.
+  if (input.savedProgression !== undefined) {
+    data.savedProgression = input.savedProgression;
+  }
   const result = await strapiFetch<StrapiLoop>(
     'PUT',
     `/api/loops/${input.documentId}`,

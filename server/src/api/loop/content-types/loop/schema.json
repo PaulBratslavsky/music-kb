@@ -56,6 +56,19 @@
       "type": "text",
       "maxLength": 2000,
       "description": "Free-form plain-text notes about this loop (what the section is, what the user is trying to play, etc.)."
+    },
+    "savedProgression": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::progression.progression",
+      "inversedBy": "loops",
+      "description": "The saved Progression this section plays. Built and named in the /builder Chord Progression panel; a section links to one rather than owning its own chord list, so editing the progression updates every section that uses it."
+    },
+    "bars": {
+      "type": "integer",
+      "min": 1,
+      "max": 512,
+      "description": "Length of this section in bars. Chord timing divides the section by bars rather than by chord count, so a 4-chord progression over an 8-bar section cycles twice instead of stretching each chord to double length. Null = fall back to one chord per equal slice."
     }
   }
 }
