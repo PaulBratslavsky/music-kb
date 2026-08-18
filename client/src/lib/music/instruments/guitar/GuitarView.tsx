@@ -300,7 +300,12 @@ export function GuitarView({
           row.map((p) => {
             const cx = xForFret(p.fret);
             const cy = yForString(p.string);
-            const w = p.fret === 0 ? 22 : FRET_W - 4;
+            // Every cell gets the same hit width, including the open-string
+            // ones in the gutter left of the nut. Those used to be 22px and
+            // were easy to miss — and in detect mode they're the cells that
+            // set the BASS note, so tapping one off is how you get Am/C
+            // rather than Am/E.
+            const w = FRET_W - 4;
             const h = STRING_GAP - 2;
             return (
               <rect

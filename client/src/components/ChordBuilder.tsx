@@ -577,7 +577,7 @@ export function ChordBuilder({
             <span className="text-xs text-[var(--ink-muted)]">
               {instrument === 'piano'
                 ? 'Click keys to build the chord (click again to remove). The lowest key is treated as the bass.'
-                : 'Tap frets to place a note per string (tap again to remove); untouched strings are muted.'}
+                : 'Tap frets to place a note per string; tap again to remove. Tap a string\'s O to mute it — the lowest sounding note is the bass, so muting one is how you get Am/C instead of Am/E.'}
             </span>
           )}
         </div>
