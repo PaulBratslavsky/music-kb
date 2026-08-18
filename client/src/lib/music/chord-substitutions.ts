@@ -198,3 +198,120 @@ export function modalInterchange(tonicCircleIdx: number): ChordSuggestion[] {
     { name: Mm(5), why: 'iv — the "saddened IV", common in ballads and outros', link: linkMin(T, 5) },
   ];
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Minor-key substitutions                                                   */
+/* -------------------------------------------------------------------------- */
+//
+// A minor key borrows the same seven chords as its relative major, but the
+// reharm vocabulary is genuinely different because the tonic moved. Two
+// things drive almost all of it:
+//
+//   1. The natural-minor v is MINOR, so it has no leading tone. Raising its
+//      third (harmonic minor) gives a real V — which is why so much minor
+//      music does exactly that.
+//   2. bIII, bVI and bVII are diatonic here rather than borrowed, so the
+//      "colour" chords of a major key are the everyday chords of a minor
+//      one. Interchange therefore works the other way: a minor key borrows
+//      from the parallel MAJOR (a Picardy third, a major IV).
+
+/** Substitutes for each diatonic chord of the natural minor key. */
+export function minorDiatonicSubs(tonicCircleIdx: number): DiatonicChordSubs[] {
+  // The relative-minor tonic sits 9 semitones above its relative major.
+  const T = (pcSemitoneFromCircleIdx(tonicCircleIdx) + 9) % 12;
+  const useSharps = prefersSharps(T, tonicCircleIdx);
+  const M = (s: number) => spell(T + s, useSharps);
+  const Mm = (s: number) => `${spell(T + s, useSharps)}m`;
+  const M7 = (s: number) => `${spell(T + s, useSharps)}7`;
+  const Mdim = (s: number) => `${spell(T + s, useSharps)}°`;
+
+  return [
+    {
+      numeral: 'i',
+      chord: Mm(0),
+      subs: [
+        { name: M(3), why: 'bIII — relative major, shares the 3rd and 5th', link: linkMaj(T, 3) },
+        { name: Mm(5), why: 'iv — same minor colour, a step of tension away', link: linkMin(T, 5) },
+      ],
+    },
+    {
+      numeral: 'ii°',
+      chord: Mdim(2),
+      subs: [
+        { name: Mm(5), why: 'iv — shares two notes, same subdominant job and far easier to play', link: linkMin(T, 5) },
+        { name: M7(7), why: 'V7 — the diminished chord is a rootless dominant; this states it outright', link: linkDom7(T, 7) },
+      ],
+    },
+    {
+      numeral: 'bIII',
+      chord: M(3),
+      subs: [
+        { name: Mm(0), why: 'i — relative minor, shares the root and 3rd', link: linkMin(T, 0) },
+        { name: M(8), why: 'bVI — the other major chord in the key, softer landing', link: linkMaj(T, 8) },
+      ],
+    },
+    {
+      numeral: 'iv',
+      chord: Mm(5),
+      subs: [
+        { name: Mdim(2), why: 'ii° — same subdominant family', link: linkDim(T, 2) },
+        { name: M(5), why: 'IV — borrowed from the parallel major; lifts the mood without leaving', link: linkMaj(T, 5) },
+      ],
+    },
+    {
+      numeral: 'v',
+      chord: Mm(7),
+      subs: [
+        { name: M7(7), why: 'V7 — raise the 3rd for a leading tone. THE minor-key move', link: linkDom7(T, 7) },
+        { name: M(10), why: 'bVII — the modal alternative; resolves down instead of pulling up', link: linkMaj(T, 10) },
+        { name: Mdim(11), why: 'vii° — rootless V7, same leading tone', link: linkDim(T, 11) },
+      ],
+    },
+    {
+      numeral: 'bVI',
+      chord: M(8),
+      subs: [
+        { name: Mm(5), why: 'iv — shares two notes, same direction of pull', link: linkMin(T, 5) },
+        { name: M(3), why: 'bIII — the other bright chord; brighter still', link: linkMaj(T, 3) },
+      ],
+    },
+    {
+      numeral: 'bVII',
+      chord: M(10),
+      subs: [
+        { name: M7(7), why: 'V7 — swap the modal cadence for the dominant one', link: linkDom7(T, 7) },
+        { name: M(3), why: 'bIII — shares two notes, keeps the modal feel', link: linkMaj(T, 3) },
+      ],
+    },
+  ];
+}
+
+/** Secondary dominants in a minor key — each targets a diatonic chord. */
+export function minorSecondaryDominants(tonicCircleIdx: number): ChordSuggestion[] {
+  const T = (pcSemitoneFromCircleIdx(tonicCircleIdx) + 9) % 12;
+  const useSharps = prefersSharps(T, tonicCircleIdx);
+  const M7 = (s: number) => `${spell(T + s, useSharps)}7`;
+  const M = (s: number) => spell(T + s, useSharps);
+  const Mm = (s: number) => `${spell(T + s, useSharps)}m`;
+  return [
+    { name: M7(7),  why: `V7 → ${Mm(0)} — the raised-third dominant; the defining minor-key sound`, link: linkDom7(T, 7) },
+    { name: M7(10), why: `V/bIII → ${M(3)}`, link: linkDom7(T, 10) },
+    { name: M7(0),  why: `V/iv → ${Mm(5)} (same root as i, but dominant 7)`, link: linkDom7(T, 0) },
+    { name: M7(3),  why: `V/bVI → ${M(8)}`, link: linkDom7(T, 3) },
+    { name: M7(5),  why: `V/bVII → ${M(10)}`, link: linkDom7(T, 5) },
+  ];
+}
+
+/** Borrowed from the PARALLEL MAJOR — the mirror of major-key interchange. */
+export function minorModalInterchange(tonicCircleIdx: number): ChordSuggestion[] {
+  const T = (pcSemitoneFromCircleIdx(tonicCircleIdx) + 9) % 12;
+  const useSharps = prefersSharps(T, tonicCircleIdx);
+  const M = (s: number) => spell(T + s, useSharps);
+  const Mm = (s: number) => `${spell(T + s, useSharps)}m`;
+  return [
+    { name: M(0),  why: 'I — the Picardy third: end a minor piece on a major tonic', link: linkMaj(T, 0) },
+    { name: M(5),  why: 'IV — major subdominant, the Dorian brightener', link: linkMaj(T, 5) },
+    { name: M(7),  why: 'V — raised third from harmonic minor; the strongest way home', link: linkMaj(T, 7) },
+    { name: Mm(2), why: 'ii — replaces the awkward ii°, borrowed for a smooth ii-V', link: linkMin(T, 2) },
+  ];
+}

@@ -14,9 +14,13 @@
 // Pure presentational. Tonic is supplied as a circle index so the page
 // can share state with <CircleOfFifths/>.
 
+import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   diatonicSubs,
+  minorDiatonicSubs,
+  minorModalInterchange,
+  minorSecondaryDominants,
   modalInterchange,
   secondaryDominants,
   type ChordSuggestion,
@@ -24,6 +28,7 @@ import {
 } from '#/lib/music/chord-substitutions';
 import {
   CIRCLE_MAJOR_DISPLAY,
+  CIRCLE_MINOR_DISPLAY,
 } from '#/lib/music/circle-of-fifths';
 
 // First substitution in each row already encodes the same root → can't
@@ -53,19 +58,55 @@ function chordLinkForNumeral(row: DiatonicChordSubs): string | null {
 }
 
 export function ChordSubstitutions({ tonicIdx }: { tonicIdx: number }) {
-  const diatonic = diatonicSubs(tonicIdx);
-  const secondary = secondaryDominants(tonicIdx);
-  const borrowed = modalInterchange(tonicIdx);
+  // Minor keys reharm differently enough to be worth their own view: the v
+  // is minor and has no leading tone, bIII/bVI/bVII are diatonic rather
+  // than borrowed, and interchange runs the other way — a minor key
+  // borrows from the parallel MAJOR.
+  const [mode, setMode] = useState<'major' | 'minor'>('major');
+  const isMinor = mode === 'minor';
+
+  const diatonic = isMinor ? minorDiatonicSubs(tonicIdx) : diatonicSubs(tonicIdx);
+  const secondary = isMinor
+    ? minorSecondaryDominants(tonicIdx)
+    : secondaryDominants(tonicIdx);
+  const borrowed = isMinor
+    ? minorModalInterchange(tonicIdx)
+    : modalInterchange(tonicIdx);
 
   return (
     <div className="flex flex-col gap-6">
       <header>
-        <h3 className="text-base font-semibold text-[var(--ink)]">
-          Substitutions in {CIRCLE_MAJOR_DISPLAY[tonicIdx]} major
-        </h3>
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="text-base font-semibold text-[var(--ink)]">
+            Substitutions in{' '}
+            {isMinor
+              ? `${CIRCLE_MINOR_DISPLAY[tonicIdx]} (${CIRCLE_MINOR_DISPLAY[tonicIdx].replace(/m$/, '')} minor)`
+              : `${CIRCLE_MAJOR_DISPLAY[tonicIdx]} major`}
+          </h3>
+          <div className="inline-flex gap-1">
+            {(['major', 'minor'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={mode === m}
+                onClick={() => setMode(m)}
+                className={`rounded-lg px-2 py-0.5 text-xs font-medium capitalize ${
+                  mode === m
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'border border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--accent)]'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="mt-1 text-xs text-[var(--ink-muted)]">
           Pick a tonic on the wheel above. The lists below shift to that key
-          automatically.
+          automatically.{' '}
+          {isMinor
+            ? 'Minor reharms differently: the v has no leading tone, and ♭III/♭VI/♭VII are diatonic here rather than borrowed.'
+            : ''}
         </p>
       </header>
 
@@ -149,12 +190,14 @@ export function ChordSubstitutions({ tonicIdx }: { tonicIdx: number }) {
 
         <section>
           <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-            Modal interchange (borrowed from parallel minor)
+            {isMinor
+              ? 'Modal interchange (borrowed from parallel major)'
+              : 'Modal interchange (borrowed from parallel minor)'}
           </h4>
           <p className="mt-1 text-xs text-[var(--ink-muted)]">
-            Chords from the {CIRCLE_MAJOR_DISPLAY[tonicIdx]} natural-minor key
-            dropped into the major progression. Changes the color without
-            changing the key.
+            {isMinor
+              ? `Chords from ${CIRCLE_MINOR_DISPLAY[tonicIdx].replace(/m$/, '')} major dropped into the minor progression — interchange runs the other way here. The Picardy third is the classic case.`
+              : `Chords from the ${CIRCLE_MAJOR_DISPLAY[tonicIdx]} natural-minor key dropped into the major progression. Changes the color without changing the key.`}
           </p>
           <ul className="mt-2 flex flex-col gap-1.5 text-sm">
             {borrowed.map((s, i) => (

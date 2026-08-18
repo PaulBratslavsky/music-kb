@@ -96,6 +96,22 @@ const CAGED_SHAPES: Array<{
   },
 ];
 
+const MINOR_TABLE: Array<{
+  num: string;
+  quality: string;
+  a: string;
+  e: string;
+  d: string;
+}> = [
+  { num: 'i', quality: 'minor', a: 'Am', e: 'Em', d: 'Dm' },
+  { num: 'ii°', quality: 'diminished', a: 'B°', e: 'F#°', d: 'E°' },
+  { num: 'III', quality: 'major', a: 'C', e: 'G', d: 'F' },
+  { num: 'iv', quality: 'minor', a: 'Dm', e: 'Am', d: 'Gm' },
+  { num: 'v', quality: 'minor', a: 'Em', e: 'Bm', d: 'Am' },
+  { num: 'VI', quality: 'major', a: 'F', e: 'C', d: 'B♭' },
+  { num: 'VII', quality: 'major', a: 'G', e: 'D', d: 'C' },
+];
+
 const ROMAN_TABLE = [
   { num: 'I', quality: 'major', c: 'C', g: 'G', a: 'A' },
   { num: 'ii', quality: 'minor', c: 'Dm', g: 'Am', a: 'Bm' },
@@ -256,6 +272,73 @@ function CagedAndRomanNumeralsPage() {
           highlights the I-IV-V-vi-ii-iii cluster around any tonic you
           click — a visual shortcut for spotting the diatonic family in
           any key.
+        </p>
+
+        <h3 className="mt-8 text-base font-semibold text-[var(--ink)]">
+          The same idea in a minor key
+        </h3>
+        <p className="mt-2 text-sm text-[var(--ink-soft)]">
+          Minor keys use the same seven chords — the pattern just starts
+          somewhere else. A natural minor scale is its relative major
+          beginning on the 6th degree, so{' '}
+          <strong className="text-[var(--ink)]">
+            A minor contains exactly the chords of C major
+          </strong>
+          . Nothing new to learn: the numbering shifts, the chords don't.
+        </p>
+        <p className="mt-2 text-sm text-[var(--ink-soft)]">
+          What does change is which one feels like home, and that changes
+          the pattern of qualities: minor keys run{' '}
+          <code>i ii° III iv v VI VII</code> — one minor, one diminished,
+          then major, minor, minor, major, major.
+        </p>
+        <div className="mt-4 overflow-x-auto rounded-xl border border-[var(--line)]">
+          <table className="w-full min-w-[420px] text-left text-sm">
+            <thead className="bg-[var(--bg-subtle)] text-xs uppercase tracking-wide text-[var(--ink-muted)]">
+              <tr>
+                <th className="px-3 py-2">Numeral</th>
+                <th className="px-3 py-2">Quality</th>
+                <th className="px-3 py-2">Key of Am</th>
+                <th className="px-3 py-2">Key of Em</th>
+                <th className="px-3 py-2">Key of Dm</th>
+              </tr>
+            </thead>
+            <tbody>
+              {MINOR_TABLE.map((r) => (
+                <tr key={r.num} className="border-t border-[var(--line)]">
+                  <td className="px-3 py-2 font-semibold text-[var(--ink)]">
+                    {r.num}
+                  </td>
+                  <td className="px-3 py-2 text-[var(--ink-soft)]">
+                    {r.quality}
+                  </td>
+                  <td className="px-3 py-2 text-[var(--ink-soft)]">{r.a}</td>
+                  <td className="px-3 py-2 text-[var(--ink-soft)]">{r.e}</td>
+                  <td className="px-3 py-2 text-[var(--ink-soft)]">{r.d}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-sm text-[var(--ink-soft)]">
+          Compare the Am column with the key of C above: same seven
+          chords, rotated so Am is number one. That is the whole
+          relationship between a key and its relative minor.
+        </p>
+        <Callout>
+          <strong>The one chord that isn't diatonic:</strong> that{' '}
+          <code>v</code> is minor, so it has no leading tone pulling back
+          to the tonic — Em to Am is a gentle landing, not a resolution.
+          Which is why so much minor music raises its third and plays{' '}
+          <code>V</code> instead: E major in A minor, borrowing the G♯
+          from harmonic minor. If a minor song sounds unexpectedly
+          strong going home, that is usually what it did.
+        </Callout>
+        <p className="mt-4 text-sm text-[var(--ink-soft)]">
+          Minor progressions in numbers:{' '}
+          <code>i–VI–III–VII</code> (the Andalusian-adjacent pop minor),{' '}
+          <code>i–iv–v</code> (minor blues),{' '}
+          <code>i–VII–VI–V</code> (flamenco descent, with the raised V).
         </p>
       </Step>
 
