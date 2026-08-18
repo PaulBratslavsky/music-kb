@@ -9,7 +9,7 @@
 // Capped per-video to keep the response size manageable — the agent can
 // always call `searchTranscript` on a specific video for deeper detail.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import {
   formatTimecode,

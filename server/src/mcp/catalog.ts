@@ -2,15 +2,23 @@
 //
 // Each entry pairs a tool's execute body (from ./tools/) with an access tier
 // (read | write | maintenance) and a human title. The INPUT SCHEMA IS NOT
-// HERE — it lives on the tool itself (`ToolDef.schema`, built with the `z`
-// re-exported from @strapi/utils) and the adapter reads it from there.
+// HERE — it lives on the tool itself (`ToolDef.schema`, built with the
+// app's own top-level `zod` dependency) and the adapter reads it from there.
 //
 // This file used to carry a second, hand-maintained copy of every input
 // schema, on the belief that @strapi/utils shipped zod 3 while the app used
-// zod 4. That was wrong: Strapi re-exports zod v4 (see ADR 0008). The two
-// copies had already drifted — listVideos' `verdict` guidance rotted to a
-// one-liner in the copy clients actually saw — so there is now exactly one
-// declaration per tool. Do not reintroduce a second one.
+// zod 4. That reasoning was itself wrong (@strapi/utils re-exports zod v4,
+// not zod 3 — see ADR 0008), and on top of that the tools were building
+// their schemas with @strapi/utils's re-exported `z`, whose `.describe()`
+// calls silently never reached MCP clients (see ADR 0008): Zod 4 keeps
+// description text in a per-module-instance registry, and the MCP SDK
+// converts with its own bundled zod, which can't see a description
+// recorded by a different zod copy. Tool schemas are now built with the
+// app's own `zod` import instead, so descriptions survive. The
+// hand-maintained copies had already drifted — listVideos' `verdict`
+// guidance rotted to a one-liner in the copy clients actually saw — so
+// there is exactly one declaration per tool. Do not reintroduce a second
+// one.
 import type { DomainTool } from './adapter';
 
 import { libraryStatsTool } from './tools/library-stats';

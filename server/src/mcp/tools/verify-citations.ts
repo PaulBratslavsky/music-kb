@@ -7,7 +7,7 @@
 // tool is safe to chain on every save. No stored BM25 index → text returned
 // unchanged with `reason: 'no-index'`; no citations in the text → no-op.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import { isStoredIndex, verifyTimecodesInText } from '../../services/bm25-search';
 

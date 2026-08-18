@@ -10,7 +10,7 @@
 // server off the inference path (the whole point of MCP) and avoids
 // burning local Ollama cycles from a Claude Desktop session.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

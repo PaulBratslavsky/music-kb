@@ -1,15 +1,37 @@
 # Migration plan: hand-rolled MCP server → official Strapi MCP plugin
 
 **Status:** ✅ COMPLETE (2026-06-14). All phases shipped — Strapi 5.48, official `/mcp` enabled, all 24 tools ported app-level and verified live (read + write round-trip), client docs updated, hand-rolled `/api/mcp` retired. Decision recorded in [ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md). Plan retained below as the execution record. (Created 2026-06-12.)
-**⚠️ One "verified" claim below is wrong (corrected 2026-08-17):** this plan
-asserts `@strapi/utils` ships **zod 3** and that every schema must therefore
-be **re-declared** in it. Strapi actually re-exports **zod v4**; the real
-constraint is instance/minor skew (Strapi core 4.0.0 vs the app's 4.3.6), so
-the "use `@strapi/utils`' `z`" rule stands but the re-declaration does not —
-schemas are now declared once, on the tool. The text below is left as-written
-as a record of what we believed at the time. See
-[ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md) for the
-corrected reasoning.
+**⚠️ Two "verified" claims below are wrong.**
+
+- **(corrected 2026-08-17):** this plan asserts `@strapi/utils` ships
+  **zod 3** and that every schema must therefore be **re-declared** in it.
+  Strapi actually re-exports **zod v4** (`zod/v4`, from its pinned
+  `zod@3.25.67` — a transitional release that ships v4 under that version
+  string). The re-declaration was reverted — schemas are now declared once,
+  on the tool.
+- **(corrected 2026-08-18, supersedes the 2026-08-17 note above):** that
+  correction still concluded wrong — it kept "use `@strapi/utils`'s `z`" as
+  the rule, on the theory that only a minor-version *skew* between two zod-4
+  instances mattered. That's not the mechanism. Zod 4 stores `.describe()`
+  text in a **per-module-instance global registry**. `@strapi/utils` bundles
+  its **own separate copy** of zod (not a version skew of the app's copy —
+  a different physical package under `@strapi/utils/node_modules/zod`), and
+  the MCP SDK converts schemas with its **own** bundled zod instance, which
+  cannot see a description recorded in a different instance's registry. Any
+  schema built with `@strapi/utils`'s `z` silently loses every
+  `.describe()` string on the way to an MCP client — verified empirically
+  (see `server/src/mcp/adapter.ts` and `server/src/mcp/registry.ts`). The
+  fix actually shipped: tool schemas are built with the **app's own
+  top-level `zod` dependency** (`^4.3.x`), not `@strapi/utils`'s re-export.
+  `@strapi/strapi`'s ambient `registerTool` type still expects a
+  `@strapi/utils`-flavored `ZodObject`, which is a distinct nominal TS type
+  from the app's zod even though both are runtime-compatible Zod 4 — that
+  seam is bridged with a narrowly-scoped type cast at the `registerTool`
+  call site (not a rewrite of the schemas).
+
+The text below is left as-written as a record of what we believed at the
+time. See [ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md)
+for the corrected reasoning.
 **Source guide:** Paul's own write-up — [`strapi-mcp-demo-and-tool-extension/BLOG-strapi-mcp-custom-tools.md`](https://github.com/PaulBratslavsky/strapi-mcp-demo-and-tool-extension/blob/main/BLOG-strapi-mcp-custom-tools.md) — plus the [official docs](https://docs.strapi.io/cms/features/strapi-mcp-server).
 
 ## Why migrate

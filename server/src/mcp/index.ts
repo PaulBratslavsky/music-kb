@@ -16,12 +16,24 @@ export async function registerOfficialMcpTools(
     return;
   }
 
-  await registerMcpAdminPermissions(strapi);
+  // Outer backstop: a failure anywhere below — permission registration, or
+  // anything else in this pass — must degrade to "MCP tools unavailable",
+  // never take down Strapi's boot. `registerDomainTool` already isolates
+  // per-tool registration failures; this catches everything else.
+  try {
+    await registerMcpAdminPermissions(strapi);
 
-  for (const def of domainTools) {
-    registerDomainTool(mcp.registerTool, strapi, def);
+    let registered = 0;
+    for (const def of domainTools) {
+      if (registerDomainTool(mcp.registerTool, strapi, def)) {
+        registered += 1;
+      }
+    }
+    strapi.log.info(
+      `[music-kb mcp] Registered ${registered}/${domainTools.length} custom tool(s) on the official MCP server.`,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    strapi.log.error(`[music-kb mcp] Failed to register MCP capabilities: ${message}`);
   }
-  strapi.log.info(
-    `[music-kb mcp] Registered ${domainTools.length} custom tool(s) on the official MCP server.`,
-  );
 }

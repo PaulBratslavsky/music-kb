@@ -3,7 +3,7 @@
 // with a many-to-many relation to Video (so a note can span multiple
 // videos if written against a cross-video conversation).
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

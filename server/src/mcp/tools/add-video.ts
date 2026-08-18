@@ -11,7 +11,7 @@
 // the summary from the app UI, or (from Claude Desktop) call saveSummary
 // with a summary the frontier model produced itself.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import { fetchYouTubeTranscript, fetchYouTubeMeta } from '../../services/youtube-transcript';
 import { slugifyTagName } from './tag-utils';

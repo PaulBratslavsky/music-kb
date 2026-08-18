@@ -2,7 +2,7 @@
 // middleware in server/src/index.ts (lowercase + trimmed) so we don't
 // repeat that here — pass whatever and it'll dedupe cleanly.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import { slugifyTagName } from './tag-utils';
 
