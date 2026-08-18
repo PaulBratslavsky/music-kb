@@ -429,6 +429,7 @@ export function SectionScalePicker({
         {instrument === 'push' ? (
           <MiniPush
             marks={pushMarks}
+            size="roomy"
             // Unlit pads keep faint names in the scale view — on Push the
             // notes you're avoiding are as worth seeing as the ones you're
             // playing, since every pad is reachable.

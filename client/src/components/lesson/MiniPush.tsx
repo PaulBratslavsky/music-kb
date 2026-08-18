@@ -22,11 +22,29 @@ export type PushMark = {
   root?: boolean;
 };
 
+/** An exact pad, for showing one voicing rather than a pitch class. */
+export type PushPadMark = {
+  row: number;
+  col: number;
+  label?: string;
+  root?: boolean;
+};
+
 export type MiniPushProps = {
-  /** Pitch classes to light. Every pad sounding one of these lights up —
-   *  a chord shape therefore appears everywhere it exists on the grid,
-   *  which is exactly how you learn to move it around. */
-  marks: PushMark[];
+  /**
+   * Pitch classes to light. Every pad sounding one of these lights up, so
+   * the pattern repeats across the grid — right for a SCALE, where seeing
+   * the repeat is the point.
+   *
+   * Ignored when `pads` is given.
+   */
+  marks?: PushMark[];
+  /**
+   * Exact pads to light — one per chord note. Use this for a CHORD, where
+   * lighting every pitch-class match scatters a 3-note voicing across a
+   * dozen pads and the shape you'd actually play disappears.
+   */
+  pads?: PushPadMark[];
   /** Visible grid size. The full instrument is 8x8; a chord card is
    *  legible much smaller. Counted from the bottom-left origin. */
   rows?: number;
@@ -35,6 +53,13 @@ export type MiniPushProps = {
    *  compete with the shape), on for the scale view where the unlit pads
    *  are the notes you're avoiding. */
   showUnmarkedLabels?: boolean;
+  /**
+   * 'roomy' lifts the natural-width cap so the grid fills its container —
+   * the same escape hatch MiniNeck and MiniKeyboard have. Pads stay square
+   * (they are square on the hardware), so a full-width 8x8 is also
+   * full-height: the board grows in both directions together.
+   */
+  size?: 'compact' | 'roomy';
   ariaLabel: string;
 };
 
@@ -44,13 +69,18 @@ const PADDING = 6;
 
 export function MiniPush({
   marks,
+  pads,
   rows = 8,
   cols = 8,
   showUnmarkedLabels = false,
+  size = 'compact',
   ariaLabel,
 }: MiniPushProps) {
   const grid = buildPushLayout();
-  const byPc = new Map<PitchClass, PushMark>(marks.map((m) => [m.pc, m]));
+  const byPc = new Map<PitchClass, PushMark>((marks ?? []).map((m) => [m.pc, m]));
+  const byPad = new Map<string, PushPadMark>(
+    (pads ?? []).map((p) => [`${p.row}:${p.col}`, p]),
+  );
 
   const width = PADDING * 2 + cols * PAD + (cols - 1) * GAP;
   const height = PADDING * 2 + rows * PAD + (rows - 1) * GAP;
@@ -59,7 +89,7 @@ export function MiniPush({
     <svg
       viewBox={`0 0 ${width} ${height}`}
       width="100%"
-      style={{ maxWidth: width }}
+      style={{ maxWidth: size === 'roomy' ? undefined : width }}
       role="img"
       aria-label={ariaLabel}
       className="select-none"
@@ -69,7 +99,9 @@ export function MiniPush({
           const pad = grid[r]?.[c];
           if (!pad) return null;
           const pc = pad.note.pitchClass;
-          const mark = byPc.get(pc);
+          // Exact-pad mode wins when supplied: a chord lights only the
+          // pads of its own voicing, never every matching pitch class.
+          const mark = pads ? byPad.get(`${r}:${c}`) : byPc.get(pc);
           // Row 0 is the LOWEST pitch, so it belongs at the bottom of the
           // drawing — flip the y axis rather than the data.
           const x = PADDING + c * (PAD + GAP);

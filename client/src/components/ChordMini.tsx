@@ -8,6 +8,9 @@
 // pitch-class fallback voicing) so the caller can show the name alone.
 import { ChordDiagram, type ChordDiagramProps } from './ChordDiagram';
 import { MiniPush } from './lesson/MiniPush';
+import { pushChordShape } from '#/lib/music/theory/push-shapes';
+import { pianoVoicing } from '#/lib/music/theory/voicings/piano';
+import { midiFromNote } from '#/lib/music/theory/notes';
 import { guitarVoicing } from '#/lib/music/theory/voicings/guitar';
 import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
 import { pitchClassFromMidi } from '#/lib/music/theory/notes';
@@ -82,21 +85,6 @@ const BLACK: Array<{ pc: PitchClass; after: number }> = [
   { pc: 'A#', after: 5 },
 ];
 
-/**
- * The pitch classes this chord actually sounds. A detect-captured shape
- * reports what was played; everything else falls back to the theoretical
- * tones for root + quality.
- */
-function chordPitchClasses(chord: MiniChord): PitchClass[] {
-  return chord.positions && chord.positions.length > 0
-    ? [...new Set(
-        [...parsePositions(chord.positions).entries()].map(([s, f]) =>
-          pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + f),
-        ),
-      )]
-    : getChordPitchClasses(chord.root, chord.quality);
-}
-
 function MiniPiano({ chord, responsive }: { chord: MiniChord; responsive?: boolean }) {
   // Detect-captured shapes light the exact played pitch classes; otherwise
   // the chord's theoretical tones from root+quality.
@@ -167,15 +155,31 @@ export function ChordMini({
   orientation?: 'vertical' | 'horizontal';
 }) {
   if (instrument === 'push') {
-    // A chord card only needs enough grid to show the shape once; the pads
-    // repeat every row anyway (+5 semitones), so 5x4 carries the pattern.
-    const pcs = chordPitchClasses(chord);
+    // ONE voicing, placed on real pads — not every pitch-class match. The
+    // scale board lights repeats on purpose; a chord card must show the
+    // grip you'd actually play, so it goes through pushChordShape.
+    const notes = pianoVoicing({
+      root: chord.root,
+      quality: chord.quality,
+      inversion: chord.inversion ?? 0,
+      // Closed voicing: voicingIndex is a GUITAR index and means nothing
+      // to a pad layout (see SectionScalePicker for the same trap).
+      voicingIndex: 0,
+    });
+    const rows = 4;
+    const cols = 5;
+    const shape = pushChordShape(notes.map(midiFromNote), rows, cols);
+    const rootPad = shape[0];
     return (
       <MiniPush
-        rows={4}
-        cols={5}
-        marks={pcs.map((pc) => ({ pc, root: pc === chord.root }))}
-        ariaLabel="Chord on the Push grid"
+        rows={rows}
+        cols={cols}
+        pads={shape.map((p, i) => ({
+          ...p,
+          label: notes[i]?.pitchClass,
+          root: p === rootPad,
+        }))}
+        ariaLabel={`${chord.root} chord on the Push grid`}
       />
     );
   }
