@@ -267,6 +267,7 @@ export function ChordsPanel({
               detectMode={detectMode}
               playedMidis={playedMidis}
               onToggleKey={toggleKey}
+              detectedRootPitchClass={detected?.selection?.root ?? null}
             />
           )}
         </div>

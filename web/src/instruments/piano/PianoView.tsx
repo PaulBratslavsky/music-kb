@@ -20,6 +20,9 @@ type Props = {
   detectMode?: boolean;
   playedMidis?: Set<number>;
   onToggleKey?: (midi: number) => void;
+  /** Root of the chord the detector named, so a played root reads as the
+   *  root rather than as just another chord tone. */
+  detectedRootPitchClass?: PitchClass | null;
 };
 
 type GameMark = 'pending' | 'correct' | 'wrong' | null;
@@ -41,6 +44,7 @@ export function PianoView({
   detectMode = false,
   playedMidis,
   onToggleKey,
+  detectedRootPitchClass,
   pcLabels,
   emphasizedPitchClasses,
   gameMode,
@@ -62,6 +66,21 @@ export function PianoView({
       : highlightedMidis.has(midiFromNote(key.note));
   const isPlayed = (key: PianoKey) =>
     playedMidis?.has(midiFromNote(key.note)) ?? false;
+
+  /**
+   * The lowest key you've played is the bass, and the bass is what makes an
+   * inversion an inversion — Em/B is only distinguishable from Em by which
+   * note is at the bottom. Marking it is the whole point of this view.
+   */
+  const lowestPlayedMidi =
+    playedMidis && playedMidis.size > 0 ? Math.min(...playedMidis) : null;
+  const isBass = (key: PianoKey) =>
+    detectMode && lowestPlayedMidi != null && midiFromNote(key.note) === lowestPlayedMidi;
+  const isDetectedRoot = (key: PianoKey) =>
+    detectMode &&
+    detectedRootPitchClass != null &&
+    key.note.pitchClass === detectedRootPitchClass &&
+    isPlayed(key);
 
   const isRoot = (key: PianoKey) =>
     rootPitchClass != null && key.note.pitchClass === rootPitchClass && isLit(key);
@@ -126,7 +145,8 @@ export function PianoView({
         const x = PADDING_X + i * WHITE_W;
         const midi = midiFromNote(key.note);
         const lit = !inGame && (detectMode ? isPlayed(key) : isLit(key));
-        const root = !inGame && !detectMode && isRoot(key);
+        const root = !inGame && (detectMode ? isDetectedRoot(key) : isRoot(key));
+        const bass = !inGame && isBass(key);
         const focused = !inGame && isFocused(key);
         const mark = inGame ? gameMark(midi) : null;
         return (
@@ -149,6 +169,16 @@ export function PianoView({
             />
             {lit && (
               <g pointerEvents="none" opacity={isDimmed(key.note.pitchClass) ? 0.3 : 1}>
+                {bass && (
+                  <circle
+                    cx={x + WHITE_W / 2}
+                    cy={PADDING_Y + WHITE_H - 22}
+                    r={14}
+                    fill="none"
+                    stroke="var(--root)"
+                    strokeWidth={2}
+                  />
+                )}
                 <circle
                   cx={x + WHITE_W / 2}
                   cy={PADDING_Y + WHITE_H - 22}
@@ -236,7 +266,8 @@ export function PianoView({
         const x = PADDING_X + key.index * WHITE_W - BLACK_W / 2;
         const midi = midiFromNote(key.note);
         const lit = !inGame && (detectMode ? isPlayed(key) : isLit(key));
-        const root = !inGame && !detectMode && isRoot(key);
+        const root = !inGame && (detectMode ? isDetectedRoot(key) : isRoot(key));
+        const bass = !inGame && isBass(key);
         const focused = !inGame && isFocused(key);
         const mark = inGame ? gameMark(midi) : null;
         return (
@@ -259,6 +290,16 @@ export function PianoView({
             />
             {lit && (
               <g pointerEvents="none" opacity={isDimmed(key.note.pitchClass) ? 0.3 : 1}>
+                {bass && (
+                  <circle
+                    cx={x + BLACK_W / 2}
+                    cy={PADDING_Y + BLACK_H - 14}
+                    r={12}
+                    fill="none"
+                    stroke="var(--root)"
+                    strokeWidth={2}
+                  />
+                )}
                 <circle
                   cx={x + BLACK_W / 2}
                   cy={PADDING_Y + BLACK_H - 14}
