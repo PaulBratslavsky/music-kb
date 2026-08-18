@@ -580,3 +580,32 @@ button.chip:disabled {
 .game-mode-result[data-allcorrect="false"] {
   color: var(--game-wrong);
 }
+
+/* Box-chord lookup under the guitar view (Builder). Mirrors music-kb's
+   /builder: pick a CAGED box, then a degree, and the chord's notes repaint
+   on top of the box. */
+.box-chords {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+}
+.box-chords-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-right: 2px;
+}
+.box-chords-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.box-chords-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { PianoView } from './instruments/piano/PianoView';
 import { GuitarView } from './instruments/guitar/GuitarView';
 import { BassView } from './instruments/bass/BassView';
@@ -7,6 +7,14 @@ import { SelectionBar } from './components/SelectionBar';
 import { GameModePanel } from './components/GameModePanel';
 import { ThemeToggle } from './components/ThemeToggle';
 import { useAppState } from './state/useAppState';
+import {
+  availablePositions,
+  realizeCagedShape,
+  shapeName,
+  supportsCaged,
+} from './theory/positions';
+import { getScalePitchClasses } from './theory/scales';
+import { findChordsInScale, type FinderMode } from './theory/scale-chord-finder';
 import { resolveSelection } from './state/resolve';
 import { getDiatonicChords } from './theory/diatonic';
 import { guitarScaleOrgUrl } from './theory/scales';
@@ -119,6 +127,56 @@ function VisualizerHome() {
   const focusedNoteName = appState.focusedPitchClass
     ? resolved.pcDisplay[appState.focusedPitchClass] ?? appState.focusedPitchClass
     : null;
+
+  // Box highlight + the chords living inside it. Mirrors music-kb's
+  // /builder: pick a CAGED box, then a degree, and that chord's notes
+  // repaint on top of the box so you see it sitting inside the shape.
+  const BOX_COLOR = '#4f8cff';
+  const CHORD_COLOR = '#f0883e';
+  const [boxIdx, setBoxIdx] = useState<number | null>(null);
+  const [boxChordMode, setBoxChordMode] = useState<FinderMode>('triads');
+  const [boxChordDegree, setBoxChordDegree] = useState<number | null>(null);
+
+  const boxOptions = useMemo(
+    () =>
+      appState.state.mode === 'scale' && supportsCaged(appState.state.scale.type)
+        ? availablePositions(appState.state.scale.type)
+        : [],
+    [appState.state.mode, appState.state.scale.type],
+  );
+  const activeBox = boxIdx != null ? boxOptions[boxIdx] ?? null : null;
+
+  const boxChords = useMemo(() => {
+    if (activeBox == null) return [];
+    const sel = appState.state.scale;
+    return findChordsInScale(sel.root, sel.type, activeBox, boxChordMode);
+  }, [activeBox, appState.state.scale, boxChordMode]);
+  const activeBoxChord =
+    boxChordDegree == null
+      ? null
+      : (boxChords.find((c) => c.degree === boxChordDegree) ?? null);
+
+  const cellColors = useMemo(() => {
+    if (activeBox == null) return null;
+    const sel = appState.state.scale;
+    const cells = realizeCagedShape(
+      activeBox,
+      sel.root,
+      getScalePitchClasses(sel),
+      sel.type,
+    );
+    if (cells.length === 0) return null;
+    const map = new Map<string, string>();
+    for (const c of cells) map.set(`${c.string}-${c.fret}`, BOX_COLOR);
+    // The selected chord repaints on top, so you see it inside the box
+    // rather than instead of it.
+    if (activeBoxChord) {
+      for (const p of activeBoxChord.positions) {
+        map.set(`${p.string}-${p.fret}`, CHORD_COLOR);
+      }
+    }
+    return map;
+  }, [activeBox, appState.state.scale, activeBoxChord]);
 
   const diatonicChords = useMemo(
     () =>
@@ -353,7 +411,73 @@ function VisualizerHome() {
             emphasizedPitchClasses={resolved.previewedChordPCs}
             gameMode={appState.gameMode.guitar}
             onGameGuess={(pos) => appState.submitGuess('guitar', pos)}
+            cellColors={cellColors}
           />
+          {boxOptions.length > 0 && (
+            <div className="box-chords">
+              <span className="box-chords-label">BOX</span>
+              {boxOptions.map((b, i) => (
+                <button
+                  key={b}
+                  type="button"
+                  className={`chip${boxIdx === i ? ' active' : ''}`}
+                  onClick={() => {
+                    setBoxIdx((cur) => (cur === i ? null : i));
+                    setBoxChordDegree(null);
+                  }}
+                >
+                  {shapeName(b, appState.state.scale.type)}
+                </button>
+              ))}
+              {boxChords.length > 0 && (
+                <>
+                  <span className="box-chords-sep" />
+                  {(['triads', 'power'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      className={`chip${boxChordMode === m ? ' active' : ''}`}
+                      onClick={() => setBoxChordMode(m)}
+                    >
+                      {m === 'triads' ? 'Triads' : 'Power'}
+                    </button>
+                  ))}
+                  <span className="box-chords-sep" />
+                  {boxChords.map((c) => (
+                    <button
+                      key={c.degree}
+                      type="button"
+                      className="chip"
+                      title={
+                        c.flatFifthWarning
+                          ? `${c.chordName} — diminished, so its fifth is FLAT (${c.targetPcs[1]}); the usual power-chord grip is outside the key`
+                          : `${c.chordName} — ${c.targetPcs.join(' ')}`
+                      }
+                      style={
+                        boxChordDegree === c.degree
+                          ? { background: CHORD_COLOR, color: '#fff' }
+                          : undefined
+                      }
+                      onClick={() =>
+                        setBoxChordDegree((d) => (d === c.degree ? null : c.degree))
+                      }
+                    >
+                      {c.roman}
+                      {c.flatFifthWarning ? '*' : ''}
+                    </button>
+                  ))}
+                  {activeBoxChord && (
+                    <span className="box-chords-name">
+                      {activeBoxChord.chordName}
+                      {activeBoxChord.flatFifthWarning
+                        ? ` · ♭5, use ${activeBoxChord.targetPcs[1]}`
+                        : ''}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
         <div className="panel">
           <h2 className="panel-title">Bass (4-string, standard tuning)</h2>
