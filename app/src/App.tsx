@@ -132,7 +132,8 @@ function VisualizerHome() {
   // /builder: pick a CAGED box, then a degree, and that chord's notes
   // repaint on top of the box so you see it sitting inside the shape.
   const BOX_COLOR = '#4f8cff';
-  const CHORD_COLOR = '#f0883e';
+  // Deliberately colourless — its job is to recede.
+  const MUTED_COLOR = '#8b93a1';
   const [boxIdx, setBoxIdx] = useState<number | null>(null);
   const [boxChordMode, setBoxChordMode] = useState<FinderMode>('triads');
   const [boxChordDegree, setBoxChordDegree] = useState<number | null>(null);
@@ -144,39 +145,62 @@ function VisualizerHome() {
         : [],
     [appState.state.mode, appState.state.scale.type],
   );
-  const activeBox = boxIdx != null ? boxOptions[boxIdx] ?? null : null;
+
+  // Two controls can pick a box: the app's scalePosition (which crops the
+  // board) and the BOX chips below it. Gating on only one meant the other
+  // showed no chords. Whichever is active wins, scalePosition first since
+  // it's the more prominent control. Mirrors music-kb's ChordBuilder.
+  const effectiveBox =
+    appState.state.mode !== 'scale'
+      ? null
+      : typeof appState.state.scalePosition === 'number'
+        ? appState.state.scalePosition
+        : boxIdx != null
+          ? (boxOptions[boxIdx] ?? null)
+          : null;
 
   const boxChords = useMemo(() => {
-    if (activeBox == null) return [];
+    if (effectiveBox == null) return [];
     const sel = appState.state.scale;
-    return findChordsInScale(sel.root, sel.type, activeBox, boxChordMode);
-  }, [activeBox, appState.state.scale, boxChordMode]);
+    return findChordsInScale(sel.root, sel.type, effectiveBox, boxChordMode);
+  }, [effectiveBox, appState.state.scale, boxChordMode]);
   const activeBoxChord =
     boxChordDegree == null
       ? null
       : (boxChords.find((c) => c.degree === boxChordDegree) ?? null);
 
-  const cellColors = useMemo(() => {
-    if (activeBox == null) return null;
+  const boxCells = useMemo(() => {
+    if (effectiveBox == null) return null;
     const sel = appState.state.scale;
     const cells = realizeCagedShape(
-      activeBox,
+      effectiveBox,
       sel.root,
       getScalePitchClasses(sel),
       sel.type,
     );
-    if (cells.length === 0) return null;
+    return cells.length > 0 ? cells : null;
+  }, [effectiveBox, appState.state.scale]);
+
+  const cellColors = useMemo(() => {
+    if (!boxCells) return null;
     const map = new Map<string, string>();
-    for (const c of cells) map.set(`${c.string}-${c.fret}`, BOX_COLOR);
-    // The selected chord repaints on top, so you see it inside the box
-    // rather than instead of it.
-    if (activeBoxChord) {
-      for (const p of activeBoxChord.positions) {
-        map.set(`${p.string}-${p.fret}`, CHORD_COLOR);
-      }
+    if (!activeBoxChord) {
+      for (const c of boxCells) map.set(`${c.string}-${c.fret}`, BOX_COLOR);
+      return map;
+    }
+    // Grey the rest of the box and leave the chord's cells alone, so they
+    // keep the board's normal colours and are the only notes in colour.
+    // Recolouring them fought the palette: the accent is nearly the root
+    // colour, so chord tones read as scale roots.
+    const inChord = new Set(
+      activeBoxChord.positions.map((p) => `${p.string}-${p.fret}`),
+    );
+    for (const c of boxCells) {
+      const key = `${c.string}-${c.fret}`;
+      if (!inChord.has(key)) map.set(key, MUTED_COLOR);
     }
     return map;
-  }, [activeBox, appState.state.scale, activeBoxChord]);
+  }, [boxCells, activeBoxChord]);
 
   const diatonicChords = useMemo(
     () =>
@@ -447,16 +471,11 @@ function VisualizerHome() {
                     <button
                       key={c.degree}
                       type="button"
-                      className="chip"
+                      className={`chip${boxChordDegree === c.degree ? ' active' : ''}`}
                       title={
                         c.flatFifthWarning
                           ? `${c.chordName} — diminished, so its fifth is FLAT (${c.targetPcs[1]}); the usual power-chord grip is outside the key`
                           : `${c.chordName} — ${c.targetPcs.join(' ')}`
-                      }
-                      style={
-                        boxChordDegree === c.degree
-                          ? { background: CHORD_COLOR, color: '#fff' }
-                          : undefined
                       }
                       onClick={() =>
                         setBoxChordDegree((d) => (d === c.degree ? null : c.degree))
