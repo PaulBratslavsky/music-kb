@@ -9,7 +9,7 @@
 import { ChordMini } from './ChordMini';
 import { chordLabel } from './chordShapes';
 import { usePlayerControl } from './Player';
-import { usePlayAlongInstrument } from './usePlayAlongInstrument';
+import type { PlayAlongInstrument } from './usePlayAlongInstrument';
 import type { SavedLoop, SavedProgression } from './types';
 
 /**
@@ -51,17 +51,20 @@ export function SectionChordStrip({
   progression,
   onBarsChange,
   onTimesSave,
+  instrument,
+  onInstrumentChange,
 }: {
   loop: SavedLoop | null;
   progression: SavedProgression | null;
+  /** Owned by the page so the scale board below reads the same value —
+   *  two calls to usePlayAlongInstrument would be two React states. */
+  instrument: PlayAlongInstrument;
+  onInstrumentChange: (next: PlayAlongInstrument) => void;
   onBarsChange: (bars: number) => void;
   onTimesSave: (startSec: number, endSec: number) => void;
 }) {
   const { currentSeconds, loopStartSec, loopEndSec } = usePlayerControl();
-  // Play-along on either instrument — the chords are the same, only the
-  // picture changes. The setting is shared with the scale board below (and
-  // persisted), so the two panels can never show different instruments.
-  const [instrument, setInstrument] = usePlayAlongInstrument();
+
   if (!loop) return null;
 
   const chords = progression?.chords ?? [];
@@ -168,15 +171,15 @@ export function SectionChordStrip({
 
         {chords.length > 0 && (
           <span style={{ display: 'inline-flex', gap: 4 }}>
-            {(['guitar', 'piano'] as const).map((i) => (
+            {(['guitar', 'piano', 'push'] as const).map((i) => (
               <button
                 key={i}
                 type="button"
                 className={`chip${instrument === i ? ' active' : ''}`}
-                onClick={() => setInstrument(i)}
+                onClick={() => onInstrumentChange(i)}
                 style={{ fontSize: 11, padding: '2px 8px' }}
               >
-                {i === 'guitar' ? 'Guitar' : 'Piano'}
+                {i === 'guitar' ? 'Guitar' : i === 'piano' ? 'Piano' : 'Push'}
               </button>
             ))}
           </span>
@@ -215,7 +218,14 @@ export function SectionChordStrip({
                     chord={c}
                     // Bass reads the same chord charts a guitarist does —
                     // the shapes are guitar voicings either way.
-                    instrument={instrument === 'piano' ? 'piano' : 'guitar'}
+                    // Bass reads the same chord charts a guitarist does, so
+                    // it falls back to the guitar box; piano and Push each
+                    // have their own picture.
+                    instrument={
+                      instrument === 'piano' || instrument === 'push'
+                        ? instrument
+                        : 'guitar'
+                    }
                     size="fill"
                   />
                 </div>

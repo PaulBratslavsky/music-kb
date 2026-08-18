@@ -81,7 +81,7 @@ function PlayerInner({ video }: { video: SavedVideo }) {
   // One instrument for the whole play-along block (chord cards + scale
   // board) so the two can never disagree; persisted because it's a property
   // of the player, not of the video.
-  const [playInstrument] = usePlayAlongInstrument();
+  const [playInstrument, setPlayInstrument] = usePlayAlongInstrument();
 
   const selectedLoop = loops.find((l) => l.id === selectedLoopId) ?? null;
   const selectedProgression =
@@ -216,6 +216,8 @@ function PlayerInner({ video }: { video: SavedVideo }) {
               onTimesSave={(startSec, endSec) =>
                 patchLoop(selectedLoop.id, { startSec, endSec })
               }
+              instrument={playInstrument}
+              onInstrumentChange={setPlayInstrument}
             />
             <SectionScalePicker
               chords={selectedProgression?.chords ?? []}

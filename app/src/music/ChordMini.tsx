@@ -5,6 +5,7 @@
 // progression built on guitar reads correctly on piano and vice versa.
 
 import { ChordDiagram } from './ChordDiagram';
+import { MiniPush } from '../lessons/components/MiniPush';
 import { chordDiagramProps } from './chordShapes';
 import { getChordPitchClasses } from '../theory/chords';
 import { pitchClassFromMidi } from '../theory/notes';
@@ -21,19 +22,36 @@ const BLACK: Array<{ pc: PitchClass; after: number }> = [
   { pc: 'A#', after: 5 },
 ];
 
+/**
+ * The pitch classes this chord actually sounds, in precedence order: a
+ * keyboard capture reports its own notes, a fretboard capture is read off
+ * the played positions, and anything else falls back to the theoretical
+ * tones for root + quality. Shared by the piano and Push pictures so they
+ * can't disagree about what the chord contains.
+ */
+function soundingPitchClasses(chord: ProgressionChord): PitchClass[] {
+  if (chord.pitchClasses && chord.pitchClasses.length > 0) return chord.pitchClasses;
+  if (chord.positions && chord.positions.length > 0) {
+    return chord.positions.map((key) => {
+      const [s, f] = key.split('-').map(Number);
+      return pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + f);
+    });
+  }
+  return getChordPitchClasses(chord.root, chord.quality);
+}
+
+function pushMarksFor(chord: ProgressionChord) {
+  return [...new Set(soundingPitchClasses(chord))].map((pc) => ({
+    pc,
+    root: pc === chord.root,
+  }));
+}
+
 function MiniPiano({ chord, responsive }: { chord: ProgressionChord; responsive?: boolean }) {
   // A detect-captured shape lights the exact played pitch classes —
   // straight from the keyboard capture, or derived from the fretted
   // positions. Everything else lights root + quality's theoretical tones.
-  const lit = new Set<PitchClass>(
-    chord.pitchClasses && chord.pitchClasses.length > 0
-      ? chord.pitchClasses
-      : chord.positions && chord.positions.length > 0
-        ? chord.positions.map((key) => {
-            const [s, f] = key.split('-').map(Number);
-            return pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + f);
-          })
-        : getChordPitchClasses(chord.root, chord.quality),
+  const lit = new Set<PitchClass>(soundingPitchClasses(chord),
   );
 
   const W = 112;
@@ -93,13 +111,25 @@ export function ChordMini({
   size = 'fixed',
 }: {
   chord: ProgressionChord;
-  instrument: 'guitar' | 'piano';
+  instrument: 'guitar' | 'piano' | 'push';
   /** 'fill' lets a grid cell size the diagram — see ChordDiagram.size. */
   size?: 'fixed' | 'fill';
   /** Guitar only. Defaults to horizontal (nut on the left), matching the
    *  full fretboard view. */
   orientation?: 'vertical' | 'horizontal';
 }) {
+  if (instrument === 'push') {
+    // A chord card only needs enough grid to show the shape once; the pads
+    // repeat every row anyway (+5 semitones), so 5x4 carries the pattern.
+    return (
+      <MiniPush
+        rows={4}
+        cols={5}
+        marks={pushMarksFor(chord)}
+        ariaLabel="Chord on the Push grid"
+      />
+    );
+  }
   if (instrument === 'piano') return <MiniPiano chord={chord} responsive={size === 'fill'} />;
   const props = chordDiagramProps(chord);
   // No defined fingering (the exotic extensions) — the caller shows the

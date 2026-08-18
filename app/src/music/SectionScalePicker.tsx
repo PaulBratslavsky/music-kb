@@ -19,6 +19,7 @@
 import { useMemo, useState } from 'react';
 import { MiniNeck, type NeckDot } from '../lessons/components/MiniNeck';
 import { MiniKeyboard, type KeyMark } from '../lessons/components/MiniKeyboard';
+import { MiniPush, type PushMark } from '../lessons/components/MiniPush';
 import type { PlayAlongInstrument } from './usePlayAlongInstrument';
 import { usePlayerControl } from './Player';
 import { activeIndex } from './SectionChordStrip';
@@ -278,6 +279,24 @@ export function SectionScalePicker({
     }));
   }, [scalePcs, showDegrees, root, overlay, activeChord]);
 
+  // Push pads are addressed by pitch class, so a chord or scale lights
+  // everywhere it occurs on the grid — which is the point of the layout:
+  // the same shape works from any starting pad.
+  const pushMarks = useMemo<PushMark[]>(() => {
+    if (overlay) {
+      return [...overlay.tones].map((pc) => ({
+        pc,
+        label: showDegrees ? degreeLabel(pc, root) : pc,
+        root: pc === overlay.root,
+      }));
+    }
+    return scalePcs.map((pc) => ({
+      pc,
+      label: showDegrees ? degreeLabel(pc, root) : pc,
+      root: pc === root,
+    }));
+  }, [overlay, scalePcs, showDegrees, root]);
+
   const scaleName = `${root} ${SCALE_TYPE_LABELS[type]}`;
 
   return (
@@ -417,7 +436,16 @@ export function SectionScalePicker({
       )}
 
       <div className="mt-3 overflow-x-auto">
-        {instrument === 'piano' ? (
+        {instrument === 'push' ? (
+          <MiniPush
+            marks={pushMarks}
+            // Unlit pads keep faint names in the scale view — on Push the
+            // notes you're avoiding are as worth seeing as the ones you're
+            // playing, since every pad is reachable.
+            showUnmarkedLabels={!overlay}
+            ariaLabel={`${scaleName} on the Push grid`}
+          />
+        ) : instrument === 'piano' ? (
           // A scale is a pattern that repeats, so two octaves earn their
           // space. A chord is ONE grip — showing it twice reads as playing
           // the root twice. So the overlay drops to a single octave, capped
@@ -458,15 +486,21 @@ export function SectionScalePicker({
               {activeChord.detectedLabel ??
                 `${activeChord.root}${QUALITY_LABELS[activeChord.quality] ?? activeChord.quality}`}
             </span>
-            {instrument === 'piano'
-              ? ' — the lit keys are that chord. Everything unlit is still in the scale.'
-              : ' — the solid notes are that shape on the neck; the white ones are the rest of the scale you can move through.'}
+            {instrument === 'push'
+              ? ' — the lit pads are that chord, everywhere it falls on the grid.'
+              : instrument === 'piano'
+                ? ' — the lit keys are that chord. Everything unlit is still in the scale.'
+                : ' — the solid notes are that shape on the neck; the white ones are the rest of the scale you can move through.'}
             {outside.length > 0 && (
               <> This chord adds <strong>{outside.join(', ')}</strong> from outside the key.</>
             )}
           </>
         ) : (
-          ' — filled dots are the root. Loop the section above and play these over it.'
+          instrument === 'push'
+            ? ' — lit pads are the scale, accented on the tonic. Each row up is a fourth, so a shape repeats diagonally.'
+            : instrument === 'piano'
+              ? ' — the lit keys are the scale, accented on the tonic.'
+              : ' — filled dots are the root. Loop the section above and play these over it.'
         )}
       </p>
     </div>
