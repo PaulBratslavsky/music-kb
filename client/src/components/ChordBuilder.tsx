@@ -594,6 +594,7 @@ export function ChordBuilder({
               onGameGuess={(pos) => appState.submitGuess('piano', pos)}
               detectMode={detectMode}
               playedMidis={playedMidis}
+              detectedRootPitchClass={detected?.selection?.root ?? null}
               onToggleMidi={toggleMidi}
             />
           </>
