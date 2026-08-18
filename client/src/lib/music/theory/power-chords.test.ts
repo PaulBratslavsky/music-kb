@@ -114,3 +114,53 @@ describe('chordGrip — triads are grips too', () => {
     expect(chordGrip(B, 5, [0, 4, 7])).toBeNull();
   });
 });
+
+describe('the three-note power chord shape, against a published chart', () => {
+  // Guitar Tricks' chart: root, fifth on the next string, octave on the
+  // one after. E5 = E0 / A2 / D2. G5 = E3 / A5 / D5.
+  const E = 5, A = 4, D = 3, G = 2;
+  const POWER = [0, 7, 12];
+
+  it('E5 rooted on the open low E', () => {
+    expect(chordGrip(E, 0, POWER)).toEqual([
+      { string: E, fret: 0 },
+      { string: A, fret: 2 },
+      { string: D, fret: 2 },
+    ]);
+  });
+
+  it('G5 at the 3rd fret — the same shape, moved up', () => {
+    expect(chordGrip(E, 3, POWER)).toEqual([
+      { string: E, fret: 3 },
+      { string: A, fret: 5 },
+      { string: D, fret: 5 },
+    ]);
+  });
+
+  it('A5 and D5 rooted on the A string, 5th fret', () => {
+    expect(chordGrip(A, 5, POWER)).toEqual([
+      { string: A, fret: 5 },
+      { string: D, fret: 7 },
+      { string: G, fret: 7 },
+    ]);
+  });
+
+  it('the shape is the SAME at every root — it just slides', () => {
+    const shapeAt = (fret: number) => {
+      const g = chordGrip(E, fret, POWER)!;
+      return g.map((p) => [p.string - g[0].string, p.fret - g[0].fret]);
+    };
+    const base = JSON.stringify(shapeAt(0));
+    for (const fret of [1, 3, 5, 7, 8, 10, 12]) {
+      expect(JSON.stringify(shapeAt(fret))).toBe(base);
+    }
+  });
+
+  it('but it CHANGES across the B string, which is the exception', () => {
+    // Rooted on G, the octave crosses G→B, so the flat +2/+2 no longer
+    // holds — that pair is a major third, not a fourth.
+    const onG = chordGrip(G, 5, POWER)!;
+    expect(onG[1].fret - onG[0].fret).toBe(3); // fifth: +3 across G→B
+    expect(onG[2].string).toBe(0);             // octave lands on high e
+  });
+});

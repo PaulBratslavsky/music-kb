@@ -35,14 +35,16 @@ describe('findChordsInScale — power chords are SHAPES', () => {
   const TUNING = [64, 59, 55, 50, 45, 40];
   const midi = (p: { string: number; fret: number }) => TUNING[p.string] + p.fret;
 
-  it('returns grips, each root plus the fifth on the next string', () => {
+  it('returns three-note grips: root, fifth, octave', () => {
     const chords = findChordsInScale('E', 'minor', 3, 'power');
     const i = chords[0];
     expect(i.grips.length).toBeGreaterThan(0);
     for (const grip of i.grips) {
-      expect(grip).toHaveLength(2);
+      expect(grip).toHaveLength(3);
       expect(grip[1].string).toBe(grip[0].string - 1);
+      expect(grip[2].string).toBe(grip[0].string - 2);
       expect(midi(grip[1]) - midi(grip[0])).toBe(7);
+      expect(midi(grip[2]) - midi(grip[0])).toBe(12);
     }
   });
 
@@ -58,12 +60,20 @@ describe('findChordsInScale — power chords are SHAPES', () => {
     }
   });
 
-  it('the diminished degree gets a FLAT fifth, not the standard shape', () => {
+  it('the diminished degree gets NO power chord at all', () => {
+    // Root + diminished fifth is a tritone, not a fifth. There is no power
+    // chord there, so drawing one would teach a grip nobody plays.
     const chords = findChordsInScale('E', 'minor', 'all', 'power');
     const ii = chords[1];
     expect(ii.flatFifthWarning).toBe(true);
-    for (const grip of ii.grips) {
-      expect(midi(grip[1]) - midi(grip[0])).toBe(6);
+    expect(ii.grips).toEqual([]);
+    expect(ii.positions).toEqual([]);
+  });
+
+  it('every OTHER degree still gets its grips', () => {
+    const chords = findChordsInScale('E', 'minor', 'all', 'power');
+    for (const c of chords.filter((x) => x.quality !== 'dim')) {
+      expect(c.grips.length).toBeGreaterThan(0);
     }
   });
 
@@ -77,9 +87,14 @@ describe('findChordsInScale — power chords are SHAPES', () => {
 describe('findChordsInScale — power chords', () => {
   const chords = findChordsInScale('E', 'minor', 'all', 'power');
 
-  it('reduces every chord to root + fifth', () => {
-    expect(chords[0].targetPcs).toEqual(['E', 'B']); // E5
-    expect(chords[2].targetPcs).toEqual(['G', 'D']); // G5
+  it('is root, fifth and the octave — the shape guitarists play', () => {
+    expect(chords[0].targetPcs).toEqual(['E', 'B', 'E']); // E5
+    expect(chords[2].targetPcs).toEqual(['G', 'D', 'G']); // G5
+  });
+
+  it('labels the octave as the root again, not as a fifth', () => {
+    expect(chords[0].roles).toEqual(['R', '5', 'R']);
+    expect(chords[0].roleFor.get('E')).toBe('R');
   });
 
   it('names them with the 5 suffix', () => {
@@ -88,12 +103,13 @@ describe('findChordsInScale — power chords', () => {
     ]);
   });
 
-  it('flags the diminished degree, whose fifth is flat', () => {
+  it('flags the diminished degree and gives it no shape', () => {
     // F#5 in E minor is the trap: the standard root+7-semitones grip would
-    // sound C#, which is not in the key. The real fifth here is C.
+    // sound C#, which is not in the key — and the honest fifth here (C) is
+    // a tritone, so there is no power chord at all.
     const ii = chords[1];
     expect(ii.flatFifthWarning).toBe(true);
-    expect(ii.targetPcs).toEqual(['F#', 'C']);
+    expect(ii.grips).toEqual([]);
   });
 
   it('flags exactly one degree in a minor key', () => {
@@ -105,7 +121,7 @@ describe('findChordsInScale — power chords', () => {
     const flagged = major.filter((c) => c.flatFifthWarning);
     expect(flagged).toHaveLength(1);
     expect(flagged[0].roman).toBe('vii°');
-    expect(flagged[0].targetPcs).toEqual(['B', 'F']);
+    expect(flagged[0].grips).toEqual([]);
   });
 });
 

@@ -11,6 +11,14 @@ type Props = {
   /** Called with the exact midi number on click (used for audio playback). */
   onPlayNote?: (midi: number) => void;
   pcLabels?: Partial<Record<PitchClass, string>>;
+  /**
+   * Per-POSITION label overrides, keyed `${string}-${fret}`. Wins over
+   * pcLabels. Needed because a chord role is a property of a position, not
+   * of a pitch class: labelling by pitch class puts "R" on every root
+   * across the neck, which reads as a scatter rather than the one shape
+   * you're meant to grab.
+   */
+  cellLabels?: Map<string, string> | null;
   shapePositions?: Set<string> | null;
   /** (music-kb fork) Per-cell color override map. Keys are `${string}-${fret}`,
    *  values are CSS colors. When the highlight at that position renders, the
@@ -65,6 +73,7 @@ export function GuitarView({
   onPickPitchClass,
   onPlayNote,
   pcLabels,
+  cellLabels,
   shapePositions,
   cellColors,
   barre,
@@ -433,7 +442,9 @@ export function GuitarView({
                   fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
                   fontWeight={600}
                 >
-                  {pcLabels?.[p.note.pitchClass] ?? p.note.pitchClass}
+                  {cellLabels?.get(`${p.string}-${p.fret}`) ??
+                    pcLabels?.[p.note.pitchClass] ??
+                    p.note.pitchClass}
                 </text>
               </g>
             );
@@ -511,7 +522,9 @@ export function GuitarView({
                   fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
                   fontWeight={600}
                 >
-                  {pcLabels?.[p.note.pitchClass] ?? p.note.pitchClass}
+                  {cellLabels?.get(`${p.string}-${p.fret}`) ??
+                    pcLabels?.[p.note.pitchClass] ??
+                    p.note.pitchClass}
                 </text>
               </g>
             )),

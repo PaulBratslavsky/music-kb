@@ -245,6 +245,8 @@ export function ChordBuilder({
       ? availableShapePositions[safeHighlightIdx]
       : null;
   const HIGHLIGHT_COLOR = '#4f8cff';
+  // Deliberately colourless — its job is to recede behind the grip.
+  const MUTED_COLOR = '#8b93a1';
   // Chords living inside the highlighted box. This is the lookup half of
   // Theory > Practice's "find the chords in a scale" — same data, answer
   // shown rather than hidden, because on /builder you're exploring the
@@ -320,22 +322,35 @@ export function ChordBuilder({
       for (const c of boxCells) map.set(`${c.string}-${c.fret}`, HIGHLIGHT_COLOR);
       return map;
     }
-    // A chord IS picked, and the board is already restricted to its grips,
-    // so there is nothing left to mute — let the notes keep the board's
-    // normal colours and read their R / 3 / 5 labels.
-    return null;
+    // A chord IS picked. Grey everything that isn't part of a grip so the
+    // shape stands out while the scale stays visible around it.
+    for (const c of boxCells) {
+      const key = `${c.string}-${c.fret}`;
+      if (!chordGripPositions?.has(key)) map.set(key, MUTED_COLOR);
+    }
+    return map;
   }, [boxCells, activeBoxChord]);
 
   // While a box chord is selected, label its notes by their ROLE — R, 3, 5
   // — rather than by note name. A name tells you where you are on the neck;
   // the role tells you where you are in the chord, which is the thing the
   // lookup exists to teach. Everything else keeps its normal label.
-  const pcLabels = useMemo(() => {
-    if (!activeBoxChord) return basePcLabels;
-    const out = { ...basePcLabels } as Record<string, string>;
-    for (const [pc, role] of activeBoxChord.roleFor) out[pc] = role;
+  const pcLabels = basePcLabels;
+
+  // Roles are a property of a POSITION in the grip, not of a pitch class:
+  // labelling by pitch class put "R" on every root across the neck.
+  const chordCellLabels = useMemo(() => {
+    if (!activeBoxChord) return null;
+    const out = new Map<string, string>();
+    for (const grip of activeBoxChord.grips) {
+      grip.forEach((p, i) => {
+        // By grip index, not pitch class — a power chord's octave IS its
+        // root, so a pitch-class lookup would label both the same.
+        out.set(`${p.string}-${p.fret}`, activeBoxChord.roles[i] ?? '');
+      });
+    }
     return out;
-  }, [activeBoxChord, basePcLabels]);
+  }, [activeBoxChord]);
 
   const stepHighlight = (delta: 1 | -1) => {
     if (availableShapePositions.length === 0) return;
@@ -661,15 +676,15 @@ export function ChordBuilder({
               onPlayNote={(midi) => synth.playNote(midi)}
               pcLabels={pcLabels}
               shapePositions={
-                // A selected chord wins: show its grips and nothing else.
-                // Otherwise the GUITAR SHAPE selector already crops the
+                // Never hide the scale — the point is seeing the chord
+                // INSIDE it. The GUITAR SHAPE selector already crops the
                 // board, so only restrict it ourselves when the box came
                 // from the Highlight stepper on the full neck.
-                chordGripPositions ??
-                (typeof appState.state.scalePosition === 'number'
+                typeof appState.state.scalePosition === 'number'
                   ? resolved.guitarShapePositions
-                  : (boxShapePositions ?? resolved.guitarShapePositions))
+                  : (boxShapePositions ?? resolved.guitarShapePositions)
               }
+              cellLabels={chordCellLabels}
               barre={resolved.guitarBarre}
               cellColors={cellColors}
               showNaturals={appState.showNaturals}
