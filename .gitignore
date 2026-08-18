@@ -57,3 +57,7 @@ server/public/uploads/*
 
 # Local DB backups (snapshots + dumps) — never commit
 backups/
+
+# Vercel CLI link metadata (contains project + org ids)
+.vercel
+.env*
