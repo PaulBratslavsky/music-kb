@@ -53,7 +53,7 @@ export function ChordBuilder({
     [appState.state, appState.previewedChordDegree],
   );
 
-  const pcLabels =
+  const basePcLabels =
     appState.labelMode === 'degree' ? resolved.pcDegrees : resolved.pcDisplay;
 
   // Load a chord (root + quality) into the builder as a fresh root-position
@@ -245,8 +245,6 @@ export function ChordBuilder({
       ? availableShapePositions[safeHighlightIdx]
       : null;
   const HIGHLIGHT_COLOR = '#4f8cff';
-  // Deliberately colourless — its job is to recede.
-  const MUTED_COLOR = '#8b93a1';
   // Chords living inside the highlighted box. This is the lookup half of
   // Theory > Practice's "find the chords in a scale" — same data, answer
   // shown rather than hidden, because on /builder you're exploring the
@@ -302,6 +300,18 @@ export function ChordBuilder({
     [boxCells],
   );
 
+  // With a chord selected, show ONLY its grips. Labelling by pitch class
+  // lit every R and every 5 across the neck, which is a scatter, not a
+  // shape — and a power chord IS a shape. Restricting the board to the
+  // grip positions is what makes "root, and the fifth two frets up on the
+  // next string" visible as one hand position.
+  const chordGripPositions = useMemo(() => {
+    if (!activeBoxChord || activeBoxChord.grips.length === 0) return null;
+    return new Set(
+      activeBoxChord.grips.flat().map((p) => `${p.string}-${p.fret}`),
+    );
+  }, [activeBoxChord]);
+
   const cellColors = useMemo(() => {
     if (!boxCells) return null;
     const map = new Map<string, string>();
@@ -310,20 +320,22 @@ export function ChordBuilder({
       for (const c of boxCells) map.set(`${c.string}-${c.fret}`, HIGHLIGHT_COLOR);
       return map;
     }
-    // A chord IS picked. Grey the rest of the box and leave the chord's own
-    // cells un-overridden, so they keep the board's normal root/scale
-    // colours and are the only notes in colour. Recolouring them instead
-    // fought the palette — the accent orange is nearly the root colour, so
-    // chord tones were indistinguishable from scale roots.
-    const inChord = new Set(
-      activeBoxChord.positions.map((p) => `${p.string}-${p.fret}`),
-    );
-    for (const c of boxCells) {
-      const key = `${c.string}-${c.fret}`;
-      if (!inChord.has(key)) map.set(key, MUTED_COLOR);
-    }
-    return map;
+    // A chord IS picked, and the board is already restricted to its grips,
+    // so there is nothing left to mute — let the notes keep the board's
+    // normal colours and read their R / 3 / 5 labels.
+    return null;
   }, [boxCells, activeBoxChord]);
+
+  // While a box chord is selected, label its notes by their ROLE — R, 3, 5
+  // — rather than by note name. A name tells you where you are on the neck;
+  // the role tells you where you are in the chord, which is the thing the
+  // lookup exists to teach. Everything else keeps its normal label.
+  const pcLabels = useMemo(() => {
+    if (!activeBoxChord) return basePcLabels;
+    const out = { ...basePcLabels } as Record<string, string>;
+    for (const [pc, role] of activeBoxChord.roleFor) out[pc] = role;
+    return out;
+  }, [activeBoxChord, basePcLabels]);
 
   const stepHighlight = (delta: 1 | -1) => {
     if (availableShapePositions.length === 0) return;
@@ -649,12 +661,14 @@ export function ChordBuilder({
               onPlayNote={(midi) => synth.playNote(midi)}
               pcLabels={pcLabels}
               shapePositions={
-                // The GUITAR SHAPE selector already crops the board, so only
-                // restrict it ourselves when the box came from the Highlight
-                // stepper on the full neck.
-                typeof appState.state.scalePosition === 'number'
+                // A selected chord wins: show its grips and nothing else.
+                // Otherwise the GUITAR SHAPE selector already crops the
+                // board, so only restrict it ourselves when the box came
+                // from the Highlight stepper on the full neck.
+                chordGripPositions ??
+                (typeof appState.state.scalePosition === 'number'
                   ? resolved.guitarShapePositions
-                  : (boxShapePositions ?? resolved.guitarShapePositions)
+                  : (boxShapePositions ?? resolved.guitarShapePositions))
               }
               barre={resolved.guitarBarre}
               cellColors={cellColors}

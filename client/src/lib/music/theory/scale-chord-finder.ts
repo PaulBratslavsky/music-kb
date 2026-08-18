@@ -15,6 +15,7 @@ import type { PitchClass, ScalePosition, ScaleType } from '../types';
 import { PITCH_CLASSES } from '../types';
 import { getDiatonicTriads, type DiatonicTriad } from './diatonic';
 import { realizeCagedShape, type RealizedPosition } from './positions';
+import { chordGrips } from './power-chords';
 import { getScalePitchClasses } from './scales';
 
 export type FinderMode = 'triads' | 'power';
@@ -28,8 +29,27 @@ export type FoundChord = {
   quality: DiatonicTriad['quality'];
   /** Notes to look for, in the current mode. */
   targetPcs: PitchClass[];
-  /** Where they sit inside the chosen box. */
+  /**
+   * Where to play it. For triads: every chord tone inside the box. For
+   * power chords: the actual GRIPS — root plus the fifth on the next
+   * string — because a power chord is a hand shape, not a set of pitch
+   * classes. Scattering its notes across the box loses the only thing that
+   * makes it a power chord.
+   */
   positions: RealizedPosition[];
+  /**
+   * The playable shapes, each one note per consecutive string: [root, 3rd,
+   * 5th] for a triad, [root, 5th] for a power chord. Both are grips — a
+   * hand position you can slide — so both are returned as shapes rather
+   * than as loose dots scattered through the box.
+   */
+  grips: RealizedPosition[][];
+  /**
+   * pitch class → its role in THIS chord ('R', '3', '5'). What a player
+   * needs on the board: a note name tells you where you are on the neck,
+   * this tells you where you are in the chord.
+   */
+  roleFor: Map<PitchClass, string>;
   /**
    * Set when this degree's 5th is diminished — the ii° in minor, the vii° in
    * major. A power chord there is NOT the usual root+7-semitone grip: the
@@ -85,12 +105,24 @@ export function findChordsInScale(
       : realizeCagedShape(position, root, scalePcs, type);
 
   return triads.map((t) => {
-    const targetPcs = targetIntervals(mode, t.quality).map((i) => transpose(t.root, i));
-    const wanted = new Set(targetPcs);
+    const intervals = targetIntervals(mode, t.quality);
+    const targetPcs = intervals.map((i) => transpose(t.root, i));
+    const scope = boxed ?? allNeckPositions(scalePcs);
 
-    const positions = (boxed ?? allNeckPositions(scalePcs)).filter((p) =>
-      wanted.has(pitchAt(p)),
-    );
+    // Role labels follow the INTERVAL, so a diminished fifth still reads as
+    // the 5 of its chord (flagged separately) rather than as a b5 the
+    // player has to decode.
+    const roleFor = new Map<PitchClass, string>();
+    targetPcs.forEach((pc, i) => {
+      roleFor.set(pc, i === 0 ? 'R' : mode === 'power' ? '5' : i === 1 ? '3' : '5');
+    });
+
+    // Anchor a grip on each ROOT in the box; the other notes fall where the
+    // shape puts them — +2 frets to the next string, +3 across G→B — even
+    // when that leaves the box, because a grip clipped to a fret window is
+    // a different grip.
+    const roots = scope.filter((p) => pitchAt(p) === t.root);
+    const grips = chordGrips(roots, intervals, MAX_FRET);
 
     return {
       degree: t.degree,
@@ -98,7 +130,11 @@ export function findChordsInScale(
       roman: t.roman,
       quality: t.quality,
       targetPcs,
-      positions,
+      positions: grips.flat(),
+      grips,
+      roleFor,
+      // Only meaningful for power chords: a triad SPELLS its diminished
+      // fifth, so there is nothing to warn about.
       flatFifthWarning: mode === 'power' && t.quality === 'dim',
     };
   });

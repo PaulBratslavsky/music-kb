@@ -31,6 +31,49 @@ describe('findChordsInScale — triads', () => {
   });
 });
 
+describe('findChordsInScale — power chords are SHAPES', () => {
+  const TUNING = [64, 59, 55, 50, 45, 40];
+  const midi = (p: { string: number; fret: number }) => TUNING[p.string] + p.fret;
+
+  it('returns grips, each root plus the fifth on the next string', () => {
+    const chords = findChordsInScale('E', 'minor', 3, 'power');
+    const i = chords[0];
+    expect(i.grips.length).toBeGreaterThan(0);
+    for (const grip of i.grips) {
+      expect(grip).toHaveLength(2);
+      expect(grip[1].string).toBe(grip[0].string - 1);
+      expect(midi(grip[1]) - midi(grip[0])).toBe(7);
+    }
+  });
+
+  it('uses +3 across G→B rather than +2', () => {
+    const chords = findChordsInScale('E', 'minor', 'all', 'power');
+    for (const c of chords) {
+      for (const grip of c.grips) {
+        const expected = grip[0].string === 2 ? 3 : 2; // G string = index 2
+        if (c.quality !== 'dim') {
+          expect(grip[1].fret - grip[0].fret).toBe(expected);
+        }
+      }
+    }
+  });
+
+  it('the diminished degree gets a FLAT fifth, not the standard shape', () => {
+    const chords = findChordsInScale('E', 'minor', 'all', 'power');
+    const ii = chords[1];
+    expect(ii.flatFifthWarning).toBe(true);
+    for (const grip of ii.grips) {
+      expect(midi(grip[1]) - midi(grip[0])).toBe(6);
+    }
+  });
+
+  it('triad mode returns grips too — a triad is a hand shape as well', () => {
+    const grips = findChordsInScale('E', 'minor', 3, 'triads')[0].grips;
+    expect(grips.length).toBeGreaterThan(0);
+    for (const g of grips) expect(g).toHaveLength(3);
+  });
+});
+
 describe('findChordsInScale — power chords', () => {
   const chords = findChordsInScale('E', 'minor', 'all', 'power');
 
@@ -67,15 +110,29 @@ describe('findChordsInScale — power chords', () => {
 });
 
 describe('findChordsInScale — restricted to a box', () => {
-  it('only returns positions inside the chosen box', () => {
+  it('anchors every grip on a root inside the box', () => {
+    // Box 3 of E minor spans frets 4-8 (guitarscale.org Shape 3). The ROOT
+    // must sit in the box; the rest of the grip may reach outside it,
+    // because a shape trimmed to a fret window is a different shape.
     const boxed = findChordsInScale('E', 'minor', 3, 'triads');
-    // Box 3 of E minor spans frets 4-8 (guitarscale.org Shape 3).
     for (const chord of boxed) {
-      for (const p of chord.positions) {
-        expect(p.fret).toBeGreaterThanOrEqual(4);
-        expect(p.fret).toBeLessThanOrEqual(8);
+      for (const grip of chord.grips) {
+        expect(grip[0].fret).toBeGreaterThanOrEqual(4);
+        expect(grip[0].fret).toBeLessThanOrEqual(8);
       }
     }
+  });
+
+  it('labels every chord tone by its role, not its note name', () => {
+    const [i] = findChordsInScale('E', 'minor', 3, 'triads');
+    expect(i.roleFor.get('E')).toBe('R');
+    expect(i.roleFor.get('G')).toBe('3');
+    expect(i.roleFor.get('B')).toBe('5');
+
+    const [ip] = findChordsInScale('E', 'minor', 3, 'power');
+    expect(ip.roleFor.get('E')).toBe('R');
+    expect(ip.roleFor.get('B')).toBe('5');
+    expect(ip.roleFor.has('G')).toBe(false); // no third in a power chord
   });
 
   it('finds fewer positions in a box than across the whole neck', () => {
