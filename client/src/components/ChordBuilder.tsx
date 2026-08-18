@@ -22,6 +22,7 @@ import { Button } from '#/components/ui/button';
 import { exportFretboardPng } from '#/lib/music/png-export';
 import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positions';
 import { findChordsInScale, type FinderMode } from '#/lib/music/theory/scale-chord-finder';
+import { inversionForBass } from '#/lib/music/theory/chords';
 import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
 import { detectFromFrets, detectFromMidis } from '#/lib/music/theory/detect-chord';
@@ -137,10 +138,17 @@ export function ChordBuilder({
     // consistent with manually-built chords. Preserve tonal's raw symbol for
     // slash chords (bass is dropped by the parser) and shapes we can't map.
     const useRaw = !detected.selection || (best?.includes('/') ?? false);
+    const root = detected.selection?.root ?? detected.notes[0] ?? 'C';
+    const quality = detected.selection?.quality ?? 'maj';
+    // detected.notes is lowest-sounding first, so notes[0] IS the bass.
+    // Storing the inversion it implies keeps the slash real: without it the
+    // chord is only "Em/B" as text, and every surface that re-derives a
+    // voicing (piano board, Push cards) puts E back in the bass.
+    const bass = detected.notes[0];
     return {
-      root: detected.selection?.root ?? detected.notes[0] ?? 'C',
-      quality: detected.selection?.quality ?? 'maj',
-      inversion: 0,
+      root,
+      quality,
+      inversion: bass ? inversionForBass(root, quality, bass) : 0,
       voicingIndex: 0,
       positions,
       detectedLabel: useRaw ? (best ?? detected.notes.join(' ')) : undefined,
