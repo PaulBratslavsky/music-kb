@@ -19,7 +19,11 @@ import type { ChordSelection, PitchClass } from '#/lib/music/types';
 
 // A chord as the progression stores it — a ChordSelection plus, for shapes
 // captured via the reverse-detect fretboard, the exact tapped `positions`.
-type MiniChord = ChordSelection & { positions?: string[] };
+type MiniChord = ChordSelection & {
+  positions?: string[];
+  /** The notes that actually sounded — see ProgressionChord.midis. */
+  midis?: number[];
+};
 
 // A `${string}-${fret}` key map → ChordDiagram per-string states. Keys use
 // string 0 = high E … 5 = low E, the same convention ChordDiagram expects.
@@ -158,17 +162,22 @@ export function ChordMini({
     // ONE voicing, placed on real pads — not every pitch-class match. The
     // scale board lights repeats on purpose; a chord card must show the
     // grip you'd actually play, so it goes through pushChordShape.
-    const notes = pianoVoicing({
-      root: chord.root,
-      quality: chord.quality,
-      inversion: chord.inversion ?? 0,
-      // Closed voicing: voicingIndex is a GUITAR index and means nothing
-      // to a pad layout (see SectionScalePicker for the same trap).
-      voicingIndex: 0,
-    });
+    // The notes that actually sounded, when we have them — same reason as
+    // the piano board: a re-derived voicing loses the spacing.
+    const midis =
+      chord.midis && chord.midis.length > 0
+        ? chord.midis
+        : pianoVoicing({
+            root: chord.root,
+            quality: chord.quality,
+            inversion: chord.inversion ?? 0,
+            // voicingIndex is a GUITAR index and means nothing to a pad
+            // layout (see SectionScalePicker for the same trap).
+            voicingIndex: 0,
+          }).map(midiFromNote);
     const rows = 4;
     const cols = 5;
-    const shape = pushChordShape(notes.map(midiFromNote), rows, cols);
+    const shape = pushChordShape(midis, rows, cols);
     const rootPad = shape[0];
     return (
       <MiniPush
@@ -176,7 +185,7 @@ export function ChordMini({
         cols={cols}
         pads={shape.map((p, i) => ({
           ...p,
-          label: notes[i]?.pitchClass,
+          label: pitchClassFromMidi(midis[i]),
           root: p === rootPad,
         }))}
         ariaLabel={`${chord.root} chord on the Push grid`}

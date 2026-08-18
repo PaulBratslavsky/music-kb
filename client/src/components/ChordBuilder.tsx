@@ -23,6 +23,7 @@ import { exportFretboardPng } from '#/lib/music/png-export';
 import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positions';
 import { findChordsInScale, type FinderMode } from '#/lib/music/theory/scale-chord-finder';
 import { inversionForBass } from '#/lib/music/theory/chords';
+import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
 import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
 import { detectFromFrets, detectFromMidis } from '#/lib/music/theory/detect-chord';
@@ -145,9 +146,21 @@ export function ChordBuilder({
     // chord is only "Em/B" as text, and every surface that re-derives a
     // voicing (piano board, Push cards) puts E back in the bass.
     const bass = detected.notes[0];
+    // Every note that actually sounded, ascending. `inversion` below only
+    // records which chord tone is in the bass; this keeps the octaves and
+    // spacing too, so B3-E4-G4-B4 redraws as itself rather than as a
+    // closed second inversion.
+    const midis = (
+      instrument === 'piano'
+        ? [...playedMidis]
+        : [...playedFrets.entries()].map(
+            ([str, fret]) => STANDARD_TUNING_MIDI[str] + fret,
+          )
+    ).sort((a, b) => a - b);
     return {
       root,
       quality,
+      midis,
       inversion: bass ? inversionForBass(root, quality, bass) : 0,
       voicingIndex: 0,
       positions,

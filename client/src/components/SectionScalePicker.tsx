@@ -21,7 +21,7 @@ import { usePlayerControl } from '#/components/player';
 import { activeIndex } from '#/components/SectionChordStrip';
 import { chordToneMap, outsideScaleTones } from '#/lib/music/theory/chord-overlay';
 import { pianoVoicing } from '#/lib/music/theory/voicings/piano';
-import { midiFromPitchOctave } from '#/lib/music/theory/notes';
+import { midiFromPitchOctave, noteFromMidi } from '#/lib/music/theory/notes';
 import { voicingPositionKeys } from '#/lib/music/theory/voicing-positions';
 import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
 import { inferKeyFromChords, parseExtractedKey } from '#/lib/music/theory/key-inference';
@@ -245,22 +245,28 @@ export function SectionScalePicker({
       // the rest above it — and it's why the board spans two octaves: a
       // voicing that crosses the octave has somewhere to go. The lowest
       // sounding note is pinned to the lower drawn octave.
-      // voicingIndex is a GUITAR index (which barre shape); piano voicings
-      // are a different list entirely, so reusing the number turns a
-      // 5th-fret barre into a wide two-octave spread and the board stops
-      // matching the card above. Pin the closed voicing and let `inversion`
-      // — which IS instrument-neutral — do the work.
-      const notes = pianoVoicing({ ...activeChord, voicingIndex: 0 });
+      // Prefer the notes that ACTUALLY sounded when this chord was
+      // captured — they carry octave and spacing, which a re-derived
+      // voicing cannot. Fall back to deriving one for chords built by
+      // hand or saved before `midis` existed.
+      //
+      // On the fallback path: voicingIndex is a GUITAR index (which barre
+      // shape) and means nothing to a keyboard, so pin the closed voicing
+      // and let `inversion` — which IS instrument-neutral — do the work.
+      const notes =
+        activeChord.midis && activeChord.midis.length > 0
+          ? activeChord.midis.map(noteFromMidi)
+          : pianoVoicing({ ...activeChord, voicingIndex: 0 });
       if (notes.length > 0) {
         const midis = notes.map((n) => midiFromPitchOctave(n.pitchClass, n.octave));
         const lowest = Math.min(...midis);
-        return notes.map((n, i) => ({
-          pc: n.pitchClass,
-          // 0 or 1 — which drawn octave this note lands in, relative to the
-          // bass note. Clamped so a wide spread can't fall off the board.
-          octave: Math.min(1, Math.floor((midis[i] - lowest) / 12)),
-          label: showDegrees ? degreeLabel(n.pitchClass, root) : n.pitchClass,
-          root: midis[i] === lowest,
+        // Mark by ABSOLUTE note so the voicing draws in true pitch order —
+        // B3 below E4, not to the right of it.
+        return midis.map((midi) => ({
+          pc: PITCH_CLASSES[midi % 12],
+          midi,
+          label: showDegrees ? degreeLabel(PITCH_CLASSES[midi % 12], root) : PITCH_CLASSES[midi % 12],
+          root: midi === lowest,
         }));
       }
     }
@@ -288,6 +294,24 @@ export function SectionScalePicker({
       root: pc === root,
     }));
   }, [overlay, scalePcs, showDegrees, root]);
+
+  // Fit the board to the voicing: start on the C at or below its lowest
+  // note and draw enough octaves to reach the top one. A chord that dips
+  // below the board's first C (B3 under an E4 voicing) would otherwise be
+  // drawn an octave up and read as the wrong inversion.
+  const pianoRange = useMemo(() => {
+    const midis = keyMarks
+      .map((m) => m.midi)
+      .filter((m): m is number => typeof m === 'number');
+    if (midis.length === 0) return { baseMidi: 60, octaves: 2 };
+    const lo = Math.min(...midis);
+    const hi = Math.max(...midis);
+    const baseMidi = Math.floor(lo / 12) * 12;
+    return {
+      baseMidi,
+      octaves: Math.max(2, Math.ceil((hi - baseMidi + 1) / 12)),
+    };
+  }, [keyMarks]);
 
   const scaleName = `${root} ${SCALE_TYPE_LABELS[type]}`;
 
@@ -448,7 +472,8 @@ export function SectionScalePicker({
           // panel gives absurdly large keys.
           <div>
             <MiniKeyboard
-              octaves={2}
+              octaves={overlay ? pianoRange.octaves : 2}
+              baseMidi={pianoRange.baseMidi}
               marks={keyMarks}
               size="roomy"
               // MiniKeyboard's own warning: an unlit "F" sitting in a row of

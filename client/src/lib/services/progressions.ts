@@ -25,10 +25,21 @@ type ServiceResult<T> =
  *     preserved faithfully.
  *   - `detectedLabel`: the tonal-detected chord name to show (e.g. "Cmaj7",
  *     "Em7/C"), since root+quality is only a best-effort fallback for shapes
- *     that don't map cleanly to a known quality. */
+ *     that don't map cleanly to a known quality.
+ *   - `midis`: every note that actually sounded, as absolute MIDI numbers,
+ *     ascending. This is the only field that preserves OCTAVES and SPACING.
+ *     `inversion` records which chord tone is in the bass, which is enough
+ *     to stop a slash chord collapsing to root position, but it cannot
+ *     describe B3-E4-G4-B4 versus a closed second inversion — the spread is
+ *     part of what you played. Renderers that can show octaves (the piano
+ *     board, the Push grid) prefer this and fall back to deriving a voicing
+ *     when it's absent, which is every chord saved before this field
+ *     existed. Instrument-neutral by construction: a MIDI number means the
+ *     same thing on a fretboard and a keyboard. */
 export type ProgressionChord = ChordSelection & {
   positions?: string[];
   detectedLabel?: string;
+  midis?: number[];
 };
 
 export type StrapiProgression = {
