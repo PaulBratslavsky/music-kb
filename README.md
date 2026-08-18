@@ -272,10 +272,28 @@ Transcripts over ~15K estimated tokens (`SINGLE_PASS_TOKEN_BUDGET`) split into 2
 yarn dev            # Strapi + client only (skip the Ollama env setup)
 yarn client         # Client only (expects Strapi already running)
 yarn server         # Strapi only
-yarn --cwd client test    # Run vitest suite
+yarn web            # The companion SPA only
+yarn test           # Every vitest suite: packages/music, client, web
 ```
 
-The monorepo root is a single git repo with an unversioned shell `package.json` that delegates to the two workspaces; the `client/` and `server/` halves are independent (neither imports from the other — they meet over Strapi's REST API). Active development lands on feature branches off `main`.
+Four yarn workspaces under one unversioned root:
+
+| | |
+|---|---|
+| `client/` | the knowledge-base app (TanStack Start) |
+| `server/` | Strapi |
+| `web/` | **Paul's Music Helper** — the light companion SPA, no backend, deploys to Vercel |
+| `packages/music/` | `@music-kb/music` — the music-theory layer both apps share |
+
+`client/` and `server/` are independent (neither imports from the other —
+they meet over Strapi's REST API). `client/` and `web/` share exactly one
+thing, `@music-kb/music`; their React views are deliberately separate. See
+[ADR 0009](docs/adr/0009-monorepo-with-shared-music-package.md).
+
+**Install from the root.** The root lockfile is the only one — a bare
+`yarn` or `npm install` inside a package fights it.
+
+Active development lands on feature branches off `main`.
 
 ---
 
