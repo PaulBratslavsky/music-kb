@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   STRING_SETS,
+  TRIAD_FORMULA,
   TRIAD_INTERVALS,
   triadVoicing,
   type Inversion,
@@ -87,5 +88,43 @@ describe('triadVoicing', () => {
     for (const r of ['D', 'E', 'F', 'G', 'A'] as PitchClass[]) {
       expect(shapeOf(r)).toBe(base);
     }
+  });
+});
+
+// The two triad cheat-sheet posters (augmented and diminished) lay out the
+// same grid, and both state the stacking explicitly:
+//
+//   AUGMENTED   R-3-#5   ·  3-#5-R   ·  #5-R-3
+//   DIMINISHED  R-b3-b5  ·  b3-b5-R  ·  b5-R-b3
+//
+// plus the shared table: MAJOR R-3-5 · MINOR R-b3-5 · AUGMENTED R-3-#5 ·
+// DIMINISHED R-b3-b5. These pin our generator against that.
+describe('inversion stacking matches the published cheat sheets', () => {
+  const stackOf = (q: TriadQuality, inv: Inversion) =>
+    triadVoicing('C', q, STRING_SETS[1], inv)!.notes.map((n) => n.role);
+
+  it('augmented: R-3-♯5 · 3-♯5-R · ♯5-R-3', () => {
+    expect(stackOf('augmented', 0)).toEqual(['R', '3', '♯5']);
+    expect(stackOf('augmented', 1)).toEqual(['3', '♯5', 'R']);
+    expect(stackOf('augmented', 2)).toEqual(['♯5', 'R', '3']);
+  });
+
+  it('diminished: R-♭3-♭5 · ♭3-♭5-R · ♭5-R-♭3', () => {
+    expect(stackOf('diminished', 0)).toEqual(['R', '♭3', '♭5']);
+    expect(stackOf('diminished', 1)).toEqual(['♭3', '♭5', 'R']);
+    expect(stackOf('diminished', 2)).toEqual(['♭5', 'R', '♭3']);
+  });
+
+  it('major and minor follow the same rotation', () => {
+    expect(stackOf('major', 0)).toEqual(['R', '3', '5']);
+    expect(stackOf('major', 1)).toEqual(['3', '5', 'R']);
+    expect(stackOf('minor', 2)).toEqual(['5', 'R', '♭3']);
+  });
+
+  it('the formula table is spelled as the posters state it', () => {
+    expect(TRIAD_FORMULA.major).toBe('R - 3 - 5');
+    expect(TRIAD_FORMULA.minor).toBe('R - ♭3 - 5');
+    expect(TRIAD_FORMULA.augmented).toBe('R - 3 - ♯5');
+    expect(TRIAD_FORMULA.diminished).toBe('R - ♭3 - ♭5');
   });
 });
