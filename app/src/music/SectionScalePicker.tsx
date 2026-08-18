@@ -35,7 +35,11 @@ import {
   shapeName,
   supportsCaged,
 } from '../theory/positions';
-import { getScalePitchClasses, SCALE_TYPE_LABELS } from '../theory/scales';
+import {
+  getScalePitchClasses,
+  guitarScaleOrgUrl,
+  SCALE_TYPE_LABELS,
+} from '../theory/scales';
 import {
   PITCH_CLASSES,
   type PitchClass,
@@ -502,6 +506,15 @@ export function SectionScalePicker({
               ? ' — the lit keys are the scale, accented on the tonic.'
               : ' — filled dots are the root. Loop the section above and play these over it.'
         )}
+        {' '}
+        <a
+          href={guitarScaleOrgUrl(root, type)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-[var(--accent)] underline-offset-2 hover:underline"
+        >
+          Learn about {scaleName} →
+        </a>
       </p>
     </div>
   );
