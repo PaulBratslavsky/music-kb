@@ -1,0 +1,24 @@
+{
+  "name": "@music-kb/music",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The music-theory layer shared by the music-kb client and the light web app. Framework-free on purpose: no React, no DOM beyond localStorage, one runtime dependency (tonal). Anything that renders lives in the app that renders it.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./theory/*": "./src/theory/*.ts",
+    "./instruments/*": "./src/instruments/*.ts",
+    "./state/*": "./src/state/*.ts"
+  },
+  "dependencies": {
+    "tonal": "^6.4.3"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  }
+}

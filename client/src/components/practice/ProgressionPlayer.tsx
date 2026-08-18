@@ -16,17 +16,17 @@
 // 7 sevenths (Imaj7, iim7, ...); minor key gets the natural-minor 7ths.
 
 import { useState } from 'react';
-import { getDiatonicChords, type DiatonicChord } from '#/lib/music/theory/diatonic';
+import { getDiatonicChords, type DiatonicChord } from '@music-kb/music/theory/diatonic';
 import {
   useProgressionPlayback,
   type ChordStep,
 } from '#/components/practice/useProgressionPlayback';
-import { PITCH_CLASSES, type ChordQuality, type PitchClass } from '#/lib/music/types';
+import { PITCH_CLASSES, type ChordQuality, type PitchClass } from '@music-kb/music/types';
 import {
   generateProgression,
   STYLE_OPTIONS,
   type ProgressionStyle,
-} from '#/lib/music/theory/progression-generator';
+} from '@music-kb/music/theory/progression-generator';
 
 // Pick a sensible triad-level quality for each diatonic chord. We use the
 // triad (not the 7th) so playback sounds clean — adding a 7th to every

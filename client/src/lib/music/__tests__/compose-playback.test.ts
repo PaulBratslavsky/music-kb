@@ -7,7 +7,7 @@ import {
 } from '../compose/playback';
 import { emptyComposition } from '../compose/types';
 import type { Composition, Degree } from '../compose/types';
-import { pitchClassFromMidi } from '../theory/notes';
+import { pitchClassFromMidi } from '@music-kb/music/theory/notes';
 
 function cMajor(): Composition {
   return emptyComposition('t1', 'Test', 'C', 'major');

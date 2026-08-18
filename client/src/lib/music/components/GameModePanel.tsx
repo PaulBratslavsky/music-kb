@@ -1,4 +1,4 @@
-import type { GameModeState, Instrument } from '../types';
+import type { GameModeState, Instrument } from '@music-kb/music/types';
 
 type Props = {
   instrument: Instrument;

@@ -18,7 +18,7 @@
 import { memo, useRef } from 'react';
 import type { Degree, NoteSpan } from '#/lib/music/compose/types';
 import { TOTAL_TICKS } from '#/lib/music/compose/types';
-import type { PitchClass } from '#/lib/music/types';
+import type { PitchClass } from '@music-kb/music/types';
 import { LABEL_W, TRACK_COLS, isBarStart, isBeatStart } from './laneLayout';
 import type { ChordToneHighlight } from './chordHighlight';
 import { useSpanDrag } from './useSpanDrag';

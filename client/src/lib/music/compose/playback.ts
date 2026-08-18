@@ -3,10 +3,10 @@
 // can be unit-tested without audio; the hook (useCompositionPlayback) is
 // the only piece that touches the synth and timers.
 
-import type { Note, PitchClass, ScaleSelection, ScaleType } from '../types';
-import { midiFromNote, notesAscending } from '../theory/notes';
-import { getScalePitchClasses } from '../theory/scales';
-import { getDiatonicChords } from '../theory/diatonic';
+import type { Note, PitchClass, ScaleSelection, ScaleType } from '@music-kb/music/types';
+import { midiFromNote, notesAscending } from '@music-kb/music/theory/notes';
+import { getScalePitchClasses } from '@music-kb/music/theory/scales';
+import { getDiatonicChords } from '@music-kb/music/theory/diatonic';
 import type { Composition, Degree, KeyMode } from './types';
 import { TICKS_PER_BEAT, TOTAL_TICKS } from './types';
 

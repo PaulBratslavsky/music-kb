@@ -6,9 +6,9 @@
 // buildDisplayMap already solves the enharmonic half; this adds the
 // typography and the per-diagram lookup the lesson pages want.
 
-import type { PitchClass, ScaleSelection } from '#/lib/music/types';
-import { buildDisplayMap } from '#/lib/music/theory/notes';
-import { getScaleNoteNames } from '#/lib/music/theory/scales';
+import type { PitchClass, ScaleSelection } from '@music-kb/music/types';
+import { buildDisplayMap } from '@music-kb/music/theory/notes';
+import { getScaleNoteNames } from '@music-kb/music/theory/scales';
 
 /** "F#" → "F♯", "Bb" → "B♭". Leaves naturals untouched. */
 export function prettyAccidentals(name: string): string {

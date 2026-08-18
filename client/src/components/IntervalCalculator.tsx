@@ -14,7 +14,7 @@ import {
   intervalFromSemitones,
   semitonesBetween,
 } from '#/lib/music/intervals';
-import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 import { synth } from '#/lib/music/audio/synth';
 
 // Sharp + flat display per chromatic position; we keep the sharp spelling

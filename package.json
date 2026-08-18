@@ -7,9 +7,10 @@
   "type": "module",
   "scripts": {
     "client": "yarn --cwd ./client dev",
+    "test": "yarn --cwd ./packages/music test && yarn --cwd ./client test",
     "server": "yarn --cwd ./server develop",
-    "setup:client": "cd client && yarn && node ../copy-env.mjs ./",
-    "setup:server": "cd server && yarn && node ../copy-env.mjs ./",
+    "setup:client": "node ./copy-env.mjs ./client",
+    "setup:server": "node ./copy-env.mjs ./server",
     "setup": "yarn install && yarn setup:client && yarn setup:server",
     "dev": "yarn concurrently \"cd server && yarn develop\" \"npx wait-on http://localhost:1350 && cd client && yarn dev\"",
     "start": "./start.sh",
@@ -26,5 +27,10 @@
     "typescript": "^5.0.0",
     "wait-on": "^8.0.1"
   },
-  "packageManager": "yarn@1.22.22"
+  "packageManager": "yarn@1.22.22",
+  "workspaces": [
+    "client",
+    "server",
+    "packages/*"
+  ]
 }

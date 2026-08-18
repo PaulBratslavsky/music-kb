@@ -10,7 +10,7 @@
 // Chords and melody/bass notes are all variable-length time spans on
 // this grid, so a note can be a sixteenth, a quarter, a whole bar, etc.
 
-import type { PitchClass } from '../types';
+import type { PitchClass } from '@music-kb/music/types';
 
 export const TICKS_PER_BEAT = 4;
 export const BEATS_PER_BAR = 4;

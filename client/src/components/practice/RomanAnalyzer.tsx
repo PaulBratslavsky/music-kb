@@ -11,9 +11,9 @@
 // coverage. For now, manual selection keeps the analysis grounded.
 
 import { useState } from 'react';
-import { parseChordProgression } from '#/lib/music/theory/parse-chord';
-import { analyzeProgression, type ChordFunction } from '#/lib/music/theory/roman-analysis';
-import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
+import { parseChordProgression } from '@music-kb/music/theory/parse-chord';
+import { analyzeProgression, type ChordFunction } from '@music-kb/music/theory/roman-analysis';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 
 const FUNCTION_COLORS: Record<ChordFunction, string> = {
   T: 'bg-emerald-100 text-emerald-800 border-emerald-300',

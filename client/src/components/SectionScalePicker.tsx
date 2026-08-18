@@ -19,36 +19,36 @@ import { MiniPush, type PushMark } from '#/components/lesson/MiniPush';
 import type { PlayAlongInstrument } from '#/components/usePlayAlongInstrument';
 import { usePlayerControl } from '#/components/player';
 import { activeIndex } from '#/components/SectionChordStrip';
-import { chordToneMap, outsideScaleTones } from '#/lib/music/theory/chord-overlay';
-import { pianoVoicing } from '#/lib/music/theory/voicings/piano';
-import { midiFromPitchOctave, noteFromMidi } from '#/lib/music/theory/notes';
-import { voicingPositionKeys } from '#/lib/music/theory/voicing-positions';
-import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
-import { inferKeyFromChords, parseExtractedKey } from '#/lib/music/theory/key-inference';
+import { chordToneMap, outsideScaleTones } from '@music-kb/music/theory/chord-overlay';
+import { pianoVoicing } from '@music-kb/music/theory/voicings/piano';
+import { midiFromPitchOctave, noteFromMidi } from '@music-kb/music/theory/notes';
+import { voicingPositionKeys } from '@music-kb/music/theory/voicing-positions';
+import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
+import { inferKeyFromChords, parseExtractedKey } from '@music-kb/music/theory/key-inference';
 import {
   availablePositions,
   realizeCagedShape,
   shapeName,
   supportsCaged,
-} from '#/lib/music/theory/positions';
+} from '@music-kb/music/theory/positions';
 import {
   getScalePitchClasses,
   guitarScaleOrgUrl,
   SCALE_TYPE_LABELS,
-} from '#/lib/music/theory/scales';
+} from '@music-kb/music/theory/scales';
 import {
   PITCH_CLASSES,
   type PitchClass,
   type ScalePosition,
   type ScaleType,
-} from '#/lib/music/types';
+} from '@music-kb/music/types';
 
 type PositionId = ScalePosition;
 import type { ProgressionChord } from '#/lib/services/progressions';
 import type { KeySig } from '#/lib/services/loops';
 import { updateLoop } from '#/data/server-functions/loops';
-import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
-import { STANDARD_BASS_TUNING_MIDI } from '#/lib/music/instruments/bass/layout';
+import { STANDARD_TUNING_MIDI } from '@music-kb/music/instruments/guitar/layout';
+import { STANDARD_BASS_TUNING_MIDI } from '@music-kb/music/instruments/bass/layout';
 
 // Modes are offered but never inferred — picking dorian over minor is an
 // interpretive choice, not something 4 chords can settle.

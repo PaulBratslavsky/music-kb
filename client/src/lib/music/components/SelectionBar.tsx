@@ -5,12 +5,12 @@ import {
   type ScalePosition,
   type ScaleType,
   type ViewMode,
-} from '../types';
-import { SCALE_TYPE_LABELS } from '../theory/scales';
-import { availablePositions } from '../theory/positions';
+} from '@music-kb/music/types';
+import { SCALE_TYPE_LABELS } from '@music-kb/music/theory/scales';
+import { availablePositions } from '@music-kb/music/theory/positions';
 import { useAppState } from '../state/useAppState';
 import { ChordControlPanel } from './ChordControlPanel';
-import { FLAT_NAMES } from '../theory/notes';
+import { FLAT_NAMES } from '@music-kb/music/theory/notes';
 
 type Props = ReturnType<typeof useAppState>;
 

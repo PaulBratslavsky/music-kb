@@ -17,11 +17,11 @@ import {
   type ScaleSelection,
   type ScaleType,
   type ViewMode,
-} from '../types';
-import { STANDARD_TUNING_MIDI } from '../instruments/guitar/layout';
-import { PUSH_BASE_MIDI } from '../instruments/push/layout';
-import { pitchClassFromMidi } from '../theory/notes';
-import { loadBestStreak, saveBestStreak } from './gameModeStorage';
+} from '@music-kb/music/types';
+import { STANDARD_TUNING_MIDI } from '@music-kb/music/instruments/guitar/layout';
+import { PUSH_BASE_MIDI } from '@music-kb/music/instruments/push/layout';
+import { pitchClassFromMidi } from '@music-kb/music/theory/notes';
+import { loadBestStreak, saveBestStreak } from '@music-kb/music/state/gameModeStorage';
 
 export const DEFAULT_STATE: AppState = {
   mode: 'chord',

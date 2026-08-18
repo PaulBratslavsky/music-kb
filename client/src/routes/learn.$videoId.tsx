@@ -25,7 +25,7 @@ import {
 import { LoopBuilder } from '#/components/LoopBuilder';
 import { SavedLoopsList } from '#/components/SavedLoopsList';
 import { usePlayerControl } from '#/components/player';
-import type { AppState } from '#/lib/music/types';
+import type { AppState } from '@music-kb/music/types';
 import type { KeySig } from '#/lib/services/loops';
 import {
   saveLoop as saveLoopServerFn,

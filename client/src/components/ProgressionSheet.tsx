@@ -4,9 +4,9 @@
 // same ChordMini diagram the on-screen strip uses, nested at a grid cell,
 // with the chord name beneath.
 import { ChordMini } from '#/components/ChordMini';
-import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
+import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
 import type { ProgressionChord } from '#/lib/services/progressions';
-import type { ChordQuality } from '#/lib/music/types';
+import type { ChordQuality } from '@music-kb/music/types';
 
 function label(c: ProgressionChord): string {
   return `${c.root}${QUALITY_LABELS[c.quality as ChordQuality] ?? c.quality}`;

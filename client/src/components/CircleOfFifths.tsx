@@ -21,9 +21,9 @@ import {
   type Enharmonic,
   type KeyMode,
 } from '#/lib/music/circle-of-fifths';
-import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
-import { midiFromPitchOctave } from '#/lib/music/theory/notes';
-import { getChordPitchClasses, stackAscending } from '#/lib/music/theory/chords';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
+import { midiFromPitchOctave } from '@music-kb/music/theory/notes';
+import { getChordPitchClasses, stackAscending } from '@music-kb/music/theory/chords';
 import { synth } from '#/lib/music/audio/synth';
 
 // Component supports two modes:

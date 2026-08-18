@@ -21,8 +21,8 @@ import {
   triadVoicing,
   type Inversion,
   type TriadQuality,
-} from '#/lib/music/theory/triad-shapes';
-import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
+} from '@music-kb/music/theory/triad-shapes';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 
 export const Route = createFileRoute('/lessons/triads')({
   component: TriadsPage,

@@ -6,7 +6,7 @@
 // no flattening; `name` is the user label for the saved list.
 
 import { strapiFetch, type StrapiQuery } from './strapi-client';
-import type { ChordSelection } from '#/lib/music/types';
+import type { ChordSelection } from '@music-kb/music/types';
 
 type ServiceResult<T> =
   | { success: true; data: T }

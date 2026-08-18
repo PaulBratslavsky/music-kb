@@ -9,9 +9,9 @@
 // The bass neck is longer (20 frets) so the layout uses a slightly
 // narrower fret width to keep the overall width similar to the guitar.
 
-import type { Note, PitchClass } from '../../types';
-import { buildBassLayout, BASS_FRET_COUNT, STANDARD_BASS_TUNING_MIDI } from './layout';
-import { midiFromNote } from '../../theory/notes';
+import type { Note, PitchClass } from '@music-kb/music/types';
+import { buildBassLayout, BASS_FRET_COUNT, STANDARD_BASS_TUNING_MIDI } from '@music-kb/music/instruments/bass/layout';
+import { midiFromNote } from '@music-kb/music/theory/notes';
 
 type Props = {
   highlighted: Note[];

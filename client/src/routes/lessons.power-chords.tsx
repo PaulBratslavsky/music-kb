@@ -11,7 +11,7 @@
 
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { MiniNeck, type NeckDot } from '#/components/lesson/MiniNeck';
-import { chordGrip } from '#/lib/music/theory/power-chords';
+import { chordGrip } from '@music-kb/music/theory/power-chords';
 
 export const Route = createFileRoute('/lessons/power-chords')({
   component: PowerChordsPage,

@@ -16,15 +16,15 @@ import { MiniNeck, type NeckDot } from '#/components/lesson/MiniNeck';
 import {
   findChordsInScale,
   type FinderMode,
-} from '#/lib/music/theory/scale-chord-finder';
-import { availablePositions, shapeName, supportsCaged } from '#/lib/music/theory/positions';
-import { getScalePitchClasses, SCALE_TYPE_LABELS } from '#/lib/music/theory/scales';
+} from '@music-kb/music/theory/scale-chord-finder';
+import { availablePositions, shapeName, supportsCaged } from '@music-kb/music/theory/positions';
+import { getScalePitchClasses, SCALE_TYPE_LABELS } from '@music-kb/music/theory/scales';
 import {
   PITCH_CLASSES,
   type PitchClass,
   type ScalePosition,
   type ScaleType,
-} from '#/lib/music/types';
+} from '@music-kb/music/types';
 
 // Only scales with transcribed box data — the point of the exercise is a
 // shape you can actually put your hand in.

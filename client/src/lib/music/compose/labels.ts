@@ -4,8 +4,8 @@
 // numerals that match what's actually sounded. This derives them from a
 // DiatonicChord's first three pitch classes.
 
-import type { DiatonicChord } from '../theory/diatonic';
-import { PITCH_CLASSES } from '../types';
+import type { DiatonicChord } from '@music-kb/music/theory/diatonic';
+import { PITCH_CLASSES } from '@music-kb/music/types';
 
 const ROMAN_UPPER = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 const ROMAN_LOWER = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii'];

@@ -20,7 +20,7 @@ import {
   type ChordQuality,
   type PitchClass,
   type ScaleType,
-} from './types';
+} from '@music-kb/music/types';
 import { DEFAULT_STATE } from './state/useAppState';
 
 const isPitchClass = (s: string): s is PitchClass =>

@@ -1,6 +1,6 @@
-import type { GameModeState, GuessPosition, Note, PianoKey, PitchClass } from '../../types';
-import { defaultPianoLayout } from './layout';
-import { midiFromNote } from '../../theory/notes';
+import type { GameModeState, GuessPosition, Note, PianoKey, PitchClass } from '@music-kb/music/types';
+import { defaultPianoLayout } from '@music-kb/music/instruments/piano/layout';
+import { midiFromNote } from '@music-kb/music/theory/notes';
 
 type Props = {
   highlighted: Note[];

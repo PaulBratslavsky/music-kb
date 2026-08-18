@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
-import type { Note, PitchClass } from '../../types';
-import { midiFromNote } from '../../theory/notes';
+import type { Note, PitchClass } from '@music-kb/music/types';
+import { midiFromNote } from '@music-kb/music/theory/notes';
 
 type Props = {
   notes: Note[];

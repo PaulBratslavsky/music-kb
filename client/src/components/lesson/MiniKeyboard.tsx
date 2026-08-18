@@ -8,8 +8,8 @@
 // arc is the whole point of the half-steps lesson — you can *see* that
 // the major scale's two half steps land on 3→4 and 7→8.
 
-import type { PitchClass } from '#/lib/music/types';
-import { PITCH_CLASSES } from '#/lib/music/types';
+import type { PitchClass } from '@music-kb/music/types';
+import { PITCH_CLASSES } from '@music-kb/music/types';
 
 export type KeyMark = {
   pc: PitchClass;

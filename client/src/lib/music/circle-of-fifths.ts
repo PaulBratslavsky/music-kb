@@ -17,7 +17,7 @@
 // bottom. This neighborhood is the visual payoff of the circle — it makes
 // "the IV-V-vi-I family" something you can see at a glance.
 
-import type { PitchClass } from './types';
+import type { PitchClass } from '@music-kb/music/types';
 
 export const CIRCLE_MAJORS = [
   'C',  // 0  — 12 o'clock
