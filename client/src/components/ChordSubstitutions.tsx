@@ -29,7 +29,7 @@ import {
 import {
   CIRCLE_MAJOR_DISPLAY,
   CIRCLE_MINOR_DISPLAY,
-} from '#/lib/music/circle-of-fifths';
+} from '@music-kb/music/theory/circle-of-fifths';
 
 // First substitution in each row already encodes the same root → can't
 // re-use directly. Build a quality-aware link based on the Roman numeral

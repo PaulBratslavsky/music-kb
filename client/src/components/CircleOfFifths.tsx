@@ -20,7 +20,7 @@ import {
   type CircleDirection,
   type Enharmonic,
   type KeyMode,
-} from '#/lib/music/circle-of-fifths';
+} from '@music-kb/music/theory/circle-of-fifths';
 import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 import { midiFromPitchOctave } from '@music-kb/music/theory/notes';
 import { getChordPitchClasses, stackAscending } from '@music-kb/music/theory/chords';

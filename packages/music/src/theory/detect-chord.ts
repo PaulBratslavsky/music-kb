@@ -1,4 +1,5 @@
-// Reverse chord detection — name a chord from a set of played notes. Built on tonal's Chord.detect (the inverse of Chord.get, which
+// Reverse chord detection — name a chord from a set of played notes.
+// Built on tonal's Chord.detect (the inverse of Chord.get, which
 // the rest of the app uses to go name → notes).
 //
 // The lowest sounding note is passed first so tonal can surface slash chords

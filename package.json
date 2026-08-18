@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "client": "yarn --cwd ./client dev",
-    "test": "yarn --cwd ./packages/music test && yarn --cwd ./client test",
+    "test": "yarn --cwd ./packages/music test && yarn --cwd ./client test && yarn --cwd ./web test",
     "server": "yarn --cwd ./server develop",
     "setup:client": "node ./copy-env.mjs ./client",
     "setup:server": "node ./copy-env.mjs ./server",
@@ -20,7 +20,8 @@
     "db:dump:local": "yarn --cwd ./server db:dump:local",
     "db:dump:neon": "yarn --cwd ./server db:dump:neon",
     "db:load:local": "yarn --cwd ./server db:load:local",
-    "db:load:neon": "yarn --cwd ./server db:load:neon"
+    "db:load:neon": "yarn --cwd ./server db:load:neon",
+    "web": "yarn --cwd ./web dev"
   },
   "dependencies": {
     "concurrently": "^8.2.2",
@@ -31,6 +32,7 @@
   "workspaces": [
     "client",
     "server",
+    "web",
     "packages/*"
   ]
 }

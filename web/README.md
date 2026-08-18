@@ -40,59 +40,56 @@ Each instrument has a totally different physical layout: piano is linear, guitar
 
 ## Tech stack
 
-- React 18 + TypeScript + Vite
-- [`tonal`](https://github.com/tonaljs/tonal) for chord, scale, and interval math
+- React 19 + TypeScript + Vite, styled with Tailwind v4
+- `@music-kb/music` — the shared theory package, which wraps
+  [`tonal`](https://github.com/tonaljs/tonal) for chord, scale, and interval math
 - Web Audio API for synth playback
 - SVG for all instrument views and notation
 - React `useState` + URL sync for state — no backend, no database, no accounts
 
 ## Getting started
 
+This app is a workspace of the [`music-kb`](../README.md) monorepo, so install
+from the repo root — one install covers every package:
+
 ```bash
-cd app
-npm install
-npm run dev
+yarn install          # from the repo root
+yarn --cwd web dev
 ```
 
 Open the URL Vite prints. To build for production:
 
 ```bash
-npm run build
+yarn --cwd web build
 ```
 
-The output in `app/dist/` is a static site — host it anywhere (Cloudflare Pages, Vercel, Netlify, GitHub Pages, S3).
+The output in `web/dist/` is a static site — host it anywhere (Vercel, Cloudflare
+Pages, Netlify, GitHub Pages, S3). It deploys to Vercel on every push to `main`.
 
 ## Project layout
 
+The music theory lives one level up, in `packages/music`, because the
+knowledge-base app in this monorepo uses exactly the same answers. What's here
+is this app's own views and state.
+
 ```
-app/src/
-├─ types.ts                       # all domain types
+web/src/
 ├─ App.tsx                        # composition root
 ├─ audio/synth.ts                 # Web Audio synth
 ├─ state/
 │  ├─ useAppState.ts              # state + URL sync (transient state too)
 │  └─ resolve.ts                  # selection → per-instrument notes + metadata
-├─ theory/
-│  ├─ chords.ts                   # tonal wrapper for chords
-│  ├─ scales.ts                   # tonal wrapper for scales
-│  ├─ degrees.ts                  # interval → "1, b3, 5, b7" labels
-│  ├─ notes.ts                    # midi/note conversion + display-name builder
-│  ├─ positions.ts                # 5 CAGED scale shapes + parent-major lookup
-│  ├─ diatonic.ts                 # diatonic 7th chords for a scale
-│  ├─ chord-scales.ts             # reverse: scales containing a given chord
-│  └─ voicings/
-│     ├─ piano.ts                 # closed / drop-2 / wide
-│     ├─ guitar.ts                # shape realization + transposition
-│     ├─ guitar-shapes.ts         # handcrafted barre-chord shapes
-│     └─ push.ts                  # pitch-class flood (no voicing concept)
 ├─ instruments/
-│  ├─ piano/{layout,PianoView}.tsx
-│  ├─ guitar/{layout,GuitarView}.tsx
-│  ├─ push/{layout,PushView}.tsx
+│  ├─ piano/PianoView.tsx
+│  ├─ guitar/GuitarView.tsx
+│  ├─ push/PushView.tsx
 │  └─ notation/
 │     ├─ SheetMusicView.tsx       # 5-line staff with treble clef
 │     └─ TabView.tsx              # 6-line guitar TAB
-└─ components/SelectionBar.tsx
+├─ components/SelectionBar.tsx
+├─ music/                         # YouTube player, loops, saved progressions
+├─ lessons/                       # self-contained lesson pages
+└─ theory-page/                   # the standalone theory tools
 ```
 
 ## URL schema
@@ -108,7 +105,7 @@ Invalid or missing params silently fall back to defaults.
 
 ## Data sources
 
-CAGED guitar scale shapes are transcribed from [guitarscale.org](https://www.guitarscale.org/) (image diagrams; manually verified for C major and F major). Music theory primitives (chord notes, scale notes, intervals, enharmonics) come from [tonal](https://github.com/tonaljs/tonal).
+CAGED guitar scale shapes are transcribed from [guitarscale.org](https://www.guitarscale.org/) (image diagrams; manually verified for C major and F major). Music theory primitives (chord notes, scale notes, intervals, enharmonics) come from [tonal](https://github.com/tonaljs/tonal), via the shared `packages/music`.
 
 ## Not included (yet)
 

@@ -90,7 +90,7 @@ export type AppState = {
    */
   preferFlats: boolean;
   /**
-   * (music-kb fork) Controls how diatonic chord chips display in scale mode:
+   * Controls how diatonic chord chips display in scale mode:
    * 'triad' (C, Cm, Co, C+) or 'seventh' (Cmaj7, Cm7, C7, m7b5). Default is
    * 'triad' to match the simpler triad-level data that gets saved to the
    * Loop's progression on click.
@@ -120,7 +120,7 @@ export type ResolvedSelection = {
   piano: Note[];
   guitar: Note[];
   push: Note[];
-  /** (music-kb fork) Notes for the 4-string bass view. Always matched by
+  /** Notes for the 4-string bass view. Always matched by
    *  pitch class (bass plays single notes — no chord voicings tracked),
    *  so the array is the same set the guitar would use in PC-flood mode. */
   bass: Note[];

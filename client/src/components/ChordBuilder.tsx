@@ -12,7 +12,7 @@ import { useAppState } from '#/lib/music/state/useAppState';
 import { resolveSelection } from '#/lib/music/state/resolve';
 import { SelectionBar } from '#/lib/music/components/SelectionBar';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
-import type { KeyMode } from '#/lib/music/circle-of-fifths';
+import type { KeyMode } from '@music-kb/music/theory/circle-of-fifths';
 import { GuitarView } from '#/lib/music/instruments/guitar/GuitarView';
 import { PianoView } from '#/lib/music/instruments/piano/PianoView';
 import { ChordFormulaStrip } from '#/components/ChordFormulaStrip';
