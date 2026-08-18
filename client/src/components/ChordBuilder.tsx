@@ -21,6 +21,7 @@ import { synth } from '#/lib/music/audio/synth';
 import { Button } from '#/components/ui/button';
 import { exportFretboardPng } from '#/lib/music/png-export';
 import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positions';
+import { findChordsInScale, type FinderMode } from '#/lib/music/theory/scale-chord-finder';
 import { getScalePitchClasses } from '#/lib/music/theory/scales';
 import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
 import { detectFromFrets, detectFromMidis } from '#/lib/music/theory/detect-chord';
@@ -223,6 +224,22 @@ export function ChordBuilder({
       ? availableShapePositions[safeHighlightIdx]
       : null;
   const HIGHLIGHT_COLOR = '#4f8cff';
+  // Chords living inside the highlighted box. This is the lookup half of
+  // Theory > Practice's "find the chords in a scale" — same data, answer
+  // shown rather than hidden, because on /builder you're exploring the
+  // neck, not drilling.
+  const CHORD_COLOR = '#f0883e';
+  const [boxChordMode, setBoxChordMode] = useState<FinderMode>('triads');
+  const [boxChordDegree, setBoxChordDegree] = useState<number | null>(null);
+  const boxChords = useMemo(() => {
+    if (!highlightApplies || highlightedShape == null) return [];
+    const sel = appState.state.scale;
+    return findChordsInScale(sel.root, sel.type, highlightedShape, boxChordMode);
+  }, [highlightApplies, highlightedShape, appState.state.scale, boxChordMode]);
+  const activeBoxChord =
+    boxChordDegree == null
+      ? null
+      : (boxChords.find((c) => c.degree === boxChordDegree) ?? null);
   const cellColors = useMemo(() => {
     if (!highlightApplies || highlightedShape == null) return null;
     const sel = appState.state.scale;
@@ -233,8 +250,15 @@ export function ChordBuilder({
     for (const c of cells) {
       map.set(`${c.string}-${c.fret}`, HIGHLIGHT_COLOR);
     }
+    // A selected chord repaints its own positions on top, so you see the
+    // chord sitting inside the box rather than instead of it.
+    if (activeBoxChord) {
+      for (const p of activeBoxChord.positions) {
+        map.set(`${p.string}-${p.fret}`, CHORD_COLOR);
+      }
+    }
     return map;
-  }, [highlightApplies, highlightedShape, appState.state.scale]);
+  }, [highlightApplies, highlightedShape, appState.state.scale, activeBoxChord]);
   const stepHighlight = (delta: 1 | -1) => {
     if (availableShapePositions.length === 0) return;
     const cur = safeHighlightIdx ?? 0;
@@ -390,6 +414,71 @@ export function ChordBuilder({
               >
                 {safeHighlightIdx == null ? '◯' : '×'}
               </button>
+            </div>
+          )}
+
+          {/* The chords that live inside the highlighted box. Same data as
+              Theory > Practice's finder, but the answer is shown: here you
+              are exploring the neck, not drilling. */}
+          {instrument === 'guitar' && boxChords.length > 0 && (
+            <div className="inline-flex flex-wrap items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ background: CHORD_COLOR }}
+                aria-hidden="true"
+              />
+              {(['triads', 'power'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={boxChordMode === m}
+                  onClick={() => setBoxChordMode(m)}
+                  className={`rounded px-1.5 font-medium ${
+                    boxChordMode === m
+                      ? 'bg-[var(--accent)] text-white'
+                      : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'
+                  }`}
+                >
+                  {m === 'triads' ? 'Triads' : 'Power'}
+                </button>
+              ))}
+              <span className="mx-1 h-3 w-px bg-[var(--line)]" />
+              {boxChords.map((c) => (
+                <button
+                  key={c.degree}
+                  type="button"
+                  aria-pressed={boxChordDegree === c.degree}
+                  onClick={() =>
+                    setBoxChordDegree((d) => (d === c.degree ? null : c.degree))
+                  }
+                  title={
+                    c.flatFifthWarning
+                      ? `${c.chordName} — diminished, so its fifth is FLAT (${c.targetPcs[1]}); the usual power-chord grip is outside the key`
+                      : `${c.chordName} — ${c.targetPcs.join(' ')}`
+                  }
+                  className={`rounded px-1.5 font-semibold ${
+                    boxChordDegree === c.degree
+                      ? 'text-white'
+                      : 'text-[var(--ink-soft)] hover:text-[var(--ink)]'
+                  }`}
+                  style={
+                    boxChordDegree === c.degree
+                      ? { background: CHORD_COLOR }
+                      : undefined
+                  }
+                >
+                  {c.roman}
+                  {c.flatFifthWarning ? '*' : ''}
+                </button>
+              ))}
+              {activeBoxChord && (
+                <span className="ml-1 text-[var(--ink-muted)]">
+                  {activeBoxChord.chordName}
+                  {activeBoxChord.flatFifthWarning
+                    ? ` · ♭5, use ${activeBoxChord.targetPcs[1]}`
+                    : ''}
+                </span>
+              )}
             </div>
           )}
           {instrument === 'guitar' && (
