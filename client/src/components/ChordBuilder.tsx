@@ -245,41 +245,86 @@ export function ChordBuilder({
       ? availableShapePositions[safeHighlightIdx]
       : null;
   const HIGHLIGHT_COLOR = '#4f8cff';
+  // Deliberately colourless — its job is to recede.
+  const MUTED_COLOR = '#8b93a1';
   // Chords living inside the highlighted box. This is the lookup half of
   // Theory > Practice's "find the chords in a scale" — same data, answer
   // shown rather than hidden, because on /builder you're exploring the
   // neck, not drilling.
-  const CHORD_COLOR = '#f0883e';
   const [boxChordMode, setBoxChordMode] = useState<FinderMode>('triads');
   const [boxChordDegree, setBoxChordDegree] = useState<number | null>(null);
+  // The box the chord lookup should answer for. There are TWO ways to pick
+  // a box here — the GUITAR SHAPE selector (which crops the board) and the
+  // Highlight stepper (which tints one box on the full neck) — and gating
+  // only on the second meant choosing "Shape 3" above showed no chords at
+  // all. Whichever is active wins; the shape selector is the more obvious
+  // control, so it takes precedence.
+  const effectiveBox =
+    appState.state.mode !== 'scale'
+      ? null
+      : typeof appState.state.scalePosition === 'number'
+        ? appState.state.scalePosition
+        : highlightedShape;
+
   const boxChords = useMemo(() => {
-    if (!highlightApplies || highlightedShape == null) return [];
+    if (effectiveBox == null) return [];
     const sel = appState.state.scale;
-    return findChordsInScale(sel.root, sel.type, highlightedShape, boxChordMode);
-  }, [highlightApplies, highlightedShape, appState.state.scale, boxChordMode]);
+    return findChordsInScale(sel.root, sel.type, effectiveBox, boxChordMode);
+  }, [effectiveBox, appState.state.scale, boxChordMode]);
   const activeBoxChord =
     boxChordDegree == null
       ? null
       : (boxChords.find((c) => c.degree === boxChordDegree) ?? null);
-  const cellColors = useMemo(() => {
-    if (!highlightApplies || highlightedShape == null) return null;
+  // Cells of the highlighted box, if any. Used two ways: to restrict the
+  // board to the box (so a box reads as a box) and as the backdrop the
+  // selected chord sits on.
+  const boxCells = useMemo(() => {
+    if (effectiveBox == null) return null;
     const sel = appState.state.scale;
-    const scalePcs = getScalePitchClasses(sel);
-    const cells = realizeCagedShape(highlightedShape, sel.root, scalePcs, sel.type);
-    if (cells.length === 0) return null;
+    const cells = realizeCagedShape(
+      effectiveBox,
+      sel.root,
+      getScalePitchClasses(sel),
+      sel.type,
+    );
+    return cells.length > 0 ? cells : null;
+  }, [effectiveBox, appState.state.scale]);
+
+  // Showing the whole neck while a box is highlighted made the box hard to
+  // find — every fret was still lit, so the highlight was one colour among
+  // many. Restricting the board to the box's own cells is what actually
+  // makes it legible.
+  const boxShapePositions = useMemo(
+    () =>
+      boxCells
+        ? new Set(boxCells.map((c) => `${c.string}-${c.fret}`))
+        : null,
+    [boxCells],
+  );
+
+  const cellColors = useMemo(() => {
+    if (!boxCells) return null;
     const map = new Map<string, string>();
-    for (const c of cells) {
-      map.set(`${c.string}-${c.fret}`, HIGHLIGHT_COLOR);
+    if (!activeBoxChord) {
+      // No chord picked: tint the whole box so it's obviously a selection.
+      for (const c of boxCells) map.set(`${c.string}-${c.fret}`, HIGHLIGHT_COLOR);
+      return map;
     }
-    // A selected chord repaints its own positions on top, so you see the
-    // chord sitting inside the box rather than instead of it.
-    if (activeBoxChord) {
-      for (const p of activeBoxChord.positions) {
-        map.set(`${p.string}-${p.fret}`, CHORD_COLOR);
-      }
+    // A chord IS picked. Grey the rest of the box and leave the chord's own
+    // cells un-overridden, so they keep the board's normal root/scale
+    // colours and are the only notes in colour. Recolouring them instead
+    // fought the palette — the accent orange is nearly the root colour, so
+    // chord tones were indistinguishable from scale roots.
+    const inChord = new Set(
+      activeBoxChord.positions.map((p) => `${p.string}-${p.fret}`),
+    );
+    for (const c of boxCells) {
+      const key = `${c.string}-${c.fret}`;
+      if (!inChord.has(key)) map.set(key, MUTED_COLOR);
     }
     return map;
-  }, [highlightApplies, highlightedShape, appState.state.scale, activeBoxChord]);
+  }, [boxCells, activeBoxChord]);
+
   const stepHighlight = (delta: 1 | -1) => {
     if (availableShapePositions.length === 0) return;
     const cur = safeHighlightIdx ?? 0;
@@ -443,11 +488,6 @@ export function ChordBuilder({
               are exploring the neck, not drilling. */}
           {instrument === 'guitar' && boxChords.length > 0 && (
             <div className="inline-flex flex-wrap items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ background: CHORD_COLOR }}
-                aria-hidden="true"
-              />
               {(['triads', 'power'] as const).map((m) => (
                 <button
                   key={m}
@@ -479,14 +519,9 @@ export function ChordBuilder({
                   }
                   className={`rounded px-1.5 font-semibold ${
                     boxChordDegree === c.degree
-                      ? 'text-white'
+                      ? 'bg-[var(--accent)] text-white'
                       : 'text-[var(--ink-soft)] hover:text-[var(--ink)]'
                   }`}
-                  style={
-                    boxChordDegree === c.degree
-                      ? { background: CHORD_COLOR }
-                      : undefined
-                  }
                 >
                   {c.roman}
                   {c.flatFifthWarning ? '*' : ''}
@@ -613,7 +648,14 @@ export function ChordBuilder({
               onPickPitchClass={appState.toggleFocusedPitchClass}
               onPlayNote={(midi) => synth.playNote(midi)}
               pcLabels={pcLabels}
-              shapePositions={resolved.guitarShapePositions}
+              shapePositions={
+                // The GUITAR SHAPE selector already crops the board, so only
+                // restrict it ourselves when the box came from the Highlight
+                // stepper on the full neck.
+                typeof appState.state.scalePosition === 'number'
+                  ? resolved.guitarShapePositions
+                  : (boxShapePositions ?? resolved.guitarShapePositions)
+              }
               barre={resolved.guitarBarre}
               cellColors={cellColors}
               showNaturals={appState.showNaturals}
