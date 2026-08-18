@@ -86,6 +86,10 @@ type Props = {
   /** 🔊 sound toggle. Default on so wedge clicks are audible — the
    *  primary affordance for "find the key by ear". */
   showSoundToggle?: boolean;
+  /** Fires whenever the user picks a wedge. The wheel still owns the
+   *  selection — this only lets a surrounding page follow along, which is
+   *  what the substitutions table on /theory does. */
+  onTonicChange?: (next: number) => void;
 };
 
 export function CircleOfFifths({
@@ -94,8 +98,13 @@ export function CircleOfFifths({
   showDirectionToggle = true,
   showEnharmonicToggle = true,
   showSoundToggle = true,
+  onTonicChange,
 }: Props) {
-  const [tonicIdx, setTonicIdx] = useState(0);
+  const [tonicIdx, setTonicIdxState] = useState(0);
+  const setTonicIdx = (next: number) => {
+    setTonicIdxState(next);
+    onTonicChange?.(next);
+  };
   const [enharmonic, setEnharmonic] = useState<Enharmonic>('standard');
   const [keyMode, setKeyMode] = useState<KeyMode>('major');
   const [direction, setDirection] = useState<CircleDirection>('fifths');

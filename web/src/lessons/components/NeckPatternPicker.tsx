@@ -9,7 +9,7 @@
 // wants to hear the pattern, but nothing in the lesson depends on it.
 
 import { useState } from 'react';
-import { Link } from './Link';
+import { Link } from '../../components/Link';
 import { MiniNeck, type NeckDot } from './MiniNeck';
 
 export type NeckPattern = {

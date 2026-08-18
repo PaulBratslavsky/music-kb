@@ -3,13 +3,15 @@
 // Lessons are static modules rather than routes (this app has no router),
 // so the slug map lives here and doubles as the 404 guard.
 
-import { Link } from './components/Link';
+import { Link } from '../components/Link';
 import MusicTheoryFundamentals from './music-theory-fundamentals';
 import ScaleSystemsOnTheNeck from './scale-systems-on-the-neck';
 import CagedAndRomanNumerals from './caged-and-roman-numerals';
 import FindAnyChord from './find-any-chord';
 import EssentialChords from './essential-chords';
 import HalfStepsToChords from './half-steps-to-chords';
+import Triads from './triads';
+import PowerChords from './power-chords';
 
 const PAGES: Record<string, () => React.ReactElement> = {
   'music-theory-fundamentals': MusicTheoryFundamentals,
@@ -18,6 +20,8 @@ const PAGES: Record<string, () => React.ReactElement> = {
   'find-any-chord': FindAnyChord,
   'essential-chords': EssentialChords,
   'half-steps-to-chords': HalfStepsToChords,
+  triads: Triads,
+  'power-chords': PowerChords,
 };
 
 export function LessonPage({ slug }: { slug: string }) {

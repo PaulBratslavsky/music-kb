@@ -16,7 +16,7 @@
 //     full fretboard context (octave-doubled notes, root labels,
 //     barre overlay, etc.).
 
-import { Link } from './components/Link';
+import { Link } from '../components/Link';
 import { ChordDiagram } from './components/LessonChordDiagram';
 
 type EssentialChord = {

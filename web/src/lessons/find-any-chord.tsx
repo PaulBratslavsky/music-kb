@@ -14,7 +14,7 @@
 // Reuses ChordDiagram for the 4 shapes; NaturalNotesStrings for the
 // dedicated two-string view that visualizes step 1.
 
-import { Link } from './components/Link';
+import { Link } from '../components/Link';
 import { ChordDiagram } from './components/LessonChordDiagram';
 import { NaturalNotesStrings } from './components/NaturalNotesStrings';
 import { Step } from './components/Step';

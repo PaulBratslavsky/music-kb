@@ -13,7 +13,7 @@
 // whole page into any of the 12 keys.
 
 import { useState } from 'react';
-import { Link } from '../lessons/components/Link';
+import { Link } from '../components/Link';
 import { MiniNeck, type NeckDot } from '../lessons/components/MiniNeck';
 import { MiniKeyboard, type KeyMark } from '../lessons/components/MiniKeyboard';
 import { DegreeChips } from '../lessons/components/DegreeChips';

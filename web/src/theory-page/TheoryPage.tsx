@@ -1,13 +1,15 @@
 // #/theory — the theory section.
 //
-// Two tabs so far, mirroring the useful half of music-kb's /theory:
-//   Tools     — the circle of fifths
+// Three tabs, mirroring the useful half of music-kb's /theory:
+//   Tools     — the circle of fifths + chord substitutions
+//   Practice  — find the chords in a scale
 //   Reference — the generated cheat sheet
 //
-// music-kb also has Practice / Visualizer / Compose tabs there; the
-// visualizer already IS this app's home, and the rest can follow later.
+// music-kb also has Visualizer / Compose tabs there; the visualizer
+// already IS this app's home, and Compose can follow later.
 
 import { useState } from 'react';
+import { ChordSubstitutions } from './ChordSubstitutions';
 import { CircleOfFifths } from '../music/CircleOfFifths';
 import { TheoryReference } from './TheoryReference';
 import { ScaleChordFinder } from './ScaleChordFinder';
@@ -16,6 +18,9 @@ type Tab = 'tools' | 'practice' | 'reference';
 
 export function TheoryPage() {
   const [tab, setTab] = useState<Tab>('tools');
+  // Shared by the wheel and the substitutions table below it, so picking a
+  // key in one moves the other.
+  const [tonicIdx, setTonicIdx] = useState(0);
 
   return (
     <main className="mx-auto w-full px-4 py-8 sm:px-8 sm:py-10 xl:px-12">
@@ -75,7 +80,24 @@ export function TheoryPage() {
           </p>
           <div className="mt-6 flex justify-center">
             <div className="max-w-full">
-              <CircleOfFifths />
+              <CircleOfFifths onTonicChange={setTonicIdx} />
+            </div>
+          </div>
+
+          <div className="mt-10 border-t border-[var(--line)] pt-8">
+            <h2 className="text-base font-semibold text-[var(--ink)]">
+              Chord substitutions
+            </h2>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Common reharmonization options for the diatonic chords of the
+              key selected on the wheel — replacement chords, secondary
+              dominants, and modal interchange. Minor keys get their own
+              view: the v has no leading tone, and ♭III/♭VI/♭VII are
+              diatonic there rather than borrowed. Click any chord name to
+              see it on the fretboard.
+            </p>
+            <div className="mt-6">
+              <ChordSubstitutions tonicIdx={tonicIdx} />
             </div>
           </div>
         </section>

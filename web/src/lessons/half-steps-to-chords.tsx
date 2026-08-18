@@ -17,7 +17,7 @@
 // ChordDiagram so the reader never leaves the page.
 
 import { useState } from 'react';
-import { Link } from './components/Link';
+import { Link } from '../components/Link';
 import { Callout, Step } from './components/Step';
 import { MiniKeyboard, type KeyMark } from './components/MiniKeyboard';
 import { MiniNeck, type NeckDot } from './components/MiniNeck';

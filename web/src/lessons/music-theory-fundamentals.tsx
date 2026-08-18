@@ -5,7 +5,7 @@
 // two lessons handle the practical "how do I see this on the neck?"
 // part of the story.
 
-import { Link } from './components/Link';
+import { Link } from '../components/Link';
 import { Callout, Principle, Step } from './components/Step';
 
 export default function MusicTheoryFundamentalsPage() {

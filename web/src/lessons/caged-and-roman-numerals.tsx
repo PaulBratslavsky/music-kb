@@ -8,7 +8,7 @@
 // component; the "Try as barre" link sends the user to /builder to
 // explore the same shape at higher frets.
 
-import { Link } from './components/Link';
+import { Link } from '../components/Link';
 import type { ComponentProps } from 'react';
 import { ChordDiagram } from './components/LessonChordDiagram';
 import { Callout, Step } from './components/Step';

@@ -71,8 +71,8 @@ As of 2026-08-16 the web app carries all four (it previously had only
 | Section | music-kb | Web app | Notes |
 |---|---|---|---|
 | **Builder** | `/builder` | `#/` home | ✅ Parity. The home view *is* the builder; the nav label was renamed. |
-| **Theory** | `/theory` — 5 tabs: tools, practice, visualizer, compose, **reference** | `#/theory` — 3 tabs: tools, practice, reference | ⚠️ Mostly there. Tools, the cheat sheet and the scale/chord finder are across. **Compose** is not; *visualizer* needs no port (it is this app's home), and Practice carries only the finder, not the ear trainer / progression player. |
-| **Lessons** | `/lessons` (index + 6 lessons) | `#/lessons` | ✅ Parity — all 6 lessons, verified in light and dark. |
+| **Theory** | `/theory` — 5 tabs: tools, practice, visualizer, compose, **reference** | `#/theory` — 3 tabs: tools, practice, reference | ⚠️ Mostly there. Tools (circle of fifths + chord substitutions, major and minor), the cheat sheet and the scale/chord finder are across. **Compose** is not; *visualizer* needs no port (it is this app's home), and Practice carries only the finder, not the ear trainer / progression player. |
+| **Lessons** | `/lessons` (index + 8 lessons) | `#/lessons` | ✅ Parity — all 8 lessons, including triads and power chords. |
 | **Music** | `/music`, `/video/$documentId` | `#/music`, `#/video/<id>` | ✅ Closest to parity already. |
 
 The Tailwind v4 setup added for the lesson port means future ports can keep
@@ -120,7 +120,10 @@ apply:
 
 1. ~~Import paths~~ — gone. Both apps use `@music-kb/music/...` for theory.
    The client still uses its own `#/` alias for its own files.
-2. **CSS tokens** — the palettes are named differently. Map:
+2. **CSS tokens** — the palettes are named differently, but `web/src/styles.css`
+   **aliases music-kb's names onto its own** (`--ink: var(--text)` and so
+   on), so ported markup usually works untouched. The map is still worth
+   knowing when you hit a token that isn't aliased:
 
    | music-kb (`client/`) | web app (`web/`) |
    |---|---|
@@ -134,17 +137,22 @@ apply:
    `--fret-line`, `--string`, `--natural`, `--white-key`, `--black-key`,
    `--focus`, `--game-*`.
 
-   Two bugs came from missing this — a chord box drawn in invisible
-   colours, and a PNG export that came out black-on-black because the
-   exporter's `VAR_NAMES` list still named music-kb's tokens. **Grep any
-   view you move for `var(--` and check every token exists on the other
-   side:**
+   Two bugs came from missing this, before the aliases existed — a chord
+   box drawn in invisible colours, and a PNG export that came out
+   black-on-black because the exporter's `VAR_NAMES` list still named
+   music-kb's tokens. **Grep any view you move for `var(--` and check every
+   token resolves on the other side:**
 
    ```bash
    grep -o 'var(--[a-z0-9-]*)' <file> | sort -u
    ```
 
-3. **Styling** — music-kb uses Tailwind throughout. The web app now has
+3. **Routing** — music-kb uses TanStack Router; this app is hash-routed
+   with no router library. `web/src/components/Link.tsx` is the shim: it
+   maps `to` onto a hash path and translates music-kb's `search={{ theory:
+   'chord:C#:min' }}` deep links into this app's query params.
+
+4. **Styling** — music-kb uses Tailwind throughout. The web app now has
    Tailwind v4 too, so `className` markup survives the move; older parts of
    `web/` still use inline styles and get converted opportunistically.
 

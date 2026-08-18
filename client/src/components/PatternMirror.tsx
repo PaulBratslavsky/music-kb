@@ -12,7 +12,7 @@
 // (string pairs + CAGED octaves) concrete.
 
 import { useState } from 'react';
-import { pcSemitoneFromCircleIdx } from '#/lib/music/chord-substitutions';
+import { pcSemitoneFromCircleIdx } from '@music-kb/music/theory/chord-substitutions';
 import {
   majorDisplay,
   type CircleDirection,

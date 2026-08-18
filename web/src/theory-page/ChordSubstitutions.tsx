@@ -15,7 +15,7 @@
 // can share state with <CircleOfFifths/>.
 
 import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link } from '../components/Link';
 import {
   diatonicSubs,
   minorDiatonicSubs,

@@ -14,7 +14,6 @@ import {
   supportsCaged,
 } from '@music-kb/music/theory/positions';
 import { getScalePitchClasses } from '@music-kb/music/theory/scales';
-import { findChordsInScale, type FinderMode } from '@music-kb/music/theory/scale-chord-finder';
 import { resolveSelection } from './state/resolve';
 import { getDiatonicChords } from '@music-kb/music/theory/diatonic';
 import { guitarScaleOrgUrl } from '@music-kb/music/theory/scales';
@@ -128,15 +127,15 @@ function VisualizerHome() {
     ? resolved.pcDisplay[appState.focusedPitchClass] ?? appState.focusedPitchClass
     : null;
 
-  // Box highlight + the chords living inside it. Mirrors music-kb's
-  // /builder: pick a CAGED box, then a degree, and that chord's notes
-  // repaint on top of the box so you see it sitting inside the shape.
+  // Box highlight. Pick a CAGED box and its notes tint on the board.
+  //
+  // This used to carry a chord lookup too — triads and power chords inside
+  // the box, picked by degree. It came out: cramming string sets,
+  // inversions and grips into one strip of chips was confusing, and the
+  // same material now has room to breathe in /lessons/triads and
+  // /lessons/power-chords, with the drill version in Theory > Practice.
   const BOX_COLOR = '#4f8cff';
-  // Deliberately colourless — its job is to recede.
-  const MUTED_COLOR = '#8b93a1';
   const [boxIdx, setBoxIdx] = useState<number | null>(null);
-  const [boxChordMode, setBoxChordMode] = useState<FinderMode>('triads');
-  const [boxChordDegree, setBoxChordDegree] = useState<number | null>(null);
 
   const boxOptions = useMemo(
     () =>
@@ -147,9 +146,8 @@ function VisualizerHome() {
   );
 
   // Two controls can pick a box: the app's scalePosition (which crops the
-  // board) and the BOX chips below it. Gating on only one meant the other
-  // showed no chords. Whichever is active wins, scalePosition first since
-  // it's the more prominent control. Mirrors music-kb's ChordBuilder.
+  // board) and the BOX chips below it. Whichever is active wins,
+  // scalePosition first since it's the more prominent control.
   const effectiveBox =
     appState.state.mode !== 'scale'
       ? null
@@ -158,16 +156,6 @@ function VisualizerHome() {
         : boxIdx != null
           ? (boxOptions[boxIdx] ?? null)
           : null;
-
-  const boxChords = useMemo(() => {
-    if (effectiveBox == null) return [];
-    const sel = appState.state.scale;
-    return findChordsInScale(sel.root, sel.type, effectiveBox, boxChordMode);
-  }, [effectiveBox, appState.state.scale, boxChordMode]);
-  const activeBoxChord =
-    boxChordDegree == null
-      ? null
-      : (boxChords.find((c) => c.degree === boxChordDegree) ?? null);
 
   const boxCells = useMemo(() => {
     if (effectiveBox == null) return null;
@@ -184,23 +172,9 @@ function VisualizerHome() {
   const cellColors = useMemo(() => {
     if (!boxCells) return null;
     const map = new Map<string, string>();
-    if (!activeBoxChord) {
-      for (const c of boxCells) map.set(`${c.string}-${c.fret}`, BOX_COLOR);
-      return map;
-    }
-    // Grey the rest of the box and leave the chord's cells alone, so they
-    // keep the board's normal colours and are the only notes in colour.
-    // Recolouring them fought the palette: the accent is nearly the root
-    // colour, so chord tones read as scale roots.
-    const inChord = new Set(
-      activeBoxChord.positions.map((p) => `${p.string}-${p.fret}`),
-    );
-    for (const c of boxCells) {
-      const key = `${c.string}-${c.fret}`;
-      if (!inChord.has(key)) map.set(key, MUTED_COLOR);
-    }
+    for (const c of boxCells) map.set(`${c.string}-${c.fret}`, BOX_COLOR);
     return map;
-  }, [boxCells, activeBoxChord]);
+  }, [boxCells]);
 
   const diatonicChords = useMemo(
     () =>
@@ -445,56 +419,11 @@ function VisualizerHome() {
                   key={b}
                   type="button"
                   className={`chip${boxIdx === i ? ' active' : ''}`}
-                  onClick={() => {
-                    setBoxIdx((cur) => (cur === i ? null : i));
-                    setBoxChordDegree(null);
-                  }}
+                  onClick={() => setBoxIdx((cur) => (cur === i ? null : i))}
                 >
                   {shapeName(b, appState.state.scale.type)}
                 </button>
               ))}
-              {boxChords.length > 0 && (
-                <>
-                  <span className="box-chords-sep" />
-                  {(['triads', 'power'] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      className={`chip${boxChordMode === m ? ' active' : ''}`}
-                      onClick={() => setBoxChordMode(m)}
-                    >
-                      {m === 'triads' ? 'Triads' : 'Power'}
-                    </button>
-                  ))}
-                  <span className="box-chords-sep" />
-                  {boxChords.map((c) => (
-                    <button
-                      key={c.degree}
-                      type="button"
-                      className={`chip${boxChordDegree === c.degree ? ' active' : ''}`}
-                      title={
-                        c.flatFifthWarning
-                          ? `${c.chordName} — diminished, so its fifth is FLAT (${c.targetPcs[1]}); the usual power-chord grip is outside the key`
-                          : `${c.chordName} — ${c.targetPcs.join(' ')}`
-                      }
-                      onClick={() =>
-                        setBoxChordDegree((d) => (d === c.degree ? null : c.degree))
-                      }
-                    >
-                      {c.roman}
-                      {c.flatFifthWarning ? '*' : ''}
-                    </button>
-                  ))}
-                  {activeBoxChord && (
-                    <span className="box-chords-name">
-                      {activeBoxChord.chordName}
-                      {activeBoxChord.flatFifthWarning
-                        ? ` · ♭5, use ${activeBoxChord.targetPcs[1]}`
-                        : ''}
-                    </span>
-                  )}
-                </>
-              )}
             </div>
           )}
         </div>
