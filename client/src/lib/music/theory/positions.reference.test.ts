@@ -101,6 +101,40 @@ describe('E minor shapes match the published diagrams dot-for-dot', () => {
   }
 });
 
+// Dot-for-dot transcription of the five E-major shape images on
+// guitarscale.org/e-major.html. Strings high-e first, absolute frets.
+// Major uses the EXPLICIT hand-curated fingerings (not the fret-window
+// model minor uses), so this checks the transcription itself.
+const E_MAJOR_SHAPES: Record<number, number[][]> = {
+  // Shape 1 (11th position)
+  1: [[11, 12, 14], [12, 14], [11, 13, 14], [11, 13, 14], [11, 12, 14], [11, 12, 14]],
+  // Shape 2 (2nd position)
+  2: [[2, 4, 5], [2, 4, 5], [2, 4], [2, 4, 6], [2, 4, 6], [2, 4, 5]],
+  // Shape 3 (4th position)
+  3: [[4, 5, 7], [4, 5, 7], [4, 6], [4, 6, 7], [4, 6, 7], [4, 5, 7]],
+  // Shape 4 (6th position)
+  4: [[7, 9], [7, 9, 10], [6, 8, 9], [6, 7, 9], [6, 7, 9], [7, 9]],
+  // Shape 5 (8th position)
+  5: [[9, 11, 12], [9, 10, 12], [8, 9, 11], [9, 11], [9, 11, 12], [9, 11, 12]],
+};
+
+describe('E major shapes match the published diagrams dot-for-dot', () => {
+  for (const [box, expected] of Object.entries(E_MAJOR_SHAPES)) {
+    it(`shape ${box}`, () => {
+      const notes = realizeCagedShape(
+        Number(box) as 1,
+        'E',
+        getScalePitchClasses({ root: 'E', type: 'major' }),
+        'major',
+      );
+      const byString = [0, 1, 2, 3, 4, 5].map((s) =>
+        notes.filter((n) => n.string === s).map((n) => n.fret).sort((a, b) => a - b),
+      );
+      expect(byString).toEqual(expected);
+    });
+  }
+});
+
 describe('E major boxes match guitarscale.org/e-major.html', () => {
   // "Shape N (Xth position)" on the page; X is the box's starting fret.
   const EXPECTED_START: Record<number, number> = {
