@@ -64,6 +64,43 @@ describe('E minor boxes match guitarscale.org/e-minor.html', () => {
   });
 });
 
+// Dot-for-dot transcription of the five E-minor shape images on
+// guitarscale.org/e-minor.html, read off the "with fingerings" diagrams.
+// Strings are listed high-e first, values are absolute frets.
+//
+// This is the strongest form of the check: the earlier tests pin where a
+// box starts and that it walks the right whole/half-step pattern, but two
+// different fingerings can share both. These pin the actual shape.
+const E_MINOR_SHAPES: Record<number, number[][]> = {
+  // Shape 1 (11th position)
+  1: [[12, 14, 15], [12, 13, 15], [11, 12, 14], [12, 14], [12, 14, 15], [12, 14, 15]],
+  // Shape 2 (2nd position)
+  2: [[2, 3, 5], [3, 5], [2, 4, 5], [2, 4, 5], [2, 3, 5], [2, 3, 5]],
+  // Shape 3 (4th position)
+  3: [[5, 7, 8], [5, 7, 8], [4, 5, 7], [4, 5, 7], [5, 7], [5, 7, 8]],
+  // Shape 4 (7th position)
+  4: [[7, 8, 10], [7, 8, 10], [7, 9], [7, 9, 10], [7, 9, 10], [7, 8, 10]],
+  // Shape 5 (9th position)
+  5: [[10, 12], [10, 12, 13], [9, 11, 12], [9, 10, 12], [9, 10, 12], [10, 12]],
+};
+
+describe('E minor shapes match the published diagrams dot-for-dot', () => {
+  for (const [box, expected] of Object.entries(E_MINOR_SHAPES)) {
+    it(`shape ${box}`, () => {
+      const notes = realizeCagedShape(
+        Number(box) as 1,
+        'E',
+        getScalePitchClasses({ root: 'E', type: 'minor' }),
+        'minor',
+      );
+      const byString = [0, 1, 2, 3, 4, 5].map((s) =>
+        notes.filter((n) => n.string === s).map((n) => n.fret).sort((a, b) => a - b),
+      );
+      expect(byString).toEqual(expected);
+    });
+  }
+});
+
 describe('E major boxes match guitarscale.org/e-major.html', () => {
   // "Shape N (Xth position)" on the page; X is the box's starting fret.
   const EXPECTED_START: Record<number, number> = {
