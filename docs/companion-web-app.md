@@ -189,3 +189,36 @@ On a fresh clone it is not active — enable it once:
 ```bash
 git config core.hooksPath .githooks
 ```
+
+## Deploying
+
+`vercel.json` at the **repo root** holds the whole build contract:
+
+```json
+{
+  "installCommand": "yarn install --frozen-lockfile",
+  "buildCommand": "yarn --cwd web build",
+  "outputDirectory": "web/dist"
+}
+```
+
+It lives at the root, not in `web/`, on purpose. A Vercel **Root Directory**
+of `web/` would put the yarn workspace root *above* the build context, and
+the install would then depend on the "Include files outside the Root
+Directory" toggle being on. Keeping Root Directory empty sidesteps that
+entirely — everything the build needs is inside it.
+
+So the Vercel project needs exactly two things:
+
+1. **Git repository:** `PaulBratslavsky/music-kb` (it used to be
+   `music-push-guitar-piano-helper`). A Vercel project cannot be repointed
+   at a different repo in place — disconnect and reconnect, or create a new
+   project and move the domain over.
+2. **Root Directory:** empty. Everything else comes from `vercel.json`.
+
+Verify on a **preview** deploy before merging to `main`. The old repo stays
+archived, not deleted, until production has run from `web/` for a couple of
+weeks.
+
+The app is hash-routed, so no rewrite rules are needed — every route is
+served by the same `index.html`.
