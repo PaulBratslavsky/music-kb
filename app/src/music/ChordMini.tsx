@@ -6,6 +6,9 @@
 
 import { ChordDiagram } from './ChordDiagram';
 import { MiniPush } from '../lessons/components/MiniPush';
+import { pushChordShape } from '../theory/push-shapes';
+import { pianoVoicing } from '../theory/voicings/piano';
+import { midiFromPitchOctave } from '../theory/notes';
 import { chordDiagramProps } from './chordShapes';
 import { getChordPitchClasses } from '../theory/chords';
 import { pitchClassFromMidi } from '../theory/notes';
@@ -40,10 +43,29 @@ function soundingPitchClasses(chord: ProgressionChord): PitchClass[] {
   return getChordPitchClasses(chord.root, chord.quality);
 }
 
-function pushMarksFor(chord: ProgressionChord) {
-  return [...new Set(soundingPitchClasses(chord))].map((pc) => ({
-    pc,
-    root: pc === chord.root,
+/**
+ * ONE voicing placed on real pads — not every pitch-class match, which
+ * scatters a 3-note chord across a dozen pads and loses the shape.
+ * Prefers the notes that actually sounded; falls back to a closed voicing
+ * for chords built by hand or saved before `midis` existed.
+ */
+function pushPadsFor(chord: ProgressionChord) {
+  const midis =
+    chord.midis && chord.midis.length > 0
+      ? chord.midis
+      : pianoVoicing({
+          root: chord.root,
+          quality: chord.quality,
+          inversion: chord.inversion ?? 0,
+          // voicingIndex is a GUITAR index and means nothing to a pad grid.
+          voicingIndex: 0,
+        }).map((n) => midiFromPitchOctave(n.pitchClass, n.octave));
+  const shape = pushChordShape(midis, 4, 5);
+  const rootPad = shape[0];
+  return shape.map((p, i) => ({
+    ...p,
+    label: pitchClassFromMidi(midis[i]),
+    root: p === rootPad,
   }));
 }
 
@@ -125,7 +147,7 @@ export function ChordMini({
       <MiniPush
         rows={4}
         cols={5}
-        marks={pushMarksFor(chord)}
+        pads={pushPadsFor(chord)}
         ariaLabel="Chord on the Push grid"
       />
     );

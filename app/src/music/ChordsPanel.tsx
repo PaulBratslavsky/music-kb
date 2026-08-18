@@ -23,6 +23,8 @@ import { exportFretboardPng } from './png-export';
 import { ChordFormulaStrip } from './ChordFormulaStrip';
 import { chordLabel } from './chordShapes';
 import { addProgression, deleteProgression, updateProgression } from './storage';
+import { inversionForBass } from '../theory/chords';
+import { STANDARD_TUNING_MIDI } from '../instruments/guitar/layout';
 import { detectFromFrets, detectFromMidis } from '../theory/detect-chord';
 import type { ProgressionChord, SavedProgression } from './types';
 
@@ -101,10 +103,26 @@ export function ChordsPanel({
       const guitarShape = instrument === 'guitar' && playedFrets.size > 0;
       const pianoShape = instrument === 'piano' && playedMidis.size > 0;
       if (guitarShape || pianoShape) {
+        // Every note that sounded, ascending — this is what preserves the
+        // octaves and spacing. detected.notes is lowest-first, so notes[0]
+        // is the bass; storing the inversion it implies keeps a slash chord
+        // from collapsing to root position when a voicing is re-derived.
+        const midis = (
+          guitarShape
+            ? [...playedFrets].map(([str, fret]) => STANDARD_TUNING_MIDI[str] + fret)
+            : [...playedMidis]
+        ).sort((a, b) => a - b);
+        const sel = detected.selection!;
         setChords((prev) => [
           ...prev,
           {
-            ...detected.selection!,
+            ...sel,
+            // detected.selection is only { root, quality } here, so there
+            // is no prior inversion to fall back to — root position it is.
+            inversion: detected.notes[0]
+              ? inversionForBass(sel.root, sel.quality, detected.notes[0])
+              : 0,
+            midis,
             // Positions are a fretboard concept; a keyboard-captured chord
             // keeps its pitch classes instead so the mini keyboard lights
             // exactly what was played.

@@ -69,6 +69,28 @@ export function getChordPitchClasses(root: PitchClass, quality: ChordQuality): P
  * Apply an inversion to a chord's pitch classes by rotating notes off the bottom.
  * 0 = root position, 1 = 1st inversion, etc. (mod chord size)
  */
+/**
+ * Which inversion puts `bass` at the bottom of this chord.
+ *
+ * Detection gives us a slash chord as a NAME ("Em/B"), but a name is text —
+ * every surface that re-derives a voicing (the piano board, the Push cards)
+ * reads `inversion`, and left at 0 they all put the root back in the bass
+ * and quietly lose what was played. This converts the detected bass into
+ * the structured field those surfaces actually consume.
+ *
+ * Returns 0 when the bass isn't a chord tone (a pedal note under the chord),
+ * since no inversion describes that — root position is the honest fallback.
+ */
+export function inversionForBass(
+  root: PitchClass,
+  quality: ChordQuality,
+  bass: PitchClass,
+): number {
+  const pcs = getChordPitchClasses(root, quality);
+  const idx = pcs.indexOf(bass);
+  return idx > 0 ? idx : 0;
+}
+
 export function applyInversion(pcs: PitchClass[], inversion: number): PitchClass[] {
   if (pcs.length === 0) return pcs;
   const k = ((inversion % pcs.length) + pcs.length) % pcs.length;

@@ -26,11 +26,24 @@ export type KeyMark = {
    * as playing the root twice.
    */
   octave?: number;
+  /**
+   * Absolute MIDI note. Wins over pitch-class matching entirely, and is the
+   * only way to draw a real voicing: B3-E4-G4-B4 has to put B3 BELOW E4,
+   * which pitch-class-plus-octave-index cannot express (B is the last key
+   * of its octave, so it renders to the right of E and the bass looks like
+   * the wrong note). Requires `baseMidi` so the board knows what it starts on.
+   */
+  midi?: number;
 };
 
 export type MiniKeyboardProps = {
   /** How many octaves to draw, starting at C. */
   octaves?: number;
+  /**
+   * MIDI note of the board's leftmost key (a C). Only needed when marks
+   * carry `midi`. Defaults to C4.
+   */
+  baseMidi?: number;
   /**
    * 'roomy' lifts the natural-width cap so the keyboard fills its
    * container. The svg is width:100% over a viewBox, so the cap — right for
@@ -131,6 +144,7 @@ const STEP_LABEL: Record<number, string> = { 1: 'H', 2: 'W', 3: 'W+H' };
 
 export function MiniKeyboard({
   octaves = 1,
+  baseMidi = 60,
   size = 'compact',
   marks,
   showSteps = false,
@@ -139,14 +153,28 @@ export function MiniKeyboard({
 }: MiniKeyboardProps) {
   const keys = buildKeys(octaves);
   // Octave-scoped marks win over pitch-class ones for the same key.
+  // A mark that names an absolute note or a specific octave must NOT also
+  // land in the loose pitch-class map, or it lights every octave and a
+  // 4-note voicing draws as 8 keys.
   const byPc = new Map<PitchClass, KeyMark>(
-    marks.filter((m) => m.octave === undefined).map((m) => [m.pc, m]),
+    marks
+      .filter((m) => m.octave === undefined && m.midi === undefined)
+      .map((m) => [m.pc, m]),
   );
   const byOctavePc = new Map<string, KeyMark>(
-    marks.filter((m) => m.octave !== undefined).map((m) => [`${m.octave}:${m.pc}`, m]),
+    marks
+      .filter((m) => m.octave !== undefined && m.midi === undefined)
+      .map((m) => [`${m.octave}:${m.pc}`, m]),
   );
+  const byMidi = new Map<number, KeyMark>(
+    marks.filter((m) => m.midi !== undefined).map((m) => [m.midi!, m]),
+  );
+  // Most specific wins: an absolute note, then an octave-scoped pitch class,
+  // then a bare pitch class.
   const markFor = (k: RenderedKey) =>
-    byOctavePc.get(`${Math.floor(k.absSemitone / 12)}:${k.pc}`) ?? byPc.get(k.pc);
+    byMidi.get(baseMidi + k.absSemitone) ??
+    byOctavePc.get(`${Math.floor(k.absSemitone / 12)}:${k.pc}`) ??
+    byPc.get(k.pc);
 
   const stepSemitones = showSteps ? ascendingFromRoot(marks) : [];
   const centerBySemitone = new Map(keys.map((k) => [k.absSemitone, k.centerX]));

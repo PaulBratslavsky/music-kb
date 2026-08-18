@@ -81,6 +81,16 @@ export type ProgressionChord = {
    * only a fallback for shapes that map onto a known quality.
    */
   detectedLabel?: string;
+  /**
+   * Every note that actually sounded, as absolute MIDI numbers, ascending.
+   * The only field that preserves OCTAVES and SPACING: `inversion` records
+   * which chord tone is in the bass, enough to stop a slash chord
+   * collapsing to root position, but it cannot describe B3-E4-G4-B4 versus
+   * a closed second inversion. Renderers that can show octaves prefer this
+   * and fall back to deriving a voicing when it's absent — which is every
+   * chord saved before this field existed.
+   */
+  midis?: number[];
 };
 
 export type SavedProgression = {
