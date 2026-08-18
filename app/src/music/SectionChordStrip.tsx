@@ -93,42 +93,17 @@ export function SectionChordStrip({
       : 'partial cycle';
 
   return (
-    <div
-      className="panel"
-      style={{
-        border: '1px solid var(--border)',
-        borderRadius: 12,
-        background: 'var(--panel)',
-        padding: 16,
-        marginTop: 12,
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'baseline',
-          gap: 10,
-          marginBottom: 12,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 12,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            color: 'var(--text-dim)',
-          }}
-        >
+    <div className="panel mt-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
+      <div className="mb-3 flex flex-wrap items-baseline gap-2.5">
+        <span className="text-xs font-bold uppercase tracking-wide text-[var(--text-dim)]">
           {loop.label}
         </span>
-        <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, color: 'var(--text-dim)' }}>
+        <span className="font-mono text-xs text-[var(--text-dim)]">
           {fmt(loop.startSec)}–{fmt(loop.endSec)}
         </span>
 
         {chords.length > 0 && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-dim)' }}>
+          <label className="flex items-center gap-1.5 text-xs text-[var(--text-dim)]">
             Bars
             <input
               type="number"
@@ -140,18 +115,9 @@ export function SectionChordStrip({
                 if (Number.isFinite(n) && n >= 1 && n <= 512) onBarsChange(n);
               }}
               title="How many bars this section runs for. The progression repeats to fill it — 4 chords over 8 bars plays twice."
-              style={{
-                width: 56,
-                padding: '2px 4px',
-                border: '1px solid var(--border)',
-                borderRadius: 4,
-                background: 'var(--panel-2)',
-                color: 'var(--text)',
-                fontFamily: 'inherit',
-                fontSize: 12,
-              }}
+              className="w-14 rounded border border-[var(--border)] bg-[var(--panel-2)] px-1 py-0.5 font-[inherit] text-xs text-[var(--text)]"
             />
-            <span style={{ fontSize: 11 }}>
+            <span className="text-[11px]">
               {chords.length} chords · {cycles}
             </span>
           </label>
@@ -160,24 +126,22 @@ export function SectionChordStrip({
         {timesChanged && (
           <button
             type="button"
-            className="chip active"
+            className="chip active px-2.5 py-0.5 text-xs"
             onClick={() => onTimesSave(Math.round(start), Math.round(end))}
             title="Write the loop region above back to this section"
-            style={{ fontSize: 12, padding: '2px 10px' }}
           >
             Update section to {fmt(start)}–{fmt(end)}
           </button>
         )}
 
         {chords.length > 0 && (
-          <span style={{ display: 'inline-flex', gap: 4 }}>
+          <span className="inline-flex gap-1">
             {(['guitar', 'piano', 'push'] as const).map((i) => (
               <button
                 key={i}
                 type="button"
-                className={`chip${instrument === i ? ' active' : ''}`}
+                className={`chip px-2 py-0.5 text-[11px]${instrument === i ? ' active' : ''}`}
                 onClick={() => onInstrumentChange(i)}
-                style={{ fontSize: 11, padding: '2px 8px' }}
               >
                 {i === 'guitar' ? 'Guitar' : i === 'piano' ? 'Piano' : 'Push'}
               </button>
@@ -186,38 +150,28 @@ export function SectionChordStrip({
         )}
 
         {chords.length === 0 && (
-          <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+          <span className="text-xs text-[var(--text-dim)]">
             No progression linked — pick one on the section in the Loops panel.
           </span>
         )}
       </div>
 
       {chords.length > 0 && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-            gap: 12,
-          }}
-        >
+        <div className="grid grid-cols-4 gap-3">
           {chords.map((c, i) => {
             const isActive = active === i;
             return (
               <figure
                 key={`${c.root}-${c.quality}-${c.voicingIndex ?? 0}-${i}`}
-                style={{
-                  margin: 0,
-                  padding: '8px 8px 6px',
-                  borderRadius: 10,
-                  border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
-                  background: isActive ? 'var(--chip-hover)' : 'var(--panel-2)',
-                }}
+                className={`m-0 rounded-[10px] border px-2 pb-1.5 pt-2 ${
+                  isActive
+                    ? 'border-[var(--accent)] bg-[var(--chip-hover)]'
+                    : 'border-[var(--border)] bg-[var(--panel-2)]'
+                }`}
               >
-                <div style={{ display: 'flex', justifyContent: 'center', minHeight: 60 }}>
+                <div className="flex min-h-[60px] justify-center">
                   <ChordMini
                     chord={c}
-                    // Bass reads the same chord charts a guitarist does —
-                    // the shapes are guitar voicings either way.
                     // Bass reads the same chord charts a guitarist does, so
                     // it falls back to the guitar box; piano and Push each
                     // have their own picture.
@@ -230,13 +184,9 @@ export function SectionChordStrip({
                   />
                 </div>
                 <figcaption
-                  style={{
-                    marginTop: 4,
-                    textAlign: 'center',
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: isActive ? 'var(--accent)' : 'var(--text)',
-                  }}
+                  className={`mt-1 text-center text-[13px] font-bold ${
+                    isActive ? 'text-[var(--accent)]' : 'text-[var(--text)]'
+                  }`}
                 >
                   {chordLabel(c)}
                 </figcaption>

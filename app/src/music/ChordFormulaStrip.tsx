@@ -52,61 +52,32 @@ export function ChordFormulaStrip({
   const fromRoot = pcs.slice(1).map((pc) => semitonesUp(root, pc));
 
   return (
-    <div
-      style={{
-        border: '1px solid var(--border)',
-        borderRadius: 10,
-        background: 'var(--panel-2)',
-        padding: 12,
-        marginTop: 12,
-      }}
-    >
-      <p
-        style={{
-          margin: 0,
-          fontSize: 10,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-          color: 'var(--text-dim)',
-        }}
-      >
+    <div className="mt-3 rounded-[10px] border border-[var(--border)] bg-[var(--panel-2)] p-3">
+      <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-[var(--text-dim)]">
         How it's built
       </p>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginTop: 8 }}>
+      <div className="mt-2 flex flex-wrap items-center gap-1">
         {pcs.map((pc, i) => (
-          <span key={`${pc}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span
-              style={{
-                display: 'inline-flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                lineHeight: 1.15,
-                padding: '3px 7px',
-                borderRadius: 8,
-                background: 'var(--panel)',
-              }}
-            >
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
+          <span key={`${pc}-${i}`} className="flex items-center gap-1">
+            <span className="inline-flex flex-col items-center rounded-lg bg-[var(--panel)] px-[7px] py-[3px] leading-[1.15]">
+              <span className="text-xs font-bold text-[var(--text)]">
                 {pretty(pc)}
               </span>
               <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: i === 0 ? 'var(--accent)' : 'var(--text-dim)',
-                }}
+                className={`text-[10px] font-bold ${
+                  i === 0 ? 'text-[var(--accent)]' : 'text-[var(--text-dim)]'
+                }`}
               >
                 {pretty(degrees[pc] ?? '?')}
               </span>
             </span>
             {i < steps.length && (
-              <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 2px' }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>
+              <span className="flex flex-col items-center px-0.5">
+                <span className="text-[11px] font-bold text-[var(--accent)]">
                   +{steps[i]}
                 </span>
-                <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>
+                <span className="text-[9px] text-[var(--text-dim)]">
                   {STEP_SHORT[steps[i]] ?? steps[i]}
                 </span>
               </span>
@@ -115,14 +86,14 @@ export function ChordFormulaStrip({
         ))}
       </div>
 
-      <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--text-dim)' }}>
+      <p className="mb-0 mt-2 text-[11px] text-[var(--text-dim)]">
         Stack from the root:{' '}
-        <strong style={{ color: 'var(--text)' }}>
+        <strong className="text-[var(--text)]">
           {steps.join(' + ')} half steps
         </strong>{' '}
         ({steps.map((s) => STEP_NAME[s] ?? `${s} semitones`).join(', then a ')}).
         From the root that lands on{' '}
-        <strong style={{ color: 'var(--text)' }}>{fromRoot.join(', ')}</strong>{' '}
+        <strong className="text-[var(--text)]">{fromRoot.join(', ')}</strong>{' '}
         half steps up.
       </p>
     </div>
