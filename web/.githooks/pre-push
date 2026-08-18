@@ -1,0 +1,15 @@
+#!/bin/sh
+# Pre-push gate — runs the full production build before any push, so
+# TypeScript / Vite errors that would break Vercel get caught locally
+# before they reach GitHub. Mirrors what Vercel runs (`npm run build`
+# = `tsc -b && vite build`), so a green hook means a green deploy.
+#
+# Skip with --no-verify if you need to push an unrelated WIP branch
+# (sparingly — that's how broken builds reach production).
+
+set -e
+
+echo "→ pre-push: running app build…"
+cd app
+npm run build > /dev/null
+echo "✓ pre-push: build clean."

@@ -1,0 +1,611 @@
+/* Tailwind v4 — the lesson pages ported from music-kb are written in
+   Tailwind classes. The rest of this app uses plain CSS + inline
+   styles; both coexist fine. */
+@import "tailwindcss";
+
+:root {
+  /* Dark theme (default). Light theme overrides come after. */
+  --bg: #0f1115;
+  --panel: #181b22;
+  --panel-2: #1f2330;
+  --border: #2a2f3d;
+  --text: #e6e8ee;
+  --text-dim: #9aa3b2;
+  --accent: #4f8cff;
+  --accent-2: #7ab0ff;
+  --root: #ff7a59;
+  --highlight: #4fd6a1;
+  --white-key: #f4f5f7;
+  --black-key: #1c1f27;
+  --pad: #2a2f3d;
+  --pad-on: #4fd6a1;
+  --pad-on-root: #ff7a59;
+  --fret-wood: #2b2620;
+  --fret-line: #6f6660;
+  --string: #c9c2b6;
+  --focus: #61dafb;
+  --natural: #ffd54a;
+  /* Slightly-lighter chip background on hover in dark theme. */
+  --chip-hover: #252a37;
+
+  /* --- music-kb token aliases -------------------------------------------
+     Components ported from music-kb reference its palette by name. Aliasing
+     here means they work unchanged instead of needing a find-and-replace on
+     every copy — which is exactly what caused the invisible chord box and
+     the black-on-black PNG export. */
+  --ink: var(--text);
+  --ink-soft: var(--text-dim);
+  --ink-muted: var(--text-dim);
+  --ink-faint: #6b7280;
+  --line: var(--border);
+  --line-strong: #3a4150;
+  --card: var(--panel);
+  --bg-subtle: var(--panel-2);
+  --accent-soft: rgba(79, 140, 255, 0.14);
+  --accent-hover: var(--accent-2);
+  --band-red-bg: rgba(239, 68, 68, 0.14);
+  --band-red-text: #f87171;
+  --band-red-dot: #ef4444;
+
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: dark;
+}
+
+/* Light theme — activated by adding `light` class to <html> (or
+   [data-theme="light"]). The fretboard/Push/keyboard surfaces stay
+   visually consistent (musical-instrument photography is universally
+   warm and dim), but the page chrome flips to a paper feel. */
+:root.light,
+:root[data-theme='light'] {
+  --bg: #f7f7f4;
+  --panel: #ffffff;
+  --panel-2: #f0efe9;
+  --border: #d8d5cc;
+  --text: #1c1f24;
+  --text-dim: #5b6068;
+  --accent: #1e6ae6;
+  --accent-2: #3e8aff;
+  --root: #d85936;
+  --ink-faint: #9aa0a6;
+  --line-strong: #c3bfb4;
+  --accent-soft: rgba(30, 106, 230, 0.10);
+  --band-red-bg: #fef2f2;
+  --band-red-text: #991b1b;
+  --band-red-dot: #ef4444;
+  --highlight: #2ea675;
+  --white-key: #ffffff;
+  --black-key: #1c1f27;
+  --pad: #d8d5cc;
+  --pad-on: #2ea675;
+  --pad-on-root: #d85936;
+  /* Fretboard / strings stay warm-dark in both themes — guitar bodies
+     are wood, regardless of which lamp you turn on. */
+  --fret-wood: #2b2620;
+  --fret-line: #6f6660;
+  --string: #c9c2b6;
+  --focus: #1e6ae6;
+  --natural: #f4b400;
+  /* Slightly-darker chip background on hover in light theme. */
+  --chip-hover: #e3e0d4;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100%;
+}
+
+body {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Music routes (library + player) — full viewport width with just
+   enough side padding to keep content off the chrome edges. The
+   header on these routes runs edge-to-edge so the player + saved-
+   loops grid should too. */
+.app-wide {
+  max-width: none;
+  margin: 0;
+  padding: 24px 28px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  padding: 12px 0;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+}
+
+.app-header .tagline {
+  color: var(--text-dim);
+  font-size: 13px;
+  /* Truncate cleanly when the row is too tight rather than wrapping
+     buttons to a second line. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.panel-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin: 0 0 10px;
+}
+
+.panel-title .ref-link {
+  margin-left: 10px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent-2);
+  text-decoration: none;
+}
+
+.panel-title .ref-link:hover {
+  text-decoration: underline;
+}
+
+/* SelectionBar */
+.selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.selection-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.selection-group .group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.btn-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* Accidental root: flat (top) / sharp (bottom) stacked in one slot. */
+.root-accidental {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+button.chip.chip-sm {
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+button.chip {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.08s ease, border-color 0.08s ease;
+}
+
+button.chip:hover {
+  background: var(--chip-hover);
+}
+
+button.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+button.chip.active:hover {
+  background: var(--accent-2);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stepper button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stepper button:hover {
+  background: var(--chip-hover);
+}
+
+.stepper .stepper-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  min-width: 24px;
+  text-align: center;
+}
+
+.label-display {
+  margin-left: auto;
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+button.play-chip {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: white;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.08s ease, transform 0.08s ease;
+}
+
+button.play-chip:hover {
+  background: var(--accent-2);
+  transform: scale(1.05);
+}
+
+button.play-chip:active {
+  transform: scale(0.95);
+}
+
+.focus-label {
+  border-color: var(--focus);
+  color: var(--focus);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button.clear-focus {
+  background: transparent;
+  color: var(--focus);
+  border: 1px solid var(--focus);
+  border-radius: 4px;
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+button.clear-focus:hover {
+  background: var(--focus);
+  color: #0b0d12;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.diatonic-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.diatonic-chip {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 56px;
+  font-family: inherit;
+  color: var(--text);
+  transition: background 0.08s ease, border-color 0.08s ease, transform 0.08s ease;
+}
+
+.diatonic-chip:hover:not(:disabled) {
+  background: var(--chip-hover);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.diatonic-chip:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.diatonic-chip-disabled,
+.diatonic-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.diatonic-chip-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.diatonic-chip-active:hover {
+  background: var(--accent-2);
+}
+
+.diatonic-chip-active .diatonic-roman {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.diatonic-roman {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+}
+
+.diatonic-name {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.app-footer {
+  margin-top: 12px;
+  padding: 12px 4px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+.app-footer a {
+  color: var(--accent-2);
+  text-decoration: none;
+}
+
+.app-footer a:hover {
+  text-decoration: underline;
+}
+
+/* Instrument panels */
+.instruments {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notation-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .notation-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.notation-panel {
+  /* Keep panel padding tight so the SVG strip dominates. */
+  padding: 12px 14px;
+}
+
+.notation-strip {
+  background: #f4f5f7;
+  /* Override the dark-theme text/border vars so the staff and TAB read like
+     a printed page (black ink on cream background). */
+  --text: #1a1d24;
+  --text-dim: #5a6071;
+  --border: #d3d6dc;
+  --panel: #f4f5f7;
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 70px;
+  overflow-x: auto;
+}
+
+.notation-strip .instrument-svg {
+  width: auto;
+  max-width: 100%;
+}
+
+.instrument-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Game mode */
+:root {
+  --game-pending: #6b7280;
+  --game-correct: #4fd6a1;
+  --game-wrong: #ff6b6b;
+}
+
+.game-mode-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.game-mode-prompt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.game-mode-prompt strong {
+  color: var(--text);
+  font-size: 18px;
+  margin-left: 4px;
+  letter-spacing: 0.04em;
+}
+
+.game-mode-streak {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.game-mode-streak strong {
+  color: var(--text);
+}
+
+.game-mode-pending-count {
+  color: var(--accent-2);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+button.chip.game-mode-toggle.active {
+  background: var(--game-correct);
+  border-color: var(--game-correct);
+  color: #0b0d12;
+}
+
+button.chip.game-mode-toggle.active:hover {
+  background: #6fe0b3;
+}
+
+button.chip.game-check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+button.chip.game-check:hover:not(:disabled) {
+  background: var(--accent-2);
+}
+
+button.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.game-mode-result {
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.game-mode-result[data-allcorrect="true"] {
+  color: var(--game-correct);
+}
+
+.game-mode-result[data-allcorrect="false"] {
+  color: var(--game-wrong);
+}
+
+/* Box-chord lookup under the guitar view (Builder). Mirrors music-kb's
+   /builder: pick a CAGED box, then a degree, and the chord's notes repaint
+   on top of the box. */
+.box-chords {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+}
+.box-chords-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-right: 2px;
+}
+.box-chords-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.box-chords-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
