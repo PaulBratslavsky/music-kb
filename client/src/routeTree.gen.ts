@@ -22,7 +22,9 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LessonsIndexRouteImport } from './routes/lessons.index'
 import { Route as VideoDocumentIdRouteImport } from './routes/video.$documentId'
+import { Route as LessonsTriadsRouteImport } from './routes/lessons.triads'
 import { Route as LessonsScaleSystemsOnTheNeckRouteImport } from './routes/lessons.scale-systems-on-the-neck'
+import { Route as LessonsPowerChordsRouteImport } from './routes/lessons.power-chords'
 import { Route as LessonsMusicTheoryFundamentalsRouteImport } from './routes/lessons.music-theory-fundamentals'
 import { Route as LessonsHalfStepsToChordsRouteImport } from './routes/lessons.half-steps-to-chords'
 import { Route as LessonsFindAnyChordRouteImport } from './routes/lessons.find-any-chord'
@@ -99,12 +101,22 @@ const VideoDocumentIdRoute = VideoDocumentIdRouteImport.update({
   path: '/video/$documentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LessonsTriadsRoute = LessonsTriadsRouteImport.update({
+  id: '/lessons/triads',
+  path: '/lessons/triads',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LessonsScaleSystemsOnTheNeckRoute =
   LessonsScaleSystemsOnTheNeckRouteImport.update({
     id: '/lessons/scale-systems-on-the-neck',
     path: '/lessons/scale-systems-on-the-neck',
     getParentRoute: () => rootRouteImport,
   } as any)
+const LessonsPowerChordsRoute = LessonsPowerChordsRouteImport.update({
+  id: '/lessons/power-chords',
+  path: '/lessons/power-chords',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LessonsMusicTheoryFundamentalsRoute =
   LessonsMusicTheoryFundamentalsRouteImport.update({
     id: '/lessons/music-theory-fundamentals',
@@ -180,7 +192,9 @@ export interface FileRoutesByFullPath {
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
   '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
   '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
+  '/lessons/power-chords': typeof LessonsPowerChordsRoute
   '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
+  '/lessons/triads': typeof LessonsTriadsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons/': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -206,7 +220,9 @@ export interface FileRoutesByTo {
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
   '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
   '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
+  '/lessons/power-chords': typeof LessonsPowerChordsRoute
   '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
+  '/lessons/triads': typeof LessonsTriadsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -233,7 +249,9 @@ export interface FileRoutesById {
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
   '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
   '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
+  '/lessons/power-chords': typeof LessonsPowerChordsRoute
   '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
+  '/lessons/triads': typeof LessonsTriadsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons/': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -261,7 +279,9 @@ export interface FileRouteTypes {
     | '/lessons/find-any-chord'
     | '/lessons/half-steps-to-chords'
     | '/lessons/music-theory-fundamentals'
+    | '/lessons/power-chords'
     | '/lessons/scale-systems-on-the-neck'
+    | '/lessons/triads'
     | '/video/$documentId'
     | '/lessons/'
     | '/api/notes/compose'
@@ -287,7 +307,9 @@ export interface FileRouteTypes {
     | '/lessons/find-any-chord'
     | '/lessons/half-steps-to-chords'
     | '/lessons/music-theory-fundamentals'
+    | '/lessons/power-chords'
     | '/lessons/scale-systems-on-the-neck'
+    | '/lessons/triads'
     | '/video/$documentId'
     | '/lessons'
     | '/api/notes/compose'
@@ -313,7 +335,9 @@ export interface FileRouteTypes {
     | '/lessons/find-any-chord'
     | '/lessons/half-steps-to-chords'
     | '/lessons/music-theory-fundamentals'
+    | '/lessons/power-chords'
     | '/lessons/scale-systems-on-the-neck'
+    | '/lessons/triads'
     | '/video/$documentId'
     | '/lessons/'
     | '/api/notes/compose'
@@ -340,7 +364,9 @@ export interface RootRouteChildren {
   LessonsFindAnyChordRoute: typeof LessonsFindAnyChordRoute
   LessonsHalfStepsToChordsRoute: typeof LessonsHalfStepsToChordsRoute
   LessonsMusicTheoryFundamentalsRoute: typeof LessonsMusicTheoryFundamentalsRoute
+  LessonsPowerChordsRoute: typeof LessonsPowerChordsRoute
   LessonsScaleSystemsOnTheNeckRoute: typeof LessonsScaleSystemsOnTheNeckRoute
+  LessonsTriadsRoute: typeof LessonsTriadsRoute
   VideoDocumentIdRoute: typeof VideoDocumentIdRoute
   LessonsIndexRoute: typeof LessonsIndexRoute
   ApiNotesComposeRoute: typeof ApiNotesComposeRoute
@@ -439,11 +465,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VideoDocumentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lessons/triads': {
+      id: '/lessons/triads'
+      path: '/lessons/triads'
+      fullPath: '/lessons/triads'
+      preLoaderRoute: typeof LessonsTriadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lessons/scale-systems-on-the-neck': {
       id: '/lessons/scale-systems-on-the-neck'
       path: '/lessons/scale-systems-on-the-neck'
       fullPath: '/lessons/scale-systems-on-the-neck'
       preLoaderRoute: typeof LessonsScaleSystemsOnTheNeckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lessons/power-chords': {
+      id: '/lessons/power-chords'
+      path: '/lessons/power-chords'
+      fullPath: '/lessons/power-chords'
+      preLoaderRoute: typeof LessonsPowerChordsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lessons/music-theory-fundamentals': {
@@ -540,7 +580,9 @@ const rootRouteChildren: RootRouteChildren = {
   LessonsFindAnyChordRoute: LessonsFindAnyChordRoute,
   LessonsHalfStepsToChordsRoute: LessonsHalfStepsToChordsRoute,
   LessonsMusicTheoryFundamentalsRoute: LessonsMusicTheoryFundamentalsRoute,
+  LessonsPowerChordsRoute: LessonsPowerChordsRoute,
   LessonsScaleSystemsOnTheNeckRoute: LessonsScaleSystemsOnTheNeckRoute,
+  LessonsTriadsRoute: LessonsTriadsRoute,
   VideoDocumentIdRoute: VideoDocumentIdRoute,
   LessonsIndexRoute: LessonsIndexRoute,
   ApiNotesComposeRoute: ApiNotesComposeRoute,

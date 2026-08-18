@@ -18,6 +18,22 @@ type LessonEntry = {
 
 const LESSONS: LessonEntry[] = [
   {
+    href: '/lessons/triads',
+    title: 'Triads across the neck',
+    blurb:
+      'Three notes, three adjacent strings, three inversions. The four qualities differ by a single note each — major, minor, augmented, diminished — and the whole grid of string sets and inversions is laid out so you can see the pattern rather than memorise 48 shapes.',
+    duration: '~20 min read',
+    level: 'Intermediate',
+  },
+  {
+    href: '/lessons/power-chords',
+    title: 'Power chords: one shape, the whole neck',
+    blurb:
+      'Root, fifth, octave — no third, which is why it fits over major and minor alike. One movable shape covers every root, with two details worth knowing: what changes when it crosses the G-B string pair, and the one degree in every key that has no power chord at all.',
+    duration: '~10 min read',
+    level: 'Beginner',
+  },
+  {
     href: '/lessons/music-theory-fundamentals',
     title: 'Music theory fundamentals (part 1 of 3)',
     blurb:
