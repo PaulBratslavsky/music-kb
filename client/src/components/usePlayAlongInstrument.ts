@@ -13,10 +13,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-export type PlayAlongInstrument = 'guitar' | 'piano' | 'bass';
+export type PlayAlongInstrument = 'guitar' | 'piano' | 'bass' | 'push';
 
 const STORAGE_KEY = 'musickb:playalong-instrument';
-const VALID: PlayAlongInstrument[] = ['guitar', 'piano', 'bass'];
+const VALID: PlayAlongInstrument[] = ['guitar', 'piano', 'bass', 'push'];
 
 function isValid(v: unknown): v is PlayAlongInstrument {
   return typeof v === 'string' && (VALID as string[]).includes(v);

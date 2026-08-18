@@ -187,7 +187,7 @@ export function SectionChordStrip({
           </label>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {(['guitar', 'piano', 'bass'] as const).map((inst) => (
+          {(['guitar', 'piano', 'bass', 'push'] as const).map((inst) => (
             <button
               key={inst}
               type="button"
@@ -224,7 +224,14 @@ export function SectionChordStrip({
               <div className="flex w-full justify-center">
                 <ChordMini
                   chord={c}
-                  instrument={instrument === 'piano' ? 'piano' : 'guitar'}
+                  // Bass reads the same chord charts a guitarist does, so
+                  // it falls back to the guitar box; piano and Push each
+                  // have their own picture.
+                  instrument={
+                    instrument === 'piano' || instrument === 'push'
+                      ? instrument
+                      : 'guitar'
+                  }
                   orientation="horizontal"
                   size="fill"
                 />

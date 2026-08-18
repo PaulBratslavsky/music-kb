@@ -7,6 +7,7 @@
 // Read-only. Falls back to null when guitar has no specific shape (the
 // pitch-class fallback voicing) so the caller can show the name alone.
 import { ChordDiagram, type ChordDiagramProps } from './ChordDiagram';
+import { MiniPush } from './lesson/MiniPush';
 import { guitarVoicing } from '#/lib/music/theory/voicings/guitar';
 import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
 import { pitchClassFromMidi } from '#/lib/music/theory/notes';
@@ -81,6 +82,21 @@ const BLACK: Array<{ pc: PitchClass; after: number }> = [
   { pc: 'A#', after: 5 },
 ];
 
+/**
+ * The pitch classes this chord actually sounds. A detect-captured shape
+ * reports what was played; everything else falls back to the theoretical
+ * tones for root + quality.
+ */
+function chordPitchClasses(chord: MiniChord): PitchClass[] {
+  return chord.positions && chord.positions.length > 0
+    ? [...new Set(
+        [...parsePositions(chord.positions).entries()].map(([s, f]) =>
+          pitchClassFromMidi(STANDARD_TUNING_MIDI[s] + f),
+        ),
+      )]
+    : getChordPitchClasses(chord.root, chord.quality);
+}
+
 function MiniPiano({ chord, responsive }: { chord: MiniChord; responsive?: boolean }) {
   // Detect-captured shapes light the exact played pitch classes; otherwise
   // the chord's theoretical tones from root+quality.
@@ -144,12 +160,25 @@ export function ChordMini({
   size = 'fixed',
 }: {
   chord: MiniChord;
-  instrument: 'guitar' | 'piano';
+  instrument: 'guitar' | 'piano' | 'push';
   /** 'fill' lets a grid cell size the diagram — see ChordDiagram.size. */
   size?: 'fixed' | 'fill';
   /** Passed straight to ChordDiagram — see its `orientation` prop. */
   orientation?: 'vertical' | 'horizontal';
 }) {
+  if (instrument === 'push') {
+    // A chord card only needs enough grid to show the shape once; the pads
+    // repeat every row anyway (+5 semitones), so 5x4 carries the pattern.
+    const pcs = chordPitchClasses(chord);
+    return (
+      <MiniPush
+        rows={4}
+        cols={5}
+        marks={pcs.map((pc) => ({ pc, root: pc === chord.root }))}
+        ariaLabel="Chord on the Push grid"
+      />
+    );
+  }
   if (instrument === 'piano') return <MiniPiano chord={chord} responsive={size === 'fill'} />;
   const diagram = guitarDiagram(chord);
   // No specific shape (pitch-class fallback) → render nothing; caller shows
