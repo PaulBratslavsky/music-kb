@@ -25,8 +25,8 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 
 | Layer | Tech |
 |---|---|
-| Client | [TanStack Start](https://tanstack.com/start), React 19, [Tailwind v4](https://tailwindcss.com), [Radix UI](https://www.radix-ui.com) |
-| AI (in-app) | [TanStack AI](https://tanstack.com/ai/latest) + `@tanstack/ai-ollama` |
+| Client | [TanStack Start](https://tanstack.com/start) 1.168 + [Router](https://tanstack.com/router) 1.170, React 19, [Tailwind v4](https://tailwindcss.com), [Radix UI](https://www.radix-ui.com) |
+| AI (in-app) | [TanStack AI](https://tanstack.com/ai/latest) 0.45 + `@tanstack/ai-ollama` 0.9 — both pinned **exactly**, not caret: on a pre-1.0 line the core and the adapter must move as a matched pair |
 | Chat/summary model | Any Ollama chat model — default `gemma4-kb:latest` (custom [Gemma 4](https://ollama.com/library/gemma4) Modelfile, Q4) |
 | Embedding model | [`nomic-embed-text`](https://ollama.com/library/nomic-embed-text) via Ollama (768-dim, ~137MB). One vector per video; cosine similarity in-memory |
 | Backend | [Strapi 5](https://strapi.io) (5.52, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |
@@ -40,7 +40,10 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 **Prerequisites:** Node 20+, [Yarn Classic](https://classic.yarnpkg.com/), [Ollama](https://ollama.com) installed.
 
 ```bash
-# 1. Install everything + copy .env files
+# 1. Install everything + copy .env files.
+#    Installs each package separately (root, packages/music, server,
+#    client, web) — five installs, so the first run takes a few minutes.
+#    See "Development" for why they aren't hoisted into one.
 yarn setup
 
 # 2. Pull the models.
@@ -276,22 +279,41 @@ yarn web            # The companion SPA only
 yarn test           # Every vitest suite: packages/music, client, web
 ```
 
-Four yarn workspaces under one unversioned root:
+Four packages under a task-runner root. **Each owns its dependencies** —
+its own `node_modules` and its own `yarn.lock`:
 
-| | |
-|---|---|
-| `client/` | the knowledge-base app (TanStack Start) |
-| `server/` | Strapi |
-| `web/` | **Paul's Music Helper** — the light companion SPA, no backend, deploys to Vercel |
-| `packages/music/` | `@music-kb/music` — the music-theory layer both apps share |
+| Package | What it is | React |
+|---|---|---|
+| `client/` | the knowledge-base app (TanStack Start) | 19 |
+| `server/` | Strapi | 18 |
+| `web/` | **Paul's Music Helper** — the light companion SPA, no backend, deploys to Vercel | 19 |
+| `packages/music/` | `@music-kb/music` — the music-theory layer both apps share | — |
 
 `client/` and `server/` are independent (neither imports from the other —
 they meet over Strapi's REST API). `client/` and `web/` share exactly one
 thing, `@music-kb/music`; their React views are deliberately separate. See
 [ADR 0009](docs/adr/0009-monorepo-with-shared-music-package.md).
 
-**Install from the root.** The root lockfile is the only one — a bare
-`yarn` or `npm install` inside a package fights it.
+**Install per package** — `yarn install:all` from the root, or a plain
+`yarn install` inside whichever package you're changing.
+
+This is deliberately **not** a Yarn workspace. Strapi requires React 18
+(`@strapi/admin` peers `^17 || ^18`) while `client` and `web` are on React
+19. Sharing one hoisted `node_modules` gave the client a *second* React
+instance — which nulls the hook dispatcher and silently killed SSR on
+`/feed` and `/learn`. Isolation costs five installs and five lockfiles; it
+buys the guarantee that the two React majors can never meet. The full
+post-mortem, including three fixes that did **not** work, is in
+[`docs/ssr-client-fallback.md`](./docs/ssr-client-fallback.md).
+
+The shared theory layer is linked, not published: `client` and `web` depend
+on it as `link:../packages/music`, which symlinks, so edits are live in both.
+Never switch that to `file:` — it *copies* and goes stale.
+
+> `install:all` uses `--frozen-lockfile` everywhere, so a lockfile that has
+> drifted from its `package.json` fails loudly instead of being silently
+> rewritten. When you genuinely want to add a dependency, run `yarn add`
+> inside that package.
 
 Active development lands on feature branches off `main`.
 
@@ -299,7 +321,9 @@ Active development lands on feature branches off `main`.
 
 ## Known limitations
 
-- **Local model tool-call reliability is probabilistic.** Gemma 4 at 4B-effective params lands around 42% on [Tau2](https://arxiv.org/abs/2406.12045). Single-shot tool calls (like `web_search`) work most of the time; agentic multi-step chains don't. Use `/web <query>` when you need determinism.
+- **Local model tool-call reliability is probabilistic.** Gemma 4 at 4B-effective params lands around 42% on [Tau2](https://arxiv.org/abs/2406.12045). Single-shot tool calls (like `web_search`) work reliably; agentic multi-step chains don't. Use `/web <query>` when you need determinism.
+
+  Temperature matters more than it looks here. `/api/chat` runs at `0.3`; at Ollama's default of `1.0` the model intermittently *narrated* the call instead of emitting it — printing `[{"tool_name":"web_search",...}]` as prose, so the tool never ran and the invented text around it reached the user looking like a real result. Measured on the same prompt: **1/3 calls succeeded at 1.0, 4/4 at 0.3.** If you swap the chat model and see raw tool JSON in an answer, that is this failure mode, and temperature is the dial.
 - **Single-node process assumption.** Inflight generation state is tracked in an in-memory `Set`. Horizontal scaling would need to move this to Redis or a DB table.
 - **SQLite for dev.** Set `DATABASE_CLIENT=postgres` in `server/.env` and restart for production.
 
