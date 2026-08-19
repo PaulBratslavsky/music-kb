@@ -1,9 +1,11 @@
 # SSR falls back to client rendering on `/feed` and `/learn`
 
-**Status:** Open — cause proven, fix decided (see "Fix" below), not yet done
-**Severity:** Degradation, not breakage. Both pages render correctly; they
-just render in the browser instead of on the server.
-**Introduced by:** adding `client/` to the Yarn workspace (this branch).
+**Status:** ✅ Fixed — by dropping the Yarn workspace so each package installs
+its own dependencies. Kept as the record of why the repo is laid out that way.
+**Was:** a degradation, not a breakage — both pages rendered, just in the
+browser instead of on the server.
+**Introduced by:** adding `client/` to the Yarn workspace.
+**Fixed by:** `refactor: give each package its own install`.
 
 ## Symptom
 
@@ -96,7 +98,7 @@ unchanged. This is the informative failure: **bundler configuration cannot
 fix this.** The duplication is physical, in `node_modules`, and Vite's SSR
 path resolves through Node regardless of `resolve.*`.
 
-## Fix
+## Fix (applied)
 
 Stop `server/` and `client/` sharing an install root. Drop the `workspaces`
 field so each package installs its own dependencies, and link the shared
@@ -140,6 +142,9 @@ const { chromium } = require('@playwright/test');
 })();"
 ```
 
-Clean output on all four means fixed. `e2e/notes-editor.spec.ts` deliberately
-filters this error out (see `UNRELATED` there); delete that filter once fixed
-so it cannot regress silently.
+Clean output on all four means fixed — which is the current state, verified on
+all four routes with zero `Switched to client rendering` in the dev server log.
+
+`e2e/notes-editor.spec.ts` briefly filtered this error out while the bug was
+open. That filter is **gone**: its console guard now catches everything, so a
+regression here fails that spec rather than passing quietly.
