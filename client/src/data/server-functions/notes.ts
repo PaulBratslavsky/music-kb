@@ -23,7 +23,7 @@ export type ListNotesResult =
   | { status: 'error'; error: string };
 
 export const listNotesForVideo = createServerFn({ method: 'GET' })
-  .inputValidator((data: z.input<typeof ListNotesSchema>) =>
+  .validator((data: z.input<typeof ListNotesSchema>) =>
     ListNotesSchema.parse(data),
   )
   .handler(async ({ data }): Promise<ListNotesResult> => {
@@ -51,7 +51,7 @@ export type CreateNoteResult =
   | { status: 'error'; error: string };
 
 export const createNote = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof CreateNoteSchema>) =>
+  .validator((data: z.input<typeof CreateNoteSchema>) =>
     CreateNoteSchema.parse(data),
   )
   .handler(async ({ data }): Promise<CreateNoteResult> => {
@@ -73,7 +73,7 @@ const UpdateNoteSchema = z.object({
 });
 
 export const updateNote = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof UpdateNoteSchema>) =>
+  .validator((data: z.input<typeof UpdateNoteSchema>) =>
     UpdateNoteSchema.parse(data),
   )
   .handler(
@@ -97,7 +97,7 @@ const DeleteNoteSchema = z.object({
 });
 
 export const deleteNote = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof DeleteNoteSchema>) =>
+  .validator((data: z.input<typeof DeleteNoteSchema>) =>
     DeleteNoteSchema.parse(data),
   )
   .handler(
@@ -151,7 +151,7 @@ async function resolveVideoById(id: string): Promise<StrapiVideo | null> {
 }
 
 export const summarizeToNote = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof SummarizeToNoteSchema>) =>
+  .validator((data: z.input<typeof SummarizeToNoteSchema>) =>
     SummarizeToNoteSchema.parse(data),
   )
   .handler(async ({ data }): Promise<SummarizeToNoteResult> => {

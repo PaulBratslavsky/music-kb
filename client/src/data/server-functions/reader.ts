@@ -26,7 +26,7 @@ export type GenerateReadableArticleResponse =
 const inflight = new Set<string>();
 
 export const generateReadableArticle = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof GenerateSchema>) =>
+  .validator((data: z.input<typeof GenerateSchema>) =>
     GenerateSchema.parse(data),
   )
   .handler(async ({ data }): Promise<GenerateReadableArticleResponse> => {

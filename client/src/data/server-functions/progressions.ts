@@ -60,7 +60,7 @@ export const listProgressions = createServerFn({ method: 'GET' }).handler(
 const ForVideoSchema = z.object({ videoDocumentId: z.string().min(1).max(64) });
 
 export const listProgressionsForVideo = createServerFn({ method: 'GET' })
-  .inputValidator((data: z.input<typeof ForVideoSchema>) =>
+  .validator((data: z.input<typeof ForVideoSchema>) =>
     ForVideoSchema.parse(data),
   )
   .handler(async ({ data }): Promise<ListProgressionsResult> => {
@@ -89,7 +89,7 @@ export type SaveProgressionResult =
   | { status: 'error'; error: string };
 
 export const saveProgression = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof SaveSchema>) => SaveSchema.parse(data))
+  .validator((data: z.input<typeof SaveSchema>) => SaveSchema.parse(data))
   .handler(async ({ data }): Promise<SaveProgressionResult> => {
     // zod widens quality (string) — assert back to the precise chord type.
     const chords = data.chords as ProgressionChord[];
@@ -111,7 +111,7 @@ export type DeleteProgressionResult =
   | { status: 'error'; error: string };
 
 export const deleteProgression = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof DeleteSchema>) =>
+  .validator((data: z.input<typeof DeleteSchema>) =>
     DeleteSchema.parse(data),
   )
   .handler(async ({ data }): Promise<DeleteProgressionResult> => {
