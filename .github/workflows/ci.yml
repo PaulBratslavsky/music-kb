@@ -7,7 +7,7 @@
 # vite.config.ts, and a broken-since-fork tag-creation bug hid behind the
 # smoke test silently skipping on every local run.
 #
-# One job, four installs. Each package owns its dependencies — there is no
+# One job, five installs (root + four packages). Each owns its dependencies — there is no
 # workspace and no hoisting, deliberately: sharing a root made Strapi's
 # React 18 reachable from the React 19 client, which broke SSR. See
 # docs/ssr-client-fallback.md. Isolation costs install time and buys the
@@ -15,10 +15,11 @@
 #
 # Caching keys on every lockfile, so a change in any package busts it.
 #
-# `yarn test` runs from the *root* on purpose: it chains packages/music
-# (195) + client (264) + web (4). Running it from client/ is a bare
-# `vitest run` and silently covers less than half — the trap CLAUDE.md
-# warns about, on the one package whose breakage takes down two apps.
+# `yarn test` runs from the *root* on purpose: it chains all three suites.
+# Running it from client/ is a bare `vitest run` and silently covers less
+# than half — the trap CLAUDE.md warns about, on the one package whose
+# breakage takes down two apps. Counts live in CLAUDE.md, not here, so they
+# only have to be right in one place.
 name: ci
 
 on:
@@ -58,7 +59,7 @@ jobs:
         run: npx tsc --noEmit
         working-directory: server
 
-      # Root script: packages/music (195) + client (262) + web (4) = 461.
+      # Root script — all three suites; see CLAUDE.md for the counts.
       - name: Test all workspaces
         run: yarn test
 

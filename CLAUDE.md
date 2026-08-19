@@ -50,9 +50,9 @@ All run from the **repo root** unless noted.
 ### Tests
 
 ```bash
-yarn test                                      # every suite (456 tests)
+yarn test                                      # every suite (463 tests)
 yarn --cwd packages/music test                 # the shared theory layer (195)
-yarn --cwd client test                         # the KB app (261)
+yarn --cwd client test                         # the KB app (264)
 yarn --cwd client test path/to/file.test.ts    # single file
 yarn --cwd client test -t "name fragment"      # filter by test name
 yarn --cwd client test:e2e                     # Playwright smoke (needs stack up)
@@ -60,7 +60,7 @@ yarn --cwd client test:e2e                     # Playwright smoke (needs stack u
 
 Unit tests are vitest. **They live in two places**: theory tests in
 `packages/music/src/`, app tests in `client/src/`. A bare
-`yarn --cwd client test` silently skips 195 of them — use the root script. The server has no test suite.
+`yarn --cwd client test` silently skips 199 of them — use the root script. The server has no test suite.
 Playwright e2e specs live in `client/e2e/*.spec.ts` and assume the full
 stack is already running (`yarn dev`/`yarn start` from the repo root) —
 they do not boot it. They guard the seroval server→client boundary on the

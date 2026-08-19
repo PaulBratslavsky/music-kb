@@ -130,13 +130,16 @@ preview before merging.
 ## Verifying a fix
 
 ```bash
-# from client/, with the stack running
+# from client/, with the stack running. Takes a real video id from Strapi
+# rather than a placeholder, so this is copy-pasteable.
 node -e "
 const { chromium } = require('@playwright/test');
 (async () => {
+  const r = await fetch('http://localhost:1350/api/videos?pagination%5Blimit%5D=1');
+  const id = (await r.json()).data?.[0]?.youtubeVideoId;
   const b = await chromium.launch(); const p = await b.newPage();
   p.on('pageerror', e => console.log('ERR', e.message.split('\n')[0]));
-  for (const u of ['/feed','/search','/settings','/learn/<id>'])
+  for (const u of ['/feed','/search','/settings',\`/learn/\${id}\`])
     { await p.goto('http://localhost:3015'+u, {waitUntil:'networkidle'}); }
   await b.close();
 })();"

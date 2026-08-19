@@ -22,7 +22,7 @@
     "db:load:local": "yarn --cwd ./server db:load:local",
     "db:load:neon": "yarn --cwd ./server db:load:neon",
     "web": "yarn --cwd ./web dev",
-    "install:all": "yarn install && yarn --cwd packages/music install && yarn --cwd server install && yarn --cwd client install && yarn --cwd web install"
+    "install:all": "yarn install --frozen-lockfile && yarn --cwd packages/music install --frozen-lockfile && yarn --cwd server install --frozen-lockfile && yarn --cwd client install --frozen-lockfile && yarn --cwd web install --frozen-lockfile"
   },
   "dependencies": {
     "concurrently": "^8.2.2",
