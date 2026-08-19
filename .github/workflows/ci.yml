@@ -1,11 +1,27 @@
-# Minimal CI — the two static gates from CLAUDE.md: client typecheck and
-# the vitest suite. Both live-backend test families self-skip headless:
-# videos.smoke.test.ts probes Strapi and embeddings.ranking.test.ts probes
-# Ollama, so neither needs services here.
+# Minimal CI — the static gates from CLAUDE.md: typecheck, the vitest suite,
+# and the web production build. Both live-backend test families self-skip
+# headless: videos.smoke.test.ts probes Strapi and embeddings.ranking.test.ts
+# probes Ollama, so neither needs services here.
 #
 # This week motivated the job twice over: 6 type errors sat unnoticed in
 # vite.config.ts, and a broken-since-fork tag-creation bug hid behind the
 # smoke test silently skipping on every local run.
+#
+# One job, one install. This is a Yarn *workspace* — a single root install
+# resolves client, server, web and packages/music together, so splitting
+# into per-package jobs (as this file used to) just paid for the same
+# install twice and let the two halves drift onto different resolutions.
+#
+# Two things this file got wrong until 2026-08-19, both fallout from the
+# monorepo refactor that never reached CI:
+#
+#   * It cached on `client/yarn.lock` and `server/yarn.lock`, which that
+#     refactor deleted. The root `yarn.lock` is the only lockfile now.
+#   * It ran `yarn test` from `client/`, which is a bare `vitest run` and
+#     covers 262 of the 461 tests. packages/music's 195 and web's 4 had
+#     never run in CI — exactly the trap CLAUDE.md warns about, on the one
+#     package whose breakage takes down two apps at once. The root `yarn
+#     test` script is the one that runs all three suites.
 name: ci
 
 on:
@@ -14,33 +30,35 @@ on:
   pull_request:
 
 jobs:
-  client:
+  ci:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: client
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: yarn
-          cache-dependency-path: client/yarn.lock
-      - run: yarn install --frozen-lockfile
-      - run: npx tsc --noEmit
-      - run: yarn test
+          cache-dependency-path: yarn.lock
 
-  server-typecheck:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: yarn
-          cache-dependency-path: server/yarn.lock
       - run: yarn install --frozen-lockfile
-      - run: npx tsc --noEmit
+
+      # Typecheck is per-package: each has its own tsconfig, and there is no
+      # project-wide script. The client is the one with real coverage; the
+      # server's is thinner but catches Strapi API drift across upgrades.
+      - name: Typecheck client
+        run: npx tsc --noEmit
+        working-directory: client
+
+      - name: Typecheck server
+        run: npx tsc --noEmit
+        working-directory: server
+
+      # Root script: packages/music (195) + client (262) + web (4) = 461.
+      - name: Test all workspaces
+        run: yarn test
+
+      # Mirrors .githooks/pre-push and what Vercel runs (`tsc -b && vite
+      # build`). `tsc -b` rather than `tsc --noEmit` on purpose: --noEmit has
+      # passed for web twice while the real build failed on genuine errors.
+      - name: Build web
+        run: yarn --cwd web build
