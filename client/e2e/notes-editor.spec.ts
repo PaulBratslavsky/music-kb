@@ -33,24 +33,16 @@ const EDITOR = '.ProseMirror[contenteditable="true"]';
 // Fail on anything that looks like the editor blowing up rather than
 // merely misbehaving — a missing storage key surfaces as a TypeError.
 //
-// Filters out the SSR→client-render fallback. That is a real, open bug — a
-// duplicate React instance, documented in docs/ssr-client-fallback.md — but
-// it fires on /feed too, which has no editor, so it belongs to the app's
-// module resolution and not to Tiptap. Gating this spec on it would make a
-// Tiptap regression and a hoisting regression indistinguishable. Delete the
-// filter once that bug is fixed, so it cannot come back silently.
-const UNRELATED = /Switched to client rendering/i;
-
+// Nothing is filtered. This briefly ignored the SSR→client-render fallback
+// while that bug was open; isolating each package's install fixed it (see
+// docs/ssr-client-fallback.md), so the guard catches everything again. If
+// SSR starts bailing on this route, this test fails — which is the point.
 function editorGuard(page: Page): () => void {
   const hits: string[] = [];
-  const keep = (s: string) => !UNRELATED.test(s);
   page.on('console', (msg) => {
-    if (msg.type() === 'error' && keep(msg.text()))
-      hits.push(`console: ${msg.text()}`);
+    if (msg.type() === 'error') hits.push(`console: ${msg.text()}`);
   });
-  page.on('pageerror', (err) => {
-    if (keep(err.message)) hits.push(`pageerror: ${err.message}`);
-  });
+  page.on('pageerror', (err) => hits.push(`pageerror: ${err.message}`));
   return () =>
     expect(hits, `editor runtime error:\n${hits.join('\n')}`).toEqual([]);
 }

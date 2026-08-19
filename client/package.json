@@ -56,7 +56,7 @@
     "undici": "^6.21.0",
     "youtubei.js": "^17.0.1",
     "zod": "^4.3.6",
-    "@music-kb/music": "*"
+    "@music-kb/music": "link:../packages/music"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
