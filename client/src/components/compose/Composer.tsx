@@ -9,7 +9,7 @@
 // resizable afterwards.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 import {
   DURATIONS,
   TOTAL_TICKS,
@@ -25,8 +25,8 @@ import {
   resolveMelodyMidi,
   resolveBassMidi,
 } from '#/lib/music/compose/playback';
-import { getScalePitchClasses } from '#/lib/music/theory/scales';
-import { getDiatonicChords } from '#/lib/music/theory/diatonic';
+import { getScalePitchClasses } from '@music-kb/music/theory/scales';
+import { getDiatonicChords } from '@music-kb/music/theory/diatonic';
 import {
   chordToneDegrees,
   degreeLabel,

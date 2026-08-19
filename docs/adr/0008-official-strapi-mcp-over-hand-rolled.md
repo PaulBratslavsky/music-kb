@@ -53,7 +53,8 @@ official server instead, at the app level.**
 
 ### The load-bearing constraint: one zod instance, not one zod version
 
-**Corrected 2026-08-17.** This section previously claimed the official API
+**Corrected 2026-08-17, then corrected again 2026-08-18 — see the note at
+the end of this section.** This section previously claimed the official API
 required **zod 3** because `@strapi/utils` bundled 3.25.x while the app used
 zod 4. That was wrong, and it cost us: it justified a second hand-maintained
 copy of every input schema in `catalog.ts`, and the two copies drifted (see
@@ -88,13 +89,34 @@ states it only accepts "schemas from the same zod/v4 instance used here" —
 and their `zod.ts` doc block tells integrators to use the re-exported `z`
 "so your code stays compatible across Strapi minor/patch updates."
 
-**So: build MCP schemas with `z` from `@strapi/utils`, and build them once.**
-Each tool's `ToolDef.schema` is the single declaration; `catalog.ts` supplies
+~~So: build MCP schemas with `z` from `@strapi/utils`, and build them once.~~
+**Corrected 2026-08-18: this conclusion was itself wrong — see below.** Each
+tool's `ToolDef.schema` is the single declaration; `catalog.ts` supplies
 only `title` + `access`, and the adapter reads the schema off the tool. Output
 schemas must be a top-level `ZodObject`; the adapter normalizes any
 array/scalar result into an object to satisfy that.
 
 Everything outside `server/src/mcp/` stays on the app's own zod 4.
+
+**2026-08-18 correction: schemas must be built with the app's own zod, not
+`@strapi/utils`'s — the opposite of the conclusion above.** The instance/
+minor-skew framing above is real but was the wrong lens: it explains a *type*
+error, not the actual runtime bug found in production use. Zod 4 stores
+`.describe()` text in a per-module-instance **global registry**. When a
+schema is built with `@strapi/utils`'s bundled zod copy and then converted
+by the MCP SDK's own, separately-bundled zod instance, the SDK's registry
+lookup finds nothing — every `.describe()` string is silently dropped from
+what MCP clients see, with no error, no warning. Building schemas with the
+app's own top-level `zod` (`^4.3.x`) instead fixes this, because
+`@modelcontextprotocol/sdk` declares `zod` only as a peer dependency (no
+nested copy of its own), so it resolves to the same physical package the
+app's schemas are built with. The remaining nominal-type mismatch against
+`@strapi/strapi`'s ambient `registerTool` signature (still typed against
+`@strapi/utils`'s zod) is bridged with a narrow type cast at the
+`registerTool` call site in `server/src/mcp/adapter.ts` — see that file for
+the up-to-date reasoning. `server/src/mcp/catalog.ts` no longer has a
+"zod-3 vs zod-4" split at all: every tool schema is built with the same
+top-level `zod` import.
 
 **Why the duplication was worth removing, not just tidying.** The two copies
 were the same contract typed twice, and only the `catalog.ts` copy was ever
@@ -134,11 +156,11 @@ full-access token — what the old `/api/mcp` used — is rejected.
 - **Breaking client-config change.** Clients must point at `/mcp` (not
   `/api/mcp`) with an **admin** token (not a content token). Anyone with the
   old config must reconfigure — see `docs/mcp.md`.
-- **Dual zod versions in the tool layer.** Each tool's schema is declared
-  twice — zod-4 in the `ToolDef` (for the execute body's arg typing) and
-  zod-3 in `src/mcp/catalog.ts` (for the official server). Drift
-  between the two is possible; the verification pass (tools/list + sample
-  calls) is the guard.
+- ~~**Dual zod versions in the tool layer** — schema declared twice, zod-4
+  in the `ToolDef` and zod-3 in `catalog.ts`.~~ **Stale as of 2026-08-18:**
+  there is no longer a second declaration. Every tool schema is built once,
+  in `src/mcp/tools/*`, with the app's own top-level `zod` — see the
+  corrected note in the "load-bearing constraint" section above.
 - **Output schemas start loose.** The adapter defaults to a permissive
   object schema; tightening per-tool is deferred.
 - **Admin-token blast radius.** Admin tokens are more powerful than the old
@@ -150,9 +172,9 @@ full-access token — what the old `/api/mcp` used — is rejected.
 
 - `src/mcp/tools/` no longer serves HTTP — they're just tool
   *implementations* the adapter consumes. Don't re-add a transport there.
-- New tools: author a `ToolDef` in `src/mcp/tools/`, add a zod-3 entry in
-  `src/mcp/catalog.ts` with a read/write tier. Registration is automatic
-  via the array.
+- New tools: author a `ToolDef` in `src/mcp/tools/` (schema built with the
+  app's own `zod`), add an entry in `src/mcp/catalog.ts` with a read/write
+  tier. Registration is automatic via the array.
 
 > **Update (2026-06):** the official-server wiring originally lived in a
 > separate `src/mcp-official/` folder (to keep tool bodies host-neutral

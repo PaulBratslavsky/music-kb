@@ -29,7 +29,7 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 | AI (in-app) | [TanStack AI](https://tanstack.com/ai/latest) + `@tanstack/ai-ollama` |
 | Chat/summary model | Any Ollama chat model — default `gemma4-kb:latest` (custom [Gemma 4](https://ollama.com/library/gemma4) Modelfile, Q4) |
 | Embedding model | [`nomic-embed-text`](https://ollama.com/library/nomic-embed-text) via Ollama (768-dim, ~137MB). One vector per video; cosine similarity in-memory |
-| Backend | [Strapi 5](https://strapi.io) (5.48, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |
+| Backend | [Strapi 5](https://strapi.io) (5.52, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |
 | MCP server | Official Strapi MCP server (built into 5.47+) at `/mcp`, Streamable HTTP, auth via admin API tokens |
 | Transcripts | [youtubei.js](https://github.com/LuanRT/YouTube.js) directly against YouTube caption tracks |
 
@@ -272,10 +272,28 @@ Transcripts over ~15K estimated tokens (`SINGLE_PASS_TOKEN_BUDGET`) split into 2
 yarn dev            # Strapi + client only (skip the Ollama env setup)
 yarn client         # Client only (expects Strapi already running)
 yarn server         # Strapi only
-yarn --cwd client test    # Run vitest suite
+yarn web            # The companion SPA only
+yarn test           # Every vitest suite: packages/music, client, web
 ```
 
-The monorepo root is a single git repo with an unversioned shell `package.json` that delegates to the two workspaces; the `client/` and `server/` halves are independent (neither imports from the other — they meet over Strapi's REST API). Active development lands on feature branches off `main`.
+Four yarn workspaces under one unversioned root:
+
+| | |
+|---|---|
+| `client/` | the knowledge-base app (TanStack Start) |
+| `server/` | Strapi |
+| `web/` | **Paul's Music Helper** — the light companion SPA, no backend, deploys to Vercel |
+| `packages/music/` | `@music-kb/music` — the music-theory layer both apps share |
+
+`client/` and `server/` are independent (neither imports from the other —
+they meet over Strapi's REST API). `client/` and `web/` share exactly one
+thing, `@music-kb/music`; their React views are deliberately separate. See
+[ADR 0009](docs/adr/0009-monorepo-with-shared-music-package.md).
+
+**Install from the root.** The root lockfile is the only one — a bare
+`yarn` or `npm install` inside a package fights it.
+
+Active development lands on feature branches off `main`.
 
 ---
 

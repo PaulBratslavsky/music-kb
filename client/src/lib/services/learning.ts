@@ -45,6 +45,7 @@ import {
   OLLAMA_CHAT_MODEL as CHAT_MODEL,
   TRANSCRIPT_PROXY_URL,
 } from '#/lib/env';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 // TanStack AI Ollama adapters. Two separate adapters because SUMMARY_MODEL
 // and CHAT_MODEL can differ (you might want a bigger model for summaries
@@ -500,9 +501,10 @@ async function generateSummarySinglePass(
     // reliability as our previous @ai-sdk/openai + /v1 path, one fewer
     // hop (native Ollama client vs OpenAI-compat shim).
     //
-    // systemPrompts workaround: @tanstack/ai-ollama@0.6.6 silently drops
-    // the `systemPrompts` option — we prepend a system-role message
-    // instead, which the adapter passes through to Ollama as expected.
+    // systemPrompts: 0.6.6 silently dropped the `systemPrompts` option, so
+    // we prepend a system-role message instead. 0.9 supports `systemPrompts`
+    // properly, but the prepend still works and is left alone here to keep
+    // the upgrade at parity — switching is a separate, behavioural change.
     const object = (await withRetry(
       () =>
         chat({
@@ -516,7 +518,7 @@ async function generateSummarySinglePass(
           // action steps / section bodies. Ollama default is 1.0, which
           // is great for chat but invites creative drift in structured
           // tasks where we want grounded prose.
-          temperature: 0.3,
+          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
         }),
       {
         attempts: 2,
@@ -712,7 +714,7 @@ async function generateSummaryMapReduce(
           outputSchema: SummarySchema,
           // Same low-temp rationale as the single-pass call: structured
           // output + grounding-over-creativity.
-          temperature: 0.3,
+          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
         }),
       {
         attempts: 2,
@@ -1628,7 +1630,7 @@ export async function regenerateVerdictForVideo(
             { role: 'user', content: userPrompt },
           ] as never,
           outputSchema: VerdictOnlySchema,
-          temperature: 0.3,
+          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
         }),
       {
         attempts: 2,

@@ -50,7 +50,7 @@ export type SaveDigestResult =
   | { status: 'error'; error: string };
 
 export const saveDigest = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof SaveDigestSchema>) =>
+  .validator((data: z.input<typeof SaveDigestSchema>) =>
     SaveDigestSchema.parse(data),
   )
   .handler(async ({ data }): Promise<SaveDigestResult> => {
@@ -140,7 +140,7 @@ async function resolveVideo(id: string): Promise<StrapiVideo | null> {
 }
 
 export const loadDigest = createServerFn({ method: 'GET' })
-  .inputValidator((data: z.input<typeof LoadDigestSchema>) =>
+  .validator((data: z.input<typeof LoadDigestSchema>) =>
     LoadDigestSchema.parse(data),
   )
   .handler(async ({ data }): Promise<LoadDigestResult> => {
@@ -200,7 +200,7 @@ export type FetchSavedDigestByVideosResult =
   | { status: 'error'; error: string };
 
 export const fetchSavedDigestByVideoIds = createServerFn({ method: 'GET' })
-  .inputValidator((data: z.input<typeof FetchSavedDigestByVideosSchema>) =>
+  .validator((data: z.input<typeof FetchSavedDigestByVideosSchema>) =>
     FetchSavedDigestByVideosSchema.parse(data),
   )
   .handler(async ({ data }): Promise<FetchSavedDigestByVideosResult> => {
@@ -226,7 +226,7 @@ export type ListSavedDigestsResult =
   | { status: 'error'; error: string };
 
 export const listSavedDigests = createServerFn({ method: 'GET' })
-  .inputValidator((data: z.input<typeof ListSavedDigestsSchema>) =>
+  .validator((data: z.input<typeof ListSavedDigestsSchema>) =>
     ListSavedDigestsSchema.parse(data),
   )
   .handler(async ({ data }): Promise<ListSavedDigestsResult> => {
@@ -252,7 +252,7 @@ export type FetchSavedDigestResult =
   | { status: 'error'; error: string };
 
 export const fetchSavedDigest = createServerFn({ method: 'GET' })
-  .inputValidator((data: z.input<typeof FetchSavedDigestSchema>) =>
+  .validator((data: z.input<typeof FetchSavedDigestSchema>) =>
     FetchSavedDigestSchema.parse(data),
   )
   .handler(async ({ data }): Promise<FetchSavedDigestResult> => {
@@ -270,7 +270,7 @@ const DeleteSavedDigestSchema = z.object({
 });
 
 export const deleteSavedDigest = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof DeleteSavedDigestSchema>) =>
+  .validator((data: z.input<typeof DeleteSavedDigestSchema>) =>
     DeleteSavedDigestSchema.parse(data),
   )
   .handler(

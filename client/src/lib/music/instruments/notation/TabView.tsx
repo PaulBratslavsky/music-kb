@@ -1,6 +1,6 @@
-import type { Note, PitchClass } from '../../types';
-import { STANDARD_TUNING_MIDI } from '../guitar/layout';
-import { midiFromNote } from '../../theory/notes';
+import type { Note, PitchClass } from '@music-kb/music/types';
+import { STANDARD_TUNING_MIDI } from '@music-kb/music/instruments/guitar/layout';
+import { midiFromNote } from '@music-kb/music/theory/notes';
 
 type Props = {
   notes: Note[];

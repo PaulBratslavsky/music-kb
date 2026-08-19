@@ -16,8 +16,8 @@ import {
   updateLoop,
 } from '#/data/server-functions/loops';
 import type { StrapiLoop, StrapiLoopProgression } from '#/lib/services/loops';
-import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
-import type { ChordQuality } from '#/lib/music/types';
+import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
+import type { ChordQuality } from '@music-kb/music/types';
 import { LoopProgressionView } from '#/components/LoopProgressionView';
 
 function formatRange(startSec: number, endSec: number): string {

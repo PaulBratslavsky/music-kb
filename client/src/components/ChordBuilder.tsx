@@ -12,7 +12,7 @@ import { useAppState } from '#/lib/music/state/useAppState';
 import { resolveSelection } from '#/lib/music/state/resolve';
 import { SelectionBar } from '#/lib/music/components/SelectionBar';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
-import type { KeyMode } from '#/lib/music/circle-of-fifths';
+import type { KeyMode } from '@music-kb/music/theory/circle-of-fifths';
 import { GuitarView } from '#/lib/music/instruments/guitar/GuitarView';
 import { PianoView } from '#/lib/music/instruments/piano/PianoView';
 import { ChordFormulaStrip } from '#/components/ChordFormulaStrip';
@@ -20,15 +20,15 @@ import { ProgressionPanel } from '#/components/ProgressionPanel';
 import { synth } from '#/lib/music/audio/synth';
 import { Button } from '#/components/ui/button';
 import { exportFretboardPng } from '#/lib/music/png-export';
-import { availablePositions, realizeCagedShape } from '#/lib/music/theory/positions';
-import { inversionForBass } from '#/lib/music/theory/chords';
-import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
-import { getScalePitchClasses } from '#/lib/music/theory/scales';
-import { guitarVoicing, guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
-import { detectFromFrets, detectFromMidis } from '#/lib/music/theory/detect-chord';
+import { availablePositions, realizeCagedShape } from '@music-kb/music/theory/positions';
+import { inversionForBass } from '@music-kb/music/theory/chords';
+import { STANDARD_TUNING_MIDI } from '@music-kb/music/instruments/guitar/layout';
+import { getScalePitchClasses } from '@music-kb/music/theory/scales';
+import { guitarVoicing, guitarVoicingCount } from '@music-kb/music/theory/voicings/guitar';
+import { detectFromFrets, detectFromMidis } from '@music-kb/music/theory/detect-chord';
 import { parseTheoryParam } from '#/lib/music/deep-link';
 import type { ProgressionChord } from '#/lib/services/progressions';
-import type { PitchClass, ChordQuality, ScalePosition } from '#/lib/music/types';
+import type { PitchClass, ChordQuality, ScalePosition } from '@music-kb/music/types';
 import '#/lib/music/theory-companion.css';
 
 type ChordBuilderProps = {
@@ -594,6 +594,7 @@ export function ChordBuilder({
               onGameGuess={(pos) => appState.submitGuess('piano', pos)}
               detectMode={detectMode}
               playedMidis={playedMidis}
+              detectedRootPitchClass={detected?.selection?.root ?? null}
               onToggleMidi={toggleMidi}
             />
           </>

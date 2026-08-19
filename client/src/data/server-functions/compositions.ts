@@ -52,7 +52,7 @@ export type SaveCompositionResult =
   | { status: 'error'; error: string };
 
 export const saveComposition = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof SaveSchema>) => SaveSchema.parse(data))
+  .validator((data: z.input<typeof SaveSchema>) => SaveSchema.parse(data))
   .handler(async ({ data }): Promise<SaveCompositionResult> => {
     // zod widens degree→number / root→string; the schema enforces the
     // real ranges, so assert back to the precise Composition type.
@@ -76,7 +76,7 @@ export type DeleteCompositionResult =
   | { status: 'error'; error: string };
 
 export const deleteComposition = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof DeleteSchema>) =>
+  .validator((data: z.input<typeof DeleteSchema>) =>
     DeleteSchema.parse(data),
   )
   .handler(async ({ data }): Promise<DeleteCompositionResult> => {

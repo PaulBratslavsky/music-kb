@@ -19,13 +19,13 @@ import {
   CHORD_QUALITIES,
   type ChordQuality,
   type ChordSelection,
-} from '../types';
+} from '@music-kb/music/types';
 import { chordInversionCount, chordVoicingCount } from '../state/resolve';
 import {
   currentGuitarShapeName,
   qualityHasAnyShape,
-} from '../theory/voicings/guitar';
-import { QUALITY_LABELS } from '../theory/quality-labels';
+} from '@music-kb/music/theory/voicings/guitar';
+import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
 
 type Props = Readonly<{
   chord: ChordSelection;

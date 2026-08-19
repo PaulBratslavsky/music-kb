@@ -6,12 +6,12 @@
 import { useMemo } from 'react';
 import type { Composition, Degree } from '#/lib/music/compose/types';
 import { keyToScaleSelection } from '#/lib/music/compose/playback';
-import { getDiatonicChords } from '#/lib/music/theory/diatonic';
+import { getDiatonicChords } from '@music-kb/music/theory/diatonic';
 import { triadLabel } from '#/lib/music/compose/labels';
 import { degreeColor } from '#/lib/music/compose/colors';
 import { resolveChordMidis } from '#/lib/music/compose/playback';
 import { synth } from '#/lib/music/audio/synth';
-import { SCALE_TYPE_LABELS } from '#/lib/music/theory/scales';
+import { SCALE_TYPE_LABELS } from '@music-kb/music/theory/scales';
 
 export function ChordPalette({
   comp,

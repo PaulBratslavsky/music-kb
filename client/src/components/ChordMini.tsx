@@ -8,14 +8,14 @@
 // pitch-class fallback voicing) so the caller can show the name alone.
 import { ChordDiagram, type ChordDiagramProps } from './ChordDiagram';
 import { MiniPush } from './lesson/MiniPush';
-import { pushChordShape } from '#/lib/music/theory/push-shapes';
-import { pianoVoicing } from '#/lib/music/theory/voicings/piano';
-import { midiFromNote } from '#/lib/music/theory/notes';
-import { guitarVoicing } from '#/lib/music/theory/voicings/guitar';
-import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
-import { pitchClassFromMidi } from '#/lib/music/theory/notes';
-import { getChordPitchClasses } from '#/lib/music/theory/chords';
-import type { ChordSelection, PitchClass } from '#/lib/music/types';
+import { pushChordShape } from '@music-kb/music/theory/push-shapes';
+import { pianoVoicing } from '@music-kb/music/theory/voicings/piano';
+import { midiFromNote } from '@music-kb/music/theory/notes';
+import { guitarVoicing } from '@music-kb/music/theory/voicings/guitar';
+import { STANDARD_TUNING_MIDI } from '@music-kb/music/instruments/guitar/layout';
+import { pitchClassFromMidi } from '@music-kb/music/theory/notes';
+import { getChordPitchClasses } from '@music-kb/music/theory/chords';
+import type { ChordSelection, PitchClass } from '@music-kb/music/types';
 
 // A chord as the progression stores it — a ChordSelection plus, for shapes
 // captured via the reverse-detect fretboard, the exact tapped `positions`.

@@ -1,9 +1,13 @@
 # Companion web app — Paul's Music Helper
 
-music-kb has a sibling project: **[Paul's Music Helper](https://github.com/PaulBratslavsky/music-push-guitar-piano-helper)**
-(repo `music-push-guitar-piano-helper`, working copy usually at
-`../music-push-guitar-piano-helper`). It is the **light version** of this
-app and is meant to be **complementary**, not a fork that drifts.
+music-kb ships two apps. **Paul's Music Helper** lives at `web/` in this
+repo and is the **light version**: same music features, none of the
+knowledge-base half. It is meant to be **complementary**, not a fork that
+drifts.
+
+It used to be its own repo (`music-push-guitar-piano-helper`), which is why
+much of the history below is written as if there were two. It was folded
+in on 2026-08-18 — see [ADR 0009](./adr/0009-monorepo-with-shared-music-package.md).
 
 > **One-line rule:** the web app should have every music feature music-kb
 > has, minus the knowledge-base half. If a feature works without a
@@ -11,7 +15,7 @@ app and is meant to be **complementary**, not a fork that drifts.
 
 ## Why two apps
 
-| | music-kb (this repo) | Paul's Music Helper (web app) |
+| | music-kb (`client/`) | Paul's Music Helper (`web/`) |
 |---|---|---|
 | **Stack** | TanStack Start + Strapi + SQLite | React + Vite, static SPA |
 | **Backend** | Strapi REST on :1350 | none |
@@ -67,8 +71,8 @@ As of 2026-08-16 the web app carries all four (it previously had only
 | Section | music-kb | Web app | Notes |
 |---|---|---|---|
 | **Builder** | `/builder` | `#/` home | ✅ Parity. The home view *is* the builder; the nav label was renamed. |
-| **Theory** | `/theory` — 5 tabs: tools, practice, visualizer, compose, **reference** | `#/theory` — 3 tabs: tools, practice, reference | ⚠️ Mostly there. Tools, the cheat sheet and the scale/chord finder are across. **Compose** is not; *visualizer* needs no port (it is this app's home), and Practice carries only the finder, not the ear trainer / progression player. |
-| **Lessons** | `/lessons` (index + 6 lessons) | `#/lessons` | ✅ Parity — all 6 lessons, verified in light and dark. |
+| **Theory** | `/theory` — 5 tabs: tools, practice, visualizer, compose, **reference** | `#/theory` — 3 tabs: tools, practice, reference | ⚠️ Mostly there. Tools (circle of fifths + chord substitutions, major and minor), the cheat sheet and the scale/chord finder are across. **Compose** is not; *visualizer* needs no port (it is this app's home), and Practice carries only the finder, not the ear trainer / progression player. |
+| **Lessons** | `/lessons` (index + 8 lessons) | `#/lessons` | ✅ Parity — all 8 lessons, including triads and power chords. |
 | **Music** | `/music`, `/video/$documentId` | `#/music`, `#/video/<id>` | ✅ Closest to parity already. |
 
 The Tailwind v4 setup added for the lesson port means future ports can keep
@@ -77,57 +81,51 @@ their `className` markup instead of being converted to inline styles.
 Routing in the web app is hash-based (`useHashRoute.ts`), so new sections
 are `#/lessons`, `#/theory`, etc.
 
-## Why two repos, and not a monorepo
+## One repo, one theory layer
 
-**Decided: two repos, shared code is copied.** Considered and rejected:
+**Decided 2026-08-18: one repo, and the shared code is a package, not a
+copy.** See [ADR 0009](./adr/0009-monorepo-with-shared-music-package.md)
+for the full reasoning; the short version is that the two-repo decision
+rested on music-kb being local-only with a committed seed archive, and
+neither is true any more.
 
-- **Monorepo** (web app moved into music-kb, one copy of the theory layer
-  in a workspace package). Cleanest on duplication, but music-kb is
-  local-only with no remote, ships a Strapi backend, and has a seed archive
-  committed at `server/seed-data/seed-from-yt-kb.tar.gz.bak`. Giving it a
-  remote just to deploy the web app means either publishing personal
-  library data or moving to a private repo and rewiring the deploy. Not
-  worth it for a duplication problem this stable.
-- **Extracting `theory/` as a shared package.** Kills ~1,700 duplicated
-  lines, but adds a release step to every theory change and only covers the
-  framework-free half — the instrument views still diverge on CSS tokens.
+```
+music-kb/
+  packages/music/   @music-kb/music — the shared layer
+  client/           the knowledge-base app
+  web/              Paul's Music Helper
+  server/           Strapi
+```
 
-The duplication is real but it is *quiet*: the theory layer changes rarely
-and most of it has stayed byte-identical on its own.
+`packages/music` holds `theory/`, `instruments/*/layout.ts`,
+`state/gameModeStorage.ts` and `types.ts`. Its one rule: **no React, no DOM
+beyond `localStorage`.** Both apps import from it:
 
-## Keeping them in sync
+```ts
+import { getScalePitchClasses } from '@music-kb/music/theory/scales';
+import type { PitchClass } from '@music-kb/music/types';
+```
 
-The two share a music-theory layer by **copying, not by a package**:
-music-kb's `client/src/lib/music/` and the web app's `app/src/` (`theory/`,
-`instruments/`, `state/`) are near-identical, and music-kb's copy is the
-one that usually gets improved first.
+**The React views are still per-app**, and deliberately so —
+`GuitarView`, `PianoView`, `BassView`, `PushView` and the notation views
+differ on state, palette and styling for real reasons. Unifying them is
+possible now but is its own job.
 
-Measured 2026-08-17 — the theory layer now moves **verbatim**. The four
-modules added for the scale board (`key-inference`, `chord-overlay`,
-`voicing-positions`, `scale-chord-finder`) and their 44 tests were copied
-across with zero edits and passed first run, because `theory/` sits at the
-same relative depth in both trees and imports `../types` either way.
+### What this changes about porting
 
-Earlier measurement — **28 shared files, ~4,600 lines**, of which 16 are
-byte-identical:
+Nothing gets copied any more. A theory change lands once and both apps
+have it. What still needs porting is **views and pages** — a new lesson, a
+new panel — and for those, two of the three old mechanical fixes still
+apply:
 
-| Byte-identical (safe to `cp`) | Diverged (port by hand) |
-|---|---|
-| `theory/`: chords, scales, notes, degrees, chord-scales, parse-chord, positions, quality-labels, voicings/{guitar, piano, push} | `theory/`: detect-chord, diatonic, voicings/guitar-shapes |
-| `instruments/*/layout.ts` (all four) | `instruments/`: GuitarView, PianoView, BassView, PushView, notation/* |
-| `state/gameModeStorage.ts` | `state/`: resolve, useAppState · `audio/synth.ts` |
+1. ~~Import paths~~ — gone. Both apps use `@music-kb/music/...` for theory.
+   The client still uses its own `#/` alias for its own files.
+2. **CSS tokens** — the palettes are named differently, but `web/src/styles.css`
+   **aliases music-kb's names onto its own** (`--ink: var(--text)` and so
+   on), so ported markup usually works untouched. The map is still worth
+   knowing when you hit a token that isn't aliased:
 
-The diverged ones mostly differ for a reason — music-kb carries fork
-additions (`cellColors`, `detectMode`, voicing `positions`) and the two
-apps use different palettes. Diff before overwriting.
-
-Porting is mostly `cp` plus two mechanical fixes:
-
-1. **Import paths** — music-kb uses the `#/` alias, the web app uses
-   relative paths.
-2. **CSS tokens** — the palettes are named differently. Map:
-
-   | music-kb | web app |
+   | music-kb (`client/`) | web app (`web/`) |
    |---|---|
    | `--ink` | `--text` |
    | `--ink-muted` | `--text-dim` |
@@ -139,18 +137,24 @@ Porting is mostly `cp` plus two mechanical fixes:
    `--fret-line`, `--string`, `--natural`, `--white-key`, `--black-key`,
    `--focus`, `--game-*`.
 
-Two bugs have already come from missing step 2 — a chord-box drawn in
-invisible colors, and a PNG export that came out black-on-black because
-the exporter's `VAR_NAMES` list still named music-kb's tokens. **When you
-copy a file, grep it for `var(--` and check every token exists on the other
-side:**
+   Two bugs came from missing this, before the aliases existed — a chord
+   box drawn in invisible colours, and a PNG export that came out
+   black-on-black because the exporter's `VAR_NAMES` list still named
+   music-kb's tokens. **Grep any view you move for `var(--` and check every
+   token resolves on the other side:**
 
-```bash
-grep -o 'var(--[a-z0-9-]*)' <file> | sort -u
-```
+   ```bash
+   grep -o 'var(--[a-z0-9-]*)' <file> | sort -u
+   ```
 
-Styling differs too: music-kb uses Tailwind classes, the web app uses
-inline styles. Components that carry `className="..."` need converting.
+3. **Routing** — music-kb uses TanStack Router; this app is hash-routed
+   with no router library. `web/src/components/Link.tsx` is the shim: it
+   maps `to` onto a hash path and translates music-kb's `search={{ theory:
+   'chord:C#:min' }}` deep links into this app's query params.
+
+4. **Styling** — music-kb uses Tailwind throughout. The web app now has
+   Tailwind v4 too, so `className` markup survives the move; older parts of
+   `web/` still use inline styles and get converted opportunistically.
 
 ## Divergences that are deliberate
 
@@ -160,25 +164,61 @@ inline styles. Components that carry `className="..."` need converting.
   bass plays single notes, so finding the nearest root anywhere on the neck
   is the point. Guitar pins the voicing; bass does not. This is intentional
   in both apps.
-- **Test coverage is lopsided.** The web app has vitest configured but only
-  two specs (`voicings`, `display-map`); music-kb has a much larger suite.
-  Pure logic ported to the web app (e.g. `activeIndex` for bar timing) is
-  covered on the music-kb side — worth porting those specs across when the
-  logic moves, since they run unchanged.
+- **The web app has no tests of its own yet.** Every spec it had was a
+  test of the theory layer, and those went into `packages/music` with the
+  code they cover. `yarn --cwd web test` runs `--passWithNoTests` until
+  component tests land there.
 
 ## Working on the web app
 
 ```bash
-cd ../music-push-guitar-piano-helper/app
-npm install
-npm run dev -- --port 5180
-npm run build          # tsc -b && vite build — what Vercel runs
+yarn install                  # from the repo root — one install, every workspace
+yarn --cwd web dev --port 5180
+yarn --cwd web build          # tsc -b && vite build — what Vercel runs
+yarn test                     # packages/music + client + web
 ```
 
-A `.githooks/pre-push` hook runs the production build before every push so
-a broken build never reaches Vercel. On a fresh clone it is not active —
-enable it once:
+Never run `npm install` or a bare `yarn` inside `web/` — it fights the root
+lockfile.
+
+Use the **build**, not `tsc --noEmit`, as the gate: `--noEmit` has passed
+here while `tsc -b` caught real type errors. The root `.githooks/pre-push`
+hook runs the build before every push so a broken one never reaches Vercel.
+On a fresh clone it is not active — enable it once:
 
 ```bash
 git config core.hooksPath .githooks
 ```
+
+## Deploying
+
+`vercel.json` at the **repo root** holds the whole build contract:
+
+```json
+{
+  "installCommand": "yarn install --frozen-lockfile",
+  "buildCommand": "yarn --cwd web build",
+  "outputDirectory": "web/dist"
+}
+```
+
+It lives at the root, not in `web/`, on purpose. A Vercel **Root Directory**
+of `web/` would put the yarn workspace root *above* the build context, and
+the install would then depend on the "Include files outside the Root
+Directory" toggle being on. Keeping Root Directory empty sidesteps that
+entirely — everything the build needs is inside it.
+
+So the Vercel project needs exactly two things:
+
+1. **Git repository:** `PaulBratslavsky/music-kb` (it used to be
+   `music-push-guitar-piano-helper`). A Vercel project cannot be repointed
+   at a different repo in place — disconnect and reconnect, or create a new
+   project and move the domain over.
+2. **Root Directory:** empty. Everything else comes from `vercel.json`.
+
+Verify on a **preview** deploy before merging to `main`. The old repo stays
+archived, not deleted, until production has run from `web/` for a couple of
+weeks.
+
+The app is hash-routed, so no rewrite rules are needed — every route is
+served by the same `index.html`.

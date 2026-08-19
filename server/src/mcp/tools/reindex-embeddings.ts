@@ -6,7 +6,7 @@
 // tool calls are one-shot, so concurrency would only add surprise without
 // speedup here.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import {
   CURRENT_EMBEDDING_MODEL,

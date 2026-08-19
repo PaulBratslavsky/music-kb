@@ -1,4 +1,4 @@
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { Core } from '@strapi/strapi';
 
 // Shape of a music-kb domain tool. Originally the interface of the
@@ -18,8 +18,11 @@ export type ToolDef<Input = unknown, Output = unknown> = {
   /** User-facing description. Includes when to use vs. not use. */
   description: string;
   /** Zod schema for the tool input — the SINGLE declaration of this tool's
-   * contract. Built with the `z` re-exported from @strapi/utils, which is
-   * the same zod instance Strapi uses internally (see ADR 0008): the
+   * contract. Built with the app's own top-level `zod` dependency, NOT the
+   * `z` re-exported from @strapi/utils (see ADR 0008): Zod 4 stores
+   * `.describe()` text in a per-instance global registry, and the MCP SDK
+   * converts schemas with its own bundled zod instance, which cannot see
+   * a description recorded by @strapi/utils's separate zod copy. The
    * official server validates against this object AND advertises its
    * `.describe()` text to MCP clients, and `Input` is `z.infer` of it.
    * Do NOT re-declare an equivalent schema anywhere else. */

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Pre-push gate — runs the web app's production build before any push, so
+# TypeScript / Vite errors that would break Vercel get caught locally
+# before they reach GitHub. Mirrors what Vercel runs (`yarn build`
+# = `tsc -b && vite build`), so a green hook means a green deploy.
+#
+# `tsc -b` rather than `tsc --noEmit` on purpose: --noEmit has passed here
+# twice while the real build failed on genuine type errors.
+#
+# Skip with --no-verify if you need to push an unrelated WIP branch
+# (sparingly — that's how broken builds reach production).
+
+set -e
+
+echo "→ pre-push: running web build…"
+yarn --cwd "$(git rev-parse --show-toplevel)/web" build > /dev/null
+echo "✓ pre-push: build clean."

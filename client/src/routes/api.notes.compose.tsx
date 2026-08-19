@@ -11,6 +11,7 @@ import {
   OLLAMA_HOST,
   OLLAMA_SYNTHESIS_MODEL as CHAT_MODEL,
 } from '#/lib/env';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 function formatTimecode(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -195,7 +196,7 @@ export const Route = createFileRoute('/api/notes/compose')({
             { role: 'system', content: skill.composerPrompt },
             { role: 'user', content: userPrompt },
           ] as never,
-          temperature: 0.3,
+          modelOptions: samplingOptions(CHAT_MODEL, 0.3),
         });
 
         return toServerSentEventsResponse(stream);

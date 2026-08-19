@@ -19,7 +19,7 @@
 // transitions defined in useAppState.
 
 import type { useAppState } from '../state/useAppState';
-import { firstBarreVoicingIndex } from '../theory/voicings/guitar';
+import { firstBarreVoicingIndex } from '@music-kb/music/theory/voicings/guitar';
 
 type Props = ReturnType<typeof useAppState>;
 

@@ -1,7 +1,7 @@
 // Paged list of videos in the knowledge base. Returns the catalog view —
 // no summary body, no transcript — so the agent can pick one to drill into.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({

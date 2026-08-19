@@ -19,12 +19,12 @@ import {
   type NeckPattern,
 } from '#/components/lesson/NeckPatternPicker';
 import { scaleNoteLabels } from '#/components/lesson/labels';
-import { realizeCagedShape, type RealizedPosition } from '#/lib/music/theory/positions';
-import { threeNotesPerString } from '#/lib/music/theory/neck-patterns';
-import { getScalePitchClasses } from '#/lib/music/theory/scales';
-import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
-import { pitchClassFromMidi } from '#/lib/music/theory/notes';
-import type { PitchClass, ScaleSelection } from '#/lib/music/types';
+import { realizeCagedShape, type RealizedPosition } from '@music-kb/music/theory/positions';
+import { threeNotesPerString } from '@music-kb/music/theory/neck-patterns';
+import { getScalePitchClasses } from '@music-kb/music/theory/scales';
+import { STANDARD_TUNING_MIDI } from '@music-kb/music/instruments/guitar/layout';
+import { pitchClassFromMidi } from '@music-kb/music/theory/notes';
+import type { PitchClass, ScaleSelection } from '@music-kb/music/types';
 
 export const Route = createFileRoute(
   '/lessons/scale-systems-on-the-neck',

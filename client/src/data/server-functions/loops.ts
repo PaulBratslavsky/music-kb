@@ -38,7 +38,7 @@ export type ListLoopsResult =
   | { status: 'error'; error: string };
 
 export const listLoopsForVideo = createServerFn({ method: 'GET' })
-  .inputValidator((data: z.input<typeof ListLoopsSchema>) =>
+  .validator((data: z.input<typeof ListLoopsSchema>) =>
     ListLoopsSchema.parse(data),
   )
   .handler(async ({ data }): Promise<ListLoopsResult> => {
@@ -60,7 +60,7 @@ export type GetLoopResult =
   | { status: 'error'; error: string };
 
 export const getLoop = createServerFn({ method: 'GET' })
-  .inputValidator((data: z.input<typeof GetLoopSchema>) =>
+  .validator((data: z.input<typeof GetLoopSchema>) =>
     GetLoopSchema.parse(data),
   )
   .handler(async ({ data }): Promise<GetLoopResult> => {
@@ -92,7 +92,7 @@ export type SaveLoopResult =
   | { status: 'error'; error: string };
 
 export const saveLoop = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof SaveLoopSchema>) => {
+  .validator((data: z.input<typeof SaveLoopSchema>) => {
     const parsed = SaveLoopSchema.parse(data);
     if (parsed.endSec <= parsed.startSec) {
       throw new Error('endSec must be greater than startSec');
@@ -137,7 +137,7 @@ export type UpdateLoopResult =
   | { status: 'error'; error: string };
 
 export const updateLoop = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof UpdateLoopSchema>) =>
+  .validator((data: z.input<typeof UpdateLoopSchema>) =>
     UpdateLoopSchema.parse(data),
   )
   .handler(async ({ data }): Promise<UpdateLoopResult> => {
@@ -159,7 +159,7 @@ export type DeleteLoopResult =
   | { status: 'error'; error: string };
 
 export const deleteLoopFn = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof DeleteLoopSchema>) =>
+  .validator((data: z.input<typeof DeleteLoopSchema>) =>
     DeleteLoopSchema.parse(data),
   )
   .handler(async ({ data }): Promise<DeleteLoopResult> => {

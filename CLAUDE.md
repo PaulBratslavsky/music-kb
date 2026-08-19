@@ -14,14 +14,18 @@ The base architecture below carries over from the parent project unchanged unles
 
 ## Repository shape
 
-Two-package monorepo with an unversioned root:
+Yarn-workspace monorepo. Four packages, unversioned root:
 
 - `client/` — TanStack Start (Vite + React 19) app on port **3015**. Server functions and Nitro API routes live alongside the React routes.
 - `server/` — Strapi 5 (SQLite for dev) on port **1350**. Hosts the data model, REST API, the official Strapi MCP server at `/mcp`, and the `seed-data/` archive.
+- `web/` — **Paul's Music Helper**, the light companion SPA. No backend, no LLM, `localStorage` only; deploys to Vercel. Hash-routed (`useHashRoute.ts`), Tailwind v4. Has its own `CLAUDE.md`.
+- `packages/music/` — `@music-kb/music`, the music-theory layer **shared by `client/` and `web/`**: `theory/`, `instruments/*/layout.ts`, `state/gameModeStorage.ts`, `types.ts`. Framework-free by rule — no React, no DOM beyond `localStorage`, one runtime dependency (`tonal`).
 - `docs/` — design notes, planning docs, and architecture deep-dive (`architecture.md`).
-- Root `package.json` is a shell that delegates to the two packages via `yarn` workspaces-style scripts. **Do not run app code from the root** — it has no `src/`.
+- Root `package.json` holds the workspace list and delegating scripts. **Do not run app code from the root** — it has no `src/`.
 
-The two halves are independent: the client never imports from `server/` and vice versa. They communicate over Strapi's REST API and (for write-side internal services) authenticated REST calls in `client/src/lib/services/strapi-client.ts`.
+`client` and `server` are independent: the client never imports from `server/` and vice versa. They communicate over Strapi's REST API and (for write-side internal services) authenticated REST calls in `client/src/lib/services/strapi-client.ts`.
+
+`client` and `web` share exactly one thing — `@music-kb/music`. **Their React views are deliberately separate** (different palettes, different state, Tailwind vs inline styles); don't try to unify them as a side effect of another change. See [ADR 0009](docs/adr/0009-monorepo-with-shared-music-package.md) and `docs/companion-web-app.md`.
 
 ## Common commands
 
@@ -36,18 +40,24 @@ All run from the **repo root** unless noted.
 | `yarn server` | Strapi only (`strapi develop`). |
 | `yarn client` | Client only (assumes Strapi is up). |
 | `yarn seed` | Imports `server/seed-data/seed.tar.gz`. **Run before starting Strapi** — needs exclusive write to SQLite. |
+| `yarn web` | The companion SPA's dev server only. |
+| `yarn test` | All three suites: `packages/music`, then `client`, then `web`. |
 | `yarn export` | Exports current Strapi DB to `server/seed-data/seed.tar.gz`. |
 
 ### Tests
 
 ```bash
-yarn --cwd client test                         # full vitest suite (~290 tests)
+yarn test                                      # every suite (456 tests)
+yarn --cwd packages/music test                 # the shared theory layer (195)
+yarn --cwd client test                         # the KB app (261)
 yarn --cwd client test path/to/file.test.ts    # single file
 yarn --cwd client test -t "name fragment"      # filter by test name
 yarn --cwd client test:e2e                     # Playwright smoke (needs stack up)
 ```
 
-Unit tests are vitest, in `client/src/` only. The server has no test suite.
+Unit tests are vitest. **They live in two places**: theory tests in
+`packages/music/src/`, app tests in `client/src/`. A bare
+`yarn --cwd client test` silently skips 195 of them — use the root script. The server has no test suite.
 Playwright e2e specs live in `client/e2e/*.spec.ts` and assume the full
 stack is already running (`yarn dev`/`yarn start` from the repo root) —
 they do not boot it. They guard the seroval server→client boundary on the
@@ -59,9 +69,12 @@ plugin-free) holds the `test.include`/`exclude` that keep vitest out of `e2e/`.
 
 ```bash
 cd client && npx tsc --noEmit                  # client typecheck (no project-wide script)
+yarn --cwd web build                           # tsc -b && vite build — web's honest gate
 ```
 
 There is no lint command — TypeScript and tests are the only static gates. The server has its own `tsconfig.json` and is built by Strapi when it boots.
+
+For `web/`, use the **build**, not `tsc --noEmit`: `--noEmit` has passed there twice while `tsc -b` caught real type errors. The root `.githooks/pre-push` hook runs it before every push (`git config core.hooksPath .githooks` once per clone).
 
 ## Architecture (the parts that span files)
 
@@ -131,6 +144,8 @@ The **official Strapi MCP server** (built into 5.47+) serves `/mcp`, gated by ad
 - **Don't bypass `strapiFetch`.** It's the one place that handles auth, error shape, query param flattening, and logging. Inline `fetch('/api/...')` to Strapi has been removed; don't reintroduce it.
 - **Don't trust LLM-generated timecodes.** See above. They get post-processed against the transcript every time.
 - **Don't introduce cloud AI adapters.** Local-first is a design constraint — Ollama only for inference + embeddings. Frontier models are reachable via MCP from Claude Desktop / Code, not via in-app cloud SDKs.
+- **Install from the root, always.** Yarn workspaces: the root lockfile is the only one. `npm install` or a bare `yarn` inside `client/`, `server/` or `web/` fights it.
+- **Theory changes hit both apps at once.** `packages/music` has no version skew to hide behind — break it and you break two builds. Its 195 tests are the guard; run them.
 - **`yarn seed` requires Strapi stopped.** SQLite needs exclusive write access for the import; running it against a live Strapi corrupts the DB.
 - **Bump `EMBEDDING_VERSION` when changing the text-builder.** Otherwise old vectors silently survive a meaning-changing edit.
 - **Orphan node on :1350 or :3015** breaks `yarn dev` with cryptic `[strapi] fetch failed` spam from the client. `start.sh` kills these pre-flight; if you're running `yarn dev` directly, do it yourself with `lsof -ti :1350 -ti :3015 | xargs kill -9`.

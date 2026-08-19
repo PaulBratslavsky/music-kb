@@ -8,10 +8,10 @@
 // edits take effect on the next beat boundary instead of needing a stop.
 
 import { useEffect, useRef, useState } from 'react';
-import { getChordPitchClasses, stackAscending } from '#/lib/music/theory/chords';
-import { midiFromPitchOctave } from '#/lib/music/theory/notes';
+import { getChordPitchClasses, stackAscending } from '@music-kb/music/theory/chords';
+import { midiFromPitchOctave } from '@music-kb/music/theory/notes';
 import { synth } from '#/lib/music/audio/synth';
-import type { ChordQuality, PitchClass } from '#/lib/music/types';
+import type { ChordQuality, PitchClass } from '@music-kb/music/types';
 
 export type ChordStep = {
   root: PitchClass;

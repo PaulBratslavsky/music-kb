@@ -15,8 +15,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { updateLoop } from '#/data/server-functions/loops';
 import { listProgressionsForVideo } from '#/data/server-functions/progressions';
 import type { ChordStep } from '#/components/practice/useProgressionPlayback';
-import { PITCH_CLASSES, type ChordQuality, type PitchClass } from '#/lib/music/types';
-import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
+import { PITCH_CLASSES, type ChordQuality, type PitchClass } from '@music-kb/music/types';
+import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
 import type { StrapiLoopProgression } from '#/lib/services/loops';
 import type { ProgressionChord } from '#/lib/services/progressions';
 

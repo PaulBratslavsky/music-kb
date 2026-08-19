@@ -112,9 +112,18 @@ export function DigestChat({
             toolCalls[idx] = {
               ...toolCalls[idx],
               input: event.input,
-              result: event.result,
+              // Keep any result already delivered: TOOL_CALL_RESULT can
+              // arrive before this frame, and 0.45's tool_end carries none.
+              result: event.result ?? toolCalls[idx].result,
               status: 'done',
             };
+          }
+        } else if (event.kind === 'tool_result') {
+          // 0.45 delivers the result on its own frame — merge, don't replace,
+          // since name and input arrived on the earlier events.
+          const idx = toolCalls.findIndex((t) => t.id === event.id);
+          if (idx >= 0) {
+            toolCalls[idx] = { ...toolCalls[idx], result: event.result };
           }
         }
       }

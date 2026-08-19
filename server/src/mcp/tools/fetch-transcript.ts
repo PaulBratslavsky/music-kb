@@ -6,7 +6,7 @@
 // Does NOT run any LLM. Claude Desktop / Claude Code can call this when it
 // wants up-to-date caption data, then reason over it with its own model.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import { fetchYouTubeTranscript, fetchYouTubeMeta } from '../../services/youtube-transcript';
 

@@ -12,12 +12,12 @@
 // (string pairs + CAGED octaves) concrete.
 
 import { useState } from 'react';
-import { pcSemitoneFromCircleIdx } from '#/lib/music/chord-substitutions';
+import { pcSemitoneFromCircleIdx } from '@music-kb/music/theory/chord-substitutions';
 import {
   majorDisplay,
   type CircleDirection,
   type Enharmonic,
-} from '#/lib/music/circle-of-fifths';
+} from '@music-kb/music/theory/circle-of-fifths';
 
 // Internal string indexing: 0 = high e, 5 = low E (matches StringPairs.tsx).
 // The primary pairs Ricky teaches are (top, bottom) string indices:

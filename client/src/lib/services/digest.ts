@@ -14,6 +14,7 @@ import {
 } from '#/lib/services/videos';
 import { withRetry } from '#/lib/retry';
 import { OLLAMA_HOST, OLLAMA_MODEL as SUMMARY_MODEL } from '#/lib/env';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 const digestAdapter = createOllamaChat(SUMMARY_MODEL, OLLAMA_HOST);
 
@@ -342,7 +343,7 @@ export async function synthesizeDigest(
             { role: 'user', content: userPrompt },
           ] as never,
           outputSchema: DigestSchema,
-          temperature: 0.3,
+          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
         }),
       {
         attempts: 2,
@@ -473,7 +474,7 @@ export async function synthesizeDigestArticle(
             { role: 'user', content: userPrompt },
           ] as never,
           stream: false,
-          temperature: 0.3,
+          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
         }),
       {
         attempts: 2,

@@ -25,7 +25,7 @@ export type GenerateDigestResult =
   | { status: 'error'; error: string };
 
 export const generateDigest = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof GenerateDigestSchema>) =>
+  .validator((data: z.input<typeof GenerateDigestSchema>) =>
     GenerateDigestSchema.parse(data),
   )
   .handler(async ({ data }): Promise<GenerateDigestResult> => {
@@ -48,7 +48,7 @@ export type GenerateDigestArticleResult =
   | { status: 'error'; error: string };
 
 export const generateDigestArticle = createServerFn({ method: 'POST' })
-  .inputValidator((data: z.input<typeof GenerateDigestSchema>) =>
+  .validator((data: z.input<typeof GenerateDigestSchema>) =>
     GenerateDigestSchema.parse(data),
   )
   .handler(async ({ data }): Promise<GenerateDigestArticleResult> => {

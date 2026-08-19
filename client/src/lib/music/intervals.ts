@@ -7,8 +7,8 @@
 // name "tritone" since both spell the same set of notes. Distinguishing
 // the two requires the actual note letters, which we don't track here.
 
-import type { PitchClass } from './types';
-import { PITCH_CLASSES } from './types';
+import type { PitchClass } from '@music-kb/music/types';
+import { PITCH_CLASSES } from '@music-kb/music/types';
 
 export type Interval = {
   /** Semitones from low to high, in [0, 12]. */

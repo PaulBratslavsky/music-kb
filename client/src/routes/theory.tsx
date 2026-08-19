@@ -26,7 +26,7 @@ import {
   CIRCLE_MAJOR_DISPLAY,
   CIRCLE_MINOR_DISPLAY,
   type CircleDirection,
-} from '#/lib/music/circle-of-fifths';
+} from '@music-kb/music/theory/circle-of-fifths';
 
 const TheorySearchSchema = z.object({
   tab: z.enum(['tools', 'practice', 'visualizer', 'compose', 'reference']).optional(),

@@ -185,7 +185,7 @@ export interface ContentTakeaway extends Struct.ComponentSchema {
 }
 
 declare module '@strapi/strapi' {
-  export module Public {
+  export namespace Public {
     export interface ComponentSchemas {
       'content.action-step': ContentActionStep;
       'content.digest-contradiction': ContentDigestContradiction;

@@ -18,25 +18,25 @@ import { MiniNeck, type NeckDot } from '#/components/lesson/MiniNeck';
 import { MiniKeyboard, type KeyMark } from '#/components/lesson/MiniKeyboard';
 import { DegreeChips } from '#/components/lesson/DegreeChips';
 import { ChordMini } from '#/components/ChordMini';
-import { guitarVoicing } from '#/lib/music/theory/voicings/guitar';
+import { guitarVoicing } from '@music-kb/music/theory/voicings/guitar';
 import { prettyAccidentals } from '#/components/lesson/labels';
-import { getScalePitchClasses } from '#/lib/music/theory/scales';
+import { getScalePitchClasses } from '@music-kb/music/theory/scales';
 import {
   getChordNoteNames,
   getChordPitchClasses,
-} from '#/lib/music/theory/chords';
-import { chordDegrees, scaleDegrees } from '#/lib/music/theory/degrees';
-import { getDiatonicTriads } from '#/lib/music/theory/diatonic';
-import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
-import { SCALE_TYPE_LABELS, getScaleNoteNames } from '#/lib/music/theory/scales';
-import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
-import { pitchClassFromMidi, spelledRoot } from '#/lib/music/theory/notes';
+} from '@music-kb/music/theory/chords';
+import { chordDegrees, scaleDegrees } from '@music-kb/music/theory/degrees';
+import { getDiatonicTriads } from '@music-kb/music/theory/diatonic';
+import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
+import { SCALE_TYPE_LABELS, getScaleNoteNames } from '@music-kb/music/theory/scales';
+import { STANDARD_TUNING_MIDI } from '@music-kb/music/instruments/guitar/layout';
+import { pitchClassFromMidi, spelledRoot } from '@music-kb/music/theory/notes';
 import {
   PITCH_CLASSES,
   type ChordQuality,
   type PitchClass,
   type ScaleType,
-} from '#/lib/music/types';
+} from '@music-kb/music/types';
 
 /* ========================================================================== */
 /*  Generated reference data                                                   */

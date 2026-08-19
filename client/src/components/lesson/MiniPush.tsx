@@ -11,8 +11,8 @@
 // Push repeats diagonally rather than horizontally, and why the same shape
 // works from any starting pad — the thing the grid is good at showing.
 
-import { buildPushLayout } from '#/lib/music/instruments/push/layout';
-import type { PitchClass } from '#/lib/music/types';
+import { buildPushLayout } from '@music-kb/music/instruments/push/layout';
+import type { PitchClass } from '@music-kb/music/types';
 
 export type PushMark = {
   pc: PitchClass;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '#/components/ui/button';
-import { QUALITY_LABELS } from '#/lib/music/theory/quality-labels';
+import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
 import {
   listProgressions,
   listProgressionsForVideo,
@@ -11,10 +11,10 @@ import type {
   StrapiProgression,
   ProgressionChord,
 } from '#/lib/services/progressions';
-import type { ChordQuality } from '#/lib/music/types';
+import type { ChordQuality } from '@music-kb/music/types';
 import { ChordMini } from '#/components/ChordMini';
 import { ProgressionSheet } from '#/components/ProgressionSheet';
-import { guitarVoicingCount } from '#/lib/music/theory/voicings/guitar';
+import { guitarVoicingCount } from '@music-kb/music/theory/voicings/guitar';
 import { exportFretboardPng } from '#/lib/music/png-export';
 
 // "Cmaj" / "Am" / "Fmaj7" — root glued to the short quality label. A

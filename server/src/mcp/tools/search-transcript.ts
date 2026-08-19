@@ -6,7 +6,7 @@
 // generated yet), falls back to naive substring scoring over the raw
 // transcript so the tool still returns something useful.
 
-import { z } from '@strapi/utils';
+import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import {
   formatTimecode,

@@ -5,22 +5,22 @@ import type {
   PitchClass,
   ResolvedSelection,
   ScaleSelection,
-} from '../types';
-import { PITCH_CLASSES } from '../types';
-import { getChordNoteNames, getChordPitchClasses } from '../theory/chords';
-import { getScaleNoteNames, getScalePitchClasses, SCALE_TYPE_LABELS } from '../theory/scales';
-import { buildDisplayMap, notesAscending, spelledRoot } from '../theory/notes';
-import { pianoVoicing } from '../theory/voicings/piano';
-import { guitarVoicing, guitarHasShape, guitarVoicingCount } from '../theory/voicings/guitar';
-import { pushVoicing } from '../theory/voicings/push';
-import { degreesForSelection } from '../theory/degrees';
+} from '@music-kb/music/types';
+import { PITCH_CLASSES } from '@music-kb/music/types';
+import { getChordNoteNames, getChordPitchClasses } from '@music-kb/music/theory/chords';
+import { getScaleNoteNames, getScalePitchClasses, SCALE_TYPE_LABELS } from '@music-kb/music/theory/scales';
+import { buildDisplayMap, notesAscending, spelledRoot } from '@music-kb/music/theory/notes';
+import { pianoVoicing } from '@music-kb/music/theory/voicings/piano';
+import { guitarVoicing, guitarHasShape, guitarVoicingCount } from '@music-kb/music/theory/voicings/guitar';
+import { pushVoicing } from '@music-kb/music/theory/voicings/push';
+import { degreesForSelection } from '@music-kb/music/theory/degrees';
 import {
   realizeCagedShape,
   shapeName,
   supportsCaged,
-} from '../theory/positions';
-import { getDiatonicChords } from '../theory/diatonic';
-import { QUALITY_LABELS } from '../theory/quality-labels';
+} from '@music-kb/music/theory/positions';
+import { getDiatonicChords } from '@music-kb/music/theory/diatonic';
+import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
 
 function ordinal(n: number): string {
   if (n === 0) return 'root position';

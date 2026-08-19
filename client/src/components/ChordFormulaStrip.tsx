@@ -9,10 +9,10 @@
 // gaps you'd read off are the inversion's, not the chord's formula — the
 // caller hides this rather than teach the wrong number.
 
-import { getChordPitchClasses } from '#/lib/music/theory/chords';
-import { chordDegrees } from '#/lib/music/theory/degrees';
+import { getChordPitchClasses } from '@music-kb/music/theory/chords';
+import { chordDegrees } from '@music-kb/music/theory/degrees';
 import { prettyAccidentals } from '#/components/lesson/labels';
-import { PITCH_CLASSES, type ChordQuality, type PitchClass } from '#/lib/music/types';
+import { PITCH_CLASSES, type ChordQuality, type PitchClass } from '@music-kb/music/types';
 
 /**
  * Short interval labels. Half and whole steps get H/W because that is how

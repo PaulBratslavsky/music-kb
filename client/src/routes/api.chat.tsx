@@ -157,9 +157,10 @@ export const Route = createFileRoute('/api/chat')({
         );
 
         const adapter = createOllamaChat(CHAT_MODEL, OLLAMA_HOST);
-        // Workaround: @tanstack/ai-ollama@0.6.6 silently drops
-        // `systemPrompts` in its chatStream implementation. Ollama
-        // natively accepts `{ role: 'system', ... }` as the first message.
+        // 0.6.6 silently dropped `systemPrompts` in its chatStream
+        // implementation, so we pass the system turn as the first message —
+        // Ollama natively accepts `{ role: 'system', ... }`. 0.9 supports
+        // `systemPrompts`, but this path is left at parity deliberately.
         const messagesWithSystem: ModelMessage[] = [
           { role: 'system', content: system },
           ...expanded,

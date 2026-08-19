@@ -48,7 +48,13 @@ export type StreamEvent =
       name: string;
       input: unknown;
       result: string | null;
-    };
+    }
+  // Emitted from a TOOL_CALL_RESULT frame, which @tanstack/ai 0.45 sends as
+  // a *separate* event after TOOL_CALL_END rather than folding the result
+  // into it. Carries only the id and the result, so consumers must merge it
+  // into the existing call rather than replacing it — the name and input
+  // arrived earlier and are not repeated here.
+  | { kind: 'tool_result'; id: string; result: string | null };
 
 // -----------------------------------------------------------------------------
 // Stream parser
@@ -139,10 +145,15 @@ function parseSseEventBlock(block: string): StreamEvent | null {
       // catch sites fire. Translated here because the message is raw
       // adapter/Ollama text; friendlyOllamaError is idempotent on its
       // own output, so consumers re-translating in their catch is safe.
+      // 0.45 emits `{ type, model, timestamp, message, code }`; 0.10 and
+      // earlier nested it as `{ error: { message } }`. Read the flat field
+      // first and fall back, so neither dialect degrades to the generic
+      // message — that string is what reaches the user, and losing the
+      // real one costs them the Ollama recovery hint.
       const raw =
-        typeof event.error?.message === 'string' && event.error.message
-          ? event.error.message
-          : 'AI run failed';
+        (typeof event.message === 'string' && event.message) ||
+        (typeof event.error?.message === 'string' && event.error.message) ||
+        'AI run failed';
       throw new Error(friendlyOllamaError(raw));
     }
     case 'TOOL_CALL_START': {
@@ -154,6 +165,10 @@ function parseSseEventBlock(block: string): StreamEvent | null {
       const id = event.toolCallId;
       // tool_end is the source of truth for `input` (TOOL_CALL_ARGS
       // events stream args incrementally; we ignore those).
+      //
+      // `result` is read defensively: up to 0.10 the result rode along on
+      // this frame, but 0.45 sends it separately as TOOL_CALL_RESULT (see
+      // below). Keeping the fallback means both dialects work.
       const name = event.toolName ?? event.toolCallName ?? '';
       if (!id) return null;
       return {
@@ -163,6 +178,22 @@ function parseSseEventBlock(block: string): StreamEvent | null {
         input: event.input ?? event.args ?? null,
         result: event.result ?? null,
       };
+    }
+    case 'TOOL_CALL_RESULT': {
+      // 0.45 splits the tool result off TOOL_CALL_END onto its own frame,
+      // keyed by toolCallId with the payload in `content`. Dropping it (as
+      // the default branch used to) left every tool call rendering with a
+      // null result forever — the UI hides the output panel in that case,
+      // so the tool silently appeared to return nothing.
+      const id = event.toolCallId;
+      if (!id) return null;
+      const result =
+        typeof event.content === 'string'
+          ? event.content
+          : typeof event.result === 'string'
+            ? event.result
+            : null;
+      return { kind: 'tool_result', id, result };
     }
     default:
       return null;
@@ -175,6 +206,7 @@ function parseSseEventBlock(block: string): StreamEvent | null {
 type AgUiEvent = {
   type?: string;
   delta?: string;
+  // Also carries TOOL_CALL_RESULT's payload, which lives in `content`, not `result`.
   content?: string;
   toolCallId?: string;
   toolName?: string;
@@ -183,5 +215,9 @@ type AgUiEvent = {
   args?: unknown;
   result?: string | null;
   citations?: Citation[];
+  // RUN_ERROR dialects: TanStack AI <= 0.10 nested the failure under
+  // `error`; 0.45 flattened it onto the event as `message` / `code`.
+  message?: string;
+  code?: string;
   error?: { message?: string; code?: string };
 };

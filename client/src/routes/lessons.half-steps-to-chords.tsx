@@ -24,13 +24,13 @@ import { MiniNeck, type NeckDot } from '#/components/lesson/MiniNeck';
 import { scaleNoteLabels } from '#/components/lesson/labels';
 import { ChordDiagram } from '#/components/ChordDiagram';
 import { CircleOfFifths } from '#/components/CircleOfFifths';
-import { getScalePitchClasses } from '#/lib/music/theory/scales';
-import { getDiatonicTriads } from '#/lib/music/theory/diatonic';
-import { realizeCagedShape } from '#/lib/music/theory/positions';
-import { STANDARD_TUNING_MIDI } from '#/lib/music/instruments/guitar/layout';
-import { STANDARD_BASS_TUNING_MIDI } from '#/lib/music/instruments/bass/layout';
-import { pitchClassFromMidi } from '#/lib/music/theory/notes';
-import { PITCH_CLASSES, type PitchClass } from '#/lib/music/types';
+import { getScalePitchClasses } from '@music-kb/music/theory/scales';
+import { getDiatonicTriads } from '@music-kb/music/theory/diatonic';
+import { realizeCagedShape } from '@music-kb/music/theory/positions';
+import { STANDARD_TUNING_MIDI } from '@music-kb/music/instruments/guitar/layout';
+import { STANDARD_BASS_TUNING_MIDI } from '@music-kb/music/instruments/bass/layout';
+import { pitchClassFromMidi } from '@music-kb/music/theory/notes';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 
 export const Route = createFileRoute('/lessons/half-steps-to-chords')({
   component: HalfStepsToChordsPage,

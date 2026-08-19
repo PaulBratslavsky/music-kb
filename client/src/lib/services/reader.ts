@@ -27,6 +27,7 @@ import {
 } from '#/lib/services/transcript';
 import { withRetry } from '#/lib/retry';
 import { MAP_CONCURRENCY, OLLAMA_HOST, OLLAMA_MODEL as MODEL } from '#/lib/env';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 const adapter = createOllamaChat(MODEL, OLLAMA_HOST);
 
@@ -170,7 +171,7 @@ async function generateSinglePass(
             { role: 'user', content: userPrompt },
           ] as never,
           stream: false,
-          temperature: 0.3,
+          modelOptions: samplingOptions(MODEL, 0.3),
         }),
       {
         attempts: 2,
@@ -232,7 +233,7 @@ async function generateMapReduce(
             { role: 'user', content: `Transcript window:\n${cleanChunkText}` },
           ] as never,
           stream: false,
-          temperature: 0.3,
+          modelOptions: samplingOptions(MODEL, 0.3),
         }),
       {
         attempts: 2,
@@ -288,7 +289,7 @@ async function generateMapReduce(
             { role: 'user', content: reduceUser },
           ] as never,
           stream: false,
-          temperature: 0.3,
+          modelOptions: samplingOptions(MODEL, 0.3),
         }),
       {
         attempts: 2,

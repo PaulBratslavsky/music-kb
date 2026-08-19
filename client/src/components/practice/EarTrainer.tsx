@@ -15,13 +15,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { synth } from '#/lib/music/audio/synth';
-import { getChordPitchClasses, stackAscending } from '#/lib/music/theory/chords';
-import { midiFromPitchOctave } from '#/lib/music/theory/notes';
+import { getChordPitchClasses, stackAscending } from '@music-kb/music/theory/chords';
+import { midiFromPitchOctave } from '@music-kb/music/theory/notes';
 import {
   PITCH_CLASSES,
   type ChordQuality,
   type PitchClass,
-} from '#/lib/music/types';
+} from '@music-kb/music/types';
 
 type DrillMode = 'interval' | 'chord-quality' | 'cadence';
 
