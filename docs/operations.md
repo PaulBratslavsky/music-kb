@@ -61,7 +61,7 @@ OLLAMA_MODEL=gemma3:4b
 ## Symptom: Claude Desktop / Code can't reach the MCP server
 
 The knowledge base is exposed over MCP by the **official Strapi MCP
-server** (built into Strapi 5.47+; we're on 5.48.0) at
+server** (built into Strapi 5.47+; we're on 5.52.1) at
 `http://localhost:1350/mcp`, Streamable HTTP, gated by **admin API
 tokens**. See `docs/mcp.md` and ADR 0008. (The old hand-rolled server at
 `/api/mcp` was retired — that endpoint no longer exists.)

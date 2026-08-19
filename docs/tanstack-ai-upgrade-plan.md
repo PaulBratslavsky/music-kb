@@ -1,6 +1,7 @@
 # Upgrade plan: TanStack AI 0.10.3 → 0.45.0
 
-**Status:** Proposed, not started
+**Status:** ✅ Done — executed 2026-08-19 (commit `172e2ab`). Landed at
+0.45.**1** / ai-ollama 0.9.1, both pinned exactly. See "Outcome" at the end.
 **Date:** 2026-08-18
 **Scope:** `client/` only. The Strapi `server/` does not use TanStack AI at all.
 
@@ -160,3 +161,82 @@ it with feature work.
   is an ESM TanStack Start app, which is TanStack AI's native environment, and the
   `moduleResolution` problem that rules it out for Strapi plugins does not apply here.
 - Adopting new 0.45.0 features. Get to parity first; add capability in a separate change.
+
+
+---
+
+## Outcome (2026-08-19)
+
+Executed as written. The plan's framing held up: the four-symbol surface kept
+the blast radius small, and the test suite caught what mattered.
+
+### What actually broke
+
+| # | Predicted | Reality |
+|---|---|---|
+| 1 | Stream chunk shape | **Unchanged.** `TEXT_MESSAGE_CONTENT`, `TOOL_CALL_START/END` all kept their names and fields. 0.45 *adds* `REASONING_*` and `STEP_*` events, which the parser's `default: return null` already ignores. |
+| 2 | `toolDefinition()` builder | **Unchanged.** No edits needed in `chat-tools.ts` or `library-tools.ts`. |
+| 3 | Adapter construction | **Unchanged.** `createOllamaChat(model, host)` still exists with the same signature, alongside the newer `ollamaText`. |
+| 4 | Agent-loop options | **N/A.** The code never passed a loop option, so there was nothing to silently ignore. |
+| 5 | Model options nesting | **Broke, as predicted** — and loudly, not silently. See below. |
+| 6 | Structured output | **Fine.** `outputSchema` still parses and zod-validates; no stale workaround to unwind. |
+
+### The three real changes
+
+1. **Sampling options nested.** Top-level `temperature` is gone; it lives at
+   `modelOptions.options.temperature` now (Ollama's own request shape). 12
+   call sites. The feared silent drop **did not happen** — TypeScript's excess
+   property check rejected all 12, so this failed at compile time.
+
+2. **`modelOptions` requires `model`.** Unpredicted. The adapter narrows its
+   option type only for model names it knows as string literals; ours come
+   from env as plain `string`, so it falls back to `ollama`'s `ChatRequest`
+   where `model` is required. The adapter never reads it. Both quirks are now
+   documented once in `samplingOptions()` (`ollama-model-options.ts`) rather
+   than at each call site.
+
+3. **`RUN_ERROR` payload flattened** — `{ error: { message } }` became
+   `{ type, model, timestamp, message, code }`. **This is the one types could
+   not catch**, exactly as Phase 3 anticipated: the SSE JSON is parsed as a
+   loose shape, so the parser silently read `undefined` and degraded every AI
+   failure to the generic `'AI run failed'`, costing users the
+   `friendlyOllamaError` recovery hint. Found by pointing a live adapter at a
+   closed port. The parser now reads both dialects and a regression test pins
+   it.
+
+### Two things the plan did not anticipate
+
+- **`@tanstack/ai-ollama` had already drifted.** `^0.6.6` resolved to 0.6.24,
+  which imports `EventType` from `@tanstack/ai` — a symbol 0.10.3 does not
+  export. On a pre-1.0 line the core and adapter must move as a matched pair,
+  so **both are now pinned exactly**. Carets are the wrong tool here.
+
+- **`client/` was not in the Yarn workspace at all.** It had no `version`
+  field, so Yarn skipped it silently and its dependencies were in no lockfile.
+  Fixing that was a prerequisite for installing any of this. It also floated
+  every previously-unlocked `^` range (358 packages), which surfaced the
+  seroval change below.
+
+### Fallout
+
+`seroval` 1.5.2 → 1.6.2 (via TanStack Start) fixed the reserved-name
+own-property crash, so two negative tests in `seroval-safety.test.ts` that
+asserted seroval *throws* correctly failed. Per their own comment they now pin
+the new behaviour; `stripVideoForClient` is unchanged but now justified by
+payload size rather than a crash.
+
+TanStack Start 1.168 also deprecated `createServerFn().inputValidator()` in
+favour of `.validator()` — a pure rename across 48 call sites (commit
+`2c3affa`).
+
+### Verification
+
+461 tests, client typecheck clean, client + web both build, and live against
+Ollama: `/api/ask` streamed a grounded answer end to end (retrieval → 5 videos
+/ 25 passages → synthesis with `[Video N]` citations), structured output
+returned `{"key":"E minor","chords":["Em","G","D","Am"]}` and zod-validated,
+and `RUN_ERROR` still fires on a dead host.
+
+**Still unverified:** the tool-calling path (`web_search` in `api.chat.tsx`)
+was not exercised live, and the `TOOL_CALL_END`-fires-twice semantics noted in
+the plan were not re-checked against 0.45 behaviour.

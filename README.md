@@ -29,7 +29,7 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 | AI (in-app) | [TanStack AI](https://tanstack.com/ai/latest) + `@tanstack/ai-ollama` |
 | Chat/summary model | Any Ollama chat model — default `gemma4-kb:latest` (custom [Gemma 4](https://ollama.com/library/gemma4) Modelfile, Q4) |
 | Embedding model | [`nomic-embed-text`](https://ollama.com/library/nomic-embed-text) via Ollama (768-dim, ~137MB). One vector per video; cosine similarity in-memory |
-| Backend | [Strapi 5](https://strapi.io) (5.48, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |
+| Backend | [Strapi 5](https://strapi.io) (5.52, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |
 | MCP server | Official Strapi MCP server (built into 5.47+) at `/mcp`, Streamable HTTP, auth via admin API tokens |
 | Transcripts | [youtubei.js](https://github.com/LuanRT/YouTube.js) directly against YouTube caption tracks |
 
