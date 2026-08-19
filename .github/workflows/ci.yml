@@ -57,6 +57,15 @@ jobs:
       - name: Test all workspaces
         run: yarn test
 
+      # The client build is the gate that matters for dependency upgrades:
+      # `tsc --noEmit` type-checks source but never runs the Vite/Nitro
+      # pipeline, so a broken router-plugin or Nitro adapter passes the
+      # typecheck and fails here. This is the only step that exercises
+      # @tanstack/react-start and @tanstack/router-plugin as *build tools*
+      # rather than as types.
+      - name: Build client
+        run: yarn --cwd client build
+
       # Mirrors .githooks/pre-push and what Vercel runs (`tsc -b && vite
       # build`). `tsc -b` rather than `tsc --noEmit` on purpose: --noEmit has
       # passed for web twice while the real build failed on genuine errors.
