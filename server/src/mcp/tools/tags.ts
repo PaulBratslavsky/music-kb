@@ -7,7 +7,13 @@ import type { ToolDef } from '../registry';
 import { slugifyTagName } from './tag-utils';
 
 const listSchema = z.object({
-  limit: z.number().int().min(1).max(500).default(100),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .default(100)
+    .describe('Maximum number of tags to return, ordered by video count.'),
 });
 
 export const listTagsTool: ToolDef<z.infer<typeof listSchema>> = {
@@ -98,8 +104,14 @@ export const tagVideoTool: ToolDef<z.infer<typeof tagVideoSchema>> = {
 };
 
 const untagSchema = z.object({
-  videoId: z.string().min(1),
-  tags: z.array(z.string().min(1).max(40)).min(1).max(20),
+  videoId: z.string().min(1).describe('youtubeVideoId or Video documentId.'),
+  tags: z
+    .array(z.string().min(1).max(40))
+    .min(1)
+    .max(20)
+    .describe(
+      'Tag names to remove. Names not currently on the video are ignored; the Tag rows themselves are never deleted.',
+    ),
 });
 
 export const untagVideoTool: ToolDef<z.infer<typeof untagSchema>> = {

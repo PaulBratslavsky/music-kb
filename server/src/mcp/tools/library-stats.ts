@@ -7,9 +7,29 @@ import { z } from 'zod';
 import type { ToolDef } from '../registry';
 
 const schema = z.object({
-  topTags: z.number().int().min(1).max(50).default(15),
-  topAuthors: z.number().int().min(1).max(50).default(10),
-  recentMonths: z.number().int().min(1).max(24).default(12),
+  topTags: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(15)
+    .describe('How many of the most-used tags to return, by video count.'),
+  topAuthors: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(10)
+    .describe('How many of the most-represented channels/authors to return.'),
+  recentMonths: z
+    .number()
+    .int()
+    .min(1)
+    .max(24)
+    .default(12)
+    .describe(
+      'How many months back the ingestion buckets should cover, counting the current month as the first.',
+    ),
 });
 
 export const libraryStatsTool: ToolDef<z.infer<typeof schema>> = {
