@@ -207,6 +207,44 @@ describe('streamChatSSE', () => {
     ).rejects.toThrow('AI server unreachable. Is Ollama running on port 11434?');
   });
 
+  it('emits tool_result from the separate TOOL_CALL_RESULT frame (0.45)', async () => {
+    // 0.45 splits the tool result off TOOL_CALL_END onto its own frame:
+    // TOOL_CALL_END carries `input` and no result, then TOOL_CALL_RESULT
+    // arrives with `content` keyed by toolCallId. Dropping that frame left
+    // every tool call with result === null, which the UI renders as no
+    // output panel at all. Frame shapes captured from a live llama3.2:3b
+    // run through toServerSentEventsResponse.
+    const events = await collect(
+      streamingResponse([
+        'data: {"type":"TOOL_CALL_START","toolCallId":"call_1","toolName":"web_search"}\n\n',
+        'data: {"type":"TOOL_CALL_END","toolCallId":"call_1","toolName":"web_search","input":{"query":"berklee"}}\n\n',
+        'data: {"type":"TOOL_CALL_RESULT","toolCallId":"call_1","content":"{\\"results\\":[\\"1945\\"]}"}\n\n',
+      ]),
+    );
+    expect(events).toEqual([
+      { kind: 'tool_start', id: 'call_1', name: 'web_search' },
+      {
+        kind: 'tool_end',
+        id: 'call_1',
+        name: 'web_search',
+        input: { query: 'berklee' },
+        result: null,
+      },
+      { kind: 'tool_result', id: 'call_1', result: '{"results":["1945"]}' },
+    ]);
+  });
+
+  it('still reads a result carried on TOOL_CALL_END (pre-0.45 dialect)', async () => {
+    const events = await collect(
+      streamingResponse([
+        'data: {"type":"TOOL_CALL_END","toolCallId":"c2","toolName":"t","input":{},"result":"inline"}\n\n',
+      ]),
+    );
+    expect(events).toEqual([
+      { kind: 'tool_end', id: 'c2', name: 't', input: {}, result: 'inline' },
+    ]);
+  });
+
   it('reads the flat RUN_ERROR shape emitted by @tanstack/ai 0.45', async () => {
     // 0.45 flattened the payload to `{ type, model, timestamp, message,
     // code }`. Reading only the old nested `error.message` silently

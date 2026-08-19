@@ -229,13 +229,24 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
           const existing = toolCalls.get(event.id);
           toolCalls.set(event.id, {
             id: event.id,
-            name: event.name,
+            name: event.name || (existing?.name ?? ''),
             input: event.input,
-            result: event.result,
+            // Keep any result already delivered: TOOL_CALL_RESULT can arrive
+            // before this frame, and 0.45's tool_end carries none.
+            result: event.result ?? existing?.result ?? null,
             status: 'done',
           });
-          void existing;
           pushUpdate();
+        } else if (event.kind === 'tool_result') {
+          // 0.45 delivers the result on its own frame, after tool_end and
+          // carrying only the id. Merge into the existing call so the name
+          // and input from the earlier frames survive — replacing here would
+          // blank the tool card.
+          const existing = toolCalls.get(event.id);
+          if (existing) {
+            toolCalls.set(event.id, { ...existing, result: event.result });
+            pushUpdate();
+          }
         }
       }
 
