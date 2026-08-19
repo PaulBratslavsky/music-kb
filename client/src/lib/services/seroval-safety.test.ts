@@ -7,16 +7,24 @@ import { stripVideoForClient, type StrapiVideo } from './videos';
 // Seroval boundary contract
 //
 // TanStack Start serializes every loader / server-fn return value with
-// seroval before streaming it to the browser. Seroval rejects ANY object
-// that has `constructor` (or other Object.prototype names) as an OWN
-// property — corrupted *or* clean numeric value, plain or null-prototype.
-// A BM25 token table naturally grows a `constructor` key whenever a
-// transcript contains the word "constructor" (common in programming
-// videos), so the only safe contract is: no video crossing the
-// server→client boundary may carry `transcriptSegments`.
+// seroval before streaming it to the browser.
 //
-// These tests lock that contract in at the unit level so the whole class
-// of bug fails here instead of as a runtime stream crash.
+// Historically seroval REJECTED any object carrying `constructor` (or
+// another Object.prototype name) as an own property, and a BM25 token
+// table naturally grows a `constructor` key whenever a transcript says
+// the word "constructor" (common in programming videos). That crash was
+// the original reason no video crossing the server→client boundary may
+// carry `transcriptSegments`.
+//
+// **seroval 1.6 fixed it** — reserved-name own properties now serialize
+// as computed keys (`{["constructor"]: 3}`). The first two tests below
+// pin that new behaviour so a regression upstream is caught here.
+//
+// The strip contract itself is unchanged and still enforced by the rest
+// of this file, but it now rests on payload size rather than a crash: a
+// full BM25 index is large, and the browser never needs it. Dropping the
+// strip would bloat every feed response, so `stripVideoForClient`
+// remains mandatory.
 // ---------------------------------------------------------------------------
 
 function expectSerovalSafe(value: unknown, label: string): void {
@@ -85,18 +93,20 @@ function makeReservedTokenIndex() {
 }
 
 describe('seroval boundary contract', () => {
-  it('a BM25 index containing reserved-name tokens is itself NOT seroval-safe', () => {
-    // This documents *why* we strip instead of sanitize: even a freshly
-    // built, uncorrupted index throws the moment a transcript says
-    // "constructor". If this ever stops throwing, seroval changed its
-    // behavior and the strip requirement can be revisited.
+  it('a BM25 index containing reserved-name tokens is seroval-safe (since seroval 1.6)', () => {
+    // Pre-1.6 this threw. Reserved-name own properties are now emitted as
+    // computed keys, so an index built from a transcript containing
+    // "constructor" survives the boundary. If this starts throwing again,
+    // seroval regressed and the strip contract is load-bearing for
+    // correctness once more, not just for payload size.
     const index = makeReservedTokenIndex();
-    expect(() => serialize(index)).toThrow();
+    expectSerovalSafe(index, 'BM25 index with reserved-name tokens');
+    expect(serialize(index)).toContain('["constructor"]');
   });
 
-  it('a video carrying transcriptSegments crashes the boundary', () => {
+  it('a video carrying transcriptSegments survives the boundary', () => {
     const video = makeVideo({ transcriptSegments: makeReservedTokenIndex() });
-    expect(() => serialize(video)).toThrow();
+    expectSerovalSafe(video, 'video carrying transcriptSegments');
   });
 
   it('stripVideoForClient makes the video seroval-safe', () => {

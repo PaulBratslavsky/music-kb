@@ -26,6 +26,7 @@ import {
 } from './transcript';
 import { fetchTranscriptByVideoIdService, type StrapiVideo } from './videos';
 import { getSkill } from '#/lib/skills';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -289,7 +290,7 @@ export async function summarizeConversationToNote(input: {
             { role: 'user', content: userPrompt },
           ] as never,
           stream: false,
-          temperature: 0.3,
+          modelOptions: samplingOptions(OLLAMA_MODEL, 0.3),
         }),
       { attempts: 2 },
     )) as string;

@@ -9,6 +9,7 @@ import {
 } from '#/lib/services/ask-library';
 import { buildLibraryTools } from '#/lib/services/library-tools';
 import { OLLAMA_HOST, OLLAMA_SYNTHESIS_MODEL as CHAT_MODEL } from '#/lib/env';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 // Streaming library-QA endpoint. Parallels /api/chat in shape:
 //   - AG-UI style SSE (TEXT_MESSAGE_CONTENT + [DONE])
@@ -145,7 +146,7 @@ export const Route = createFileRoute('/api/ask')({
             { role: 'user', content: userPrompt },
           ] as never,
           tools,
-          temperature: 0.4,
+          modelOptions: samplingOptions(CHAT_MODEL, 0.4),
         });
 
         // Build a combined stream: one CITATIONS frame up front, then

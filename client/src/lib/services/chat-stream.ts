@@ -139,10 +139,15 @@ function parseSseEventBlock(block: string): StreamEvent | null {
       // catch sites fire. Translated here because the message is raw
       // adapter/Ollama text; friendlyOllamaError is idempotent on its
       // own output, so consumers re-translating in their catch is safe.
+      // 0.45 emits `{ type, model, timestamp, message, code }`; 0.10 and
+      // earlier nested it as `{ error: { message } }`. Read the flat field
+      // first and fall back, so neither dialect degrades to the generic
+      // message — that string is what reaches the user, and losing the
+      // real one costs them the Ollama recovery hint.
       const raw =
-        typeof event.error?.message === 'string' && event.error.message
-          ? event.error.message
-          : 'AI run failed';
+        (typeof event.message === 'string' && event.message) ||
+        (typeof event.error?.message === 'string' && event.error.message) ||
+        'AI run failed';
       throw new Error(friendlyOllamaError(raw));
     }
     case 'TOOL_CALL_START': {
@@ -183,5 +188,9 @@ type AgUiEvent = {
   args?: unknown;
   result?: string | null;
   citations?: Citation[];
+  // RUN_ERROR dialects: TanStack AI <= 0.10 nested the failure under
+  // `error`; 0.45 flattened it onto the event as `message` / `code`.
+  message?: string;
+  code?: string;
   error?: { message?: string; code?: string };
 };

@@ -32,6 +32,7 @@ import {
 } from '#/lib/services/transcript';
 import { withRetry } from '#/lib/retry';
 import { OLLAMA_HOST, OLLAMA_MODEL as SUMMARY_MODEL } from '#/lib/env';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 export const MUSIC_EXTRACTION_VERSION = 1;
 
@@ -337,7 +338,7 @@ export async function extractMusicForVideo(
             { role: 'user', content: userPrompt },
           ] as never,
           outputSchema: MusicExtractionOutputSchema,
-          temperature: 0.2,
+          modelOptions: samplingOptions(SUMMARY_MODEL, 0.2),
         }),
       {
         attempts: 2,

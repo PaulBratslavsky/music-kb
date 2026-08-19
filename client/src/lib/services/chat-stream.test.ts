@@ -207,6 +207,21 @@ describe('streamChatSSE', () => {
     ).rejects.toThrow('AI server unreachable. Is Ollama running on port 11434?');
   });
 
+  it('reads the flat RUN_ERROR shape emitted by @tanstack/ai 0.45', async () => {
+    // 0.45 flattened the payload to `{ type, model, timestamp, message,
+    // code }`. Reading only the old nested `error.message` silently
+    // degraded every failure to the generic 'AI run failed', costing the
+    // user the recovery hint. Verified against a live adapter pointed at
+    // a closed port.
+    await expect(
+      collect(
+        streamingResponse([
+          'data: {"type":"RUN_ERROR","model":"m","timestamp":1,"message":"fetch failed"}\n\n',
+        ]),
+      ),
+    ).rejects.toThrow('AI server unreachable. Is Ollama running on port 11434?');
+  });
+
   it('passes a RUN_ERROR message matching no Ollama pattern through unchanged', async () => {
     await expect(
       collect(
