@@ -6,6 +6,7 @@ import { getSkill } from '#/lib/skills';
 import { prepareChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
 import { OLLAMA_HOST, OLLAMA_CHAT_MODEL as CHAT_MODEL } from '#/lib/env';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 // Streaming chat endpoint (TanStack AI migration).
 //
@@ -174,10 +175,17 @@ export const Route = createFileRoute('/api/chat')({
           // Agent loop: model can call `web_search(query)` when the
           // retrieved transcript passages don't answer the question.
           // Execution happens server-side; tool events stream as
-          // TOOL_CALL_* SSE frames (ignored by the current client, which
-          // only renders TEXT_MESSAGE_CONTENT deltas — the model's
-          // natural-language response after the tool runs shows through).
+          // TOOL_CALL_* SSE frames.
           tools: [webSearchTool],
+          // Every other chat() call site sets a low temperature; this one
+          // was the exception, so it ran at Ollama's default of 1.0 — and
+          // it is the call that most needs deterministic output, because a
+          // tool call is structured. At 1.0 the model intermittently
+          // *narrated* the call instead of emitting it, printing
+          // `[{"tool_name":"web_search",...}]` as ordinary prose: the tool
+          // never ran, and the surrounding invented text reached the user
+          // looking like a real result.
+          modelOptions: samplingOptions(CHAT_MODEL, 0.3),
         });
 
         return toServerSentEventsResponse(stream);
