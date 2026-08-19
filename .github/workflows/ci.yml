@@ -7,21 +7,18 @@
 # vite.config.ts, and a broken-since-fork tag-creation bug hid behind the
 # smoke test silently skipping on every local run.
 #
-# One job, one install. This is a Yarn *workspace* — a single root install
-# resolves client, server, web and packages/music together, so splitting
-# into per-package jobs (as this file used to) just paid for the same
-# install twice and let the two halves drift onto different resolutions.
+# One job, four installs. Each package owns its dependencies — there is no
+# workspace and no hoisting, deliberately: sharing a root made Strapi's
+# React 18 reachable from the React 19 client, which broke SSR. See
+# docs/ssr-client-fallback.md. Isolation costs install time and buys the
+# guarantee that the two React majors can never meet.
 #
-# Two things this file got wrong until 2026-08-19, both fallout from the
-# monorepo refactor that never reached CI:
+# Caching keys on every lockfile, so a change in any package busts it.
 #
-#   * It cached on `client/yarn.lock` and `server/yarn.lock`, which that
-#     refactor deleted. The root `yarn.lock` is the only lockfile now.
-#   * It ran `yarn test` from `client/`, which is a bare `vitest run` and
-#     covers 262 of the 461 tests. packages/music's 195 and web's 4 had
-#     never run in CI — exactly the trap CLAUDE.md warns about, on the one
-#     package whose breakage takes down two apps at once. The root `yarn
-#     test` script is the one that runs all three suites.
+# `yarn test` runs from the *root* on purpose: it chains packages/music
+# (195) + client (264) + web (4). Running it from client/ is a bare
+# `vitest run` and silently covers less than half — the trap CLAUDE.md
+# warns about, on the one package whose breakage takes down two apps.
 name: ci
 
 on:
@@ -38,9 +35,17 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-          cache-dependency-path: yarn.lock
+          cache-dependency-path: |
+            yarn.lock
+            packages/music/yarn.lock
+            server/yarn.lock
+            client/yarn.lock
+            web/yarn.lock
 
-      - run: yarn install --frozen-lockfile
+      # Root carries only the task runner (concurrently, wait-on) — no React,
+      # so it cannot reintroduce the duplicate-instance problem.
+      - name: Install all packages
+        run: yarn install:all
 
       # Typecheck is per-package: each has its own tsconfig, and there is no
       # project-wide script. The client is the one with real coverage; the

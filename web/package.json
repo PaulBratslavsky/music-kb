@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@music-kb/music": "*",
+    "@music-kb/music": "link:../packages/music",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tonal": "^6.4.3"
