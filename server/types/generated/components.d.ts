@@ -184,6 +184,285 @@ export interface ContentTakeaway extends Struct.ComponentSchema {
   };
 }
 
+export interface LessonCallout extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_callouts';
+  info: {
+    description: 'Aside or warning.';
+    displayName: 'Callout';
+  };
+  attributes: {
+    body: Schema.Attribute.Text & Schema.Attribute.Required;
+    source: Schema.Attribute.Component<'lesson.source', false>;
+    tone: Schema.Attribute.Enumeration<['note', 'tip', 'warning']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'note'>;
+  };
+}
+
+export interface LessonDegreeChips extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_degree_chips';
+  info: {
+    description: 'Scale-degree chips. Maps to DegreeChips.';
+    displayName: 'Degree chips';
+  };
+  attributes: {
+    degrees: Schema.Attribute.JSON & Schema.Attribute.Required;
+    size: Schema.Attribute.Enumeration<['sm', 'md']> &
+      Schema.Attribute.DefaultTo<'md'>;
+  };
+}
+
+export interface LessonDiagram extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_diagrams';
+  info: {
+    description: 'A fretboard, keyboard or Push grid. mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. One block for all three instruments \u2014 instrument is a field. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not.';
+    displayName: 'Diagram';
+  };
+  attributes: {
+    caption: Schema.Attribute.String;
+    dots: Schema.Attribute.Component<'lesson.neck-dot', true>;
+    fromFret: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    instrument: Schema.Attribute.Enumeration<
+      ['guitar', 'bass', 'piano', 'push']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'guitar'>;
+    inversion: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 2;
+          min: 0;
+        },
+        number
+      >;
+    mode: Schema.Attribute.Enumeration<['theory', 'explicit']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'theory'>;
+    quality: Schema.Attribute.Enumeration<
+      [
+        'major',
+        'minor',
+        'augmented',
+        'diminished',
+        'dominant7',
+        'major7',
+        'minor7',
+      ]
+    >;
+    root: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 3;
+      }>;
+    scale: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 32;
+      }>;
+    source: Schema.Attribute.Component<'lesson.source', false>;
+    stringSet: Schema.Attribute.Enumeration<
+      [
+        'e\u2013B\u2013G',
+        'B\u2013G\u2013D',
+        'G\u2013D\u2013A',
+        'D\u2013A\u2013E',
+      ]
+    >;
+    toFret: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    useParam: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+  };
+}
+
+export interface LessonHeading extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_headings';
+  info: {
+    description: 'Standalone heading between blocks. Headings inside a prose body stay in its markdown.';
+    displayName: 'Heading';
+  };
+  attributes: {
+    level: Schema.Attribute.Enumeration<['h2', 'h3']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'h2'>;
+    text: Schema.Attribute.String & Schema.Attribute.Required;
+  };
+}
+
+export interface LessonInteractive extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_interactives';
+  info: {
+    description: 'Configuration for a stateful widget. The React component owns its own state; this block only configures it.';
+    displayName: 'Interactive';
+  };
+  attributes: {
+    caption: Schema.Attribute.String;
+    config: Schema.Attribute.JSON;
+    kind: Schema.Attribute.Enumeration<
+      ['triad-explorer', 'neck-pattern-picker', 'guitar-view']
+    > &
+      Schema.Attribute.Required;
+  };
+}
+
+export interface LessonNeckDot extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_neck_dots';
+  info: {
+    description: 'One explicit dot on a fretboard/keyboard diagram. Mirrors NeckDot in client/src/components/lesson/MiniNeck.tsx.';
+    displayName: 'Neck dot';
+  };
+  attributes: {
+    fret: Schema.Attribute.Integer &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    label: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 8;
+      }>;
+    muted: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+    root: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+    string: Schema.Attribute.Integer &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+  };
+}
+
+export interface LessonParamPicker extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_param_pickers';
+  info: {
+    description: 'Renders the control for the lesson-level parameter.';
+    displayName: 'Parameter picker';
+  };
+  attributes: {
+    label: Schema.Attribute.String;
+  };
+}
+
+export interface LessonParameter extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_parameters';
+  info: {
+    description: 'One reader-controlled variable for the whole lesson. Blocks opt in via useParam. Capped at one per lesson.';
+    displayName: 'Lesson parameter';
+  };
+  attributes: {
+    default: Schema.Attribute.String & Schema.Attribute.DefaultTo<'C'>;
+    label: Schema.Attribute.String & Schema.Attribute.DefaultTo<'Key'>;
+    name: Schema.Attribute.Enumeration<['key']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'key'>;
+  };
+}
+
+export interface LessonProse extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_proses';
+  info: {
+    description: 'Markdown body. Covers paragraphs, lists and inline headings.';
+    displayName: 'Prose';
+  };
+  attributes: {
+    body: Schema.Attribute.RichText & Schema.Attribute.Required;
+    source: Schema.Attribute.Component<'lesson.source', false>;
+  };
+}
+
+export interface LessonSource extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_sources';
+  info: {
+    description: 'Provenance for a block: which video and moment it came from. Empty for hand-migrated lessons; populated by AI generation in phase 2.';
+    displayName: 'Block source';
+  };
+  attributes: {
+    timeSec: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    videoId: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 32;
+      }>;
+  };
+}
+
+export interface LessonStep extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_steps';
+  info: {
+    description: 'Numbered step. Maps to the Step component.';
+    displayName: 'Step';
+  };
+  attributes: {
+    body: Schema.Attribute.RichText;
+    lede: Schema.Attribute.Text;
+    number: Schema.Attribute.Integer &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 1;
+        },
+        number
+      >;
+    source: Schema.Attribute.Component<'lesson.source', false>;
+    title: Schema.Attribute.String & Schema.Attribute.Required;
+  };
+}
+
+export interface LessonTable extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_tables';
+  info: {
+    description: 'Headers plus rows. useParam recomputes cells from the lesson parameter.';
+    displayName: 'Table';
+  };
+  attributes: {
+    caption: Schema.Attribute.String;
+    headers: Schema.Attribute.JSON & Schema.Attribute.Required;
+    rows: Schema.Attribute.JSON & Schema.Attribute.Required;
+    useParam: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+  };
+}
+
+export interface LessonVideoRef extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_video_refs';
+  info: {
+    description: 'Link into a library video at a timecode.';
+    displayName: 'Video reference';
+  };
+  attributes: {
+    label: Schema.Attribute.String;
+    timeSec: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    videoId: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 32;
+      }>;
+  };
+}
+
 declare module '@strapi/strapi' {
   export namespace Public {
     export interface ComponentSchemas {
@@ -196,6 +475,19 @@ declare module '@strapi/strapi' {
       'content.digest-viewing-order': ContentDigestViewingOrder;
       'content.section': ContentSection;
       'content.takeaway': ContentTakeaway;
+      'lesson.callout': LessonCallout;
+      'lesson.degree-chips': LessonDegreeChips;
+      'lesson.diagram': LessonDiagram;
+      'lesson.heading': LessonHeading;
+      'lesson.interactive': LessonInteractive;
+      'lesson.neck-dot': LessonNeckDot;
+      'lesson.param-picker': LessonParamPicker;
+      'lesson.parameter': LessonParameter;
+      'lesson.prose': LessonProse;
+      'lesson.source': LessonSource;
+      'lesson.step': LessonStep;
+      'lesson.table': LessonTable;
+      'lesson.video-ref': LessonVideoRef;
     }
   }
 }

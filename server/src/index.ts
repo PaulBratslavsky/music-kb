@@ -169,6 +169,13 @@ export default {
       'api::progression.progression.create',
       'api::progression.progression.update',
       'api::progression.progression.delete',
+      // Lesson is a music lesson composed of blocks. create/update are
+      // needed by the seed script (Task 9), which writes over HTTP with
+      // no auth token — same public-grant pattern as tag above.
+      'api::lesson.lesson.find',
+      'api::lesson.lesson.findOne',
+      'api::lesson.lesson.create',
+      'api::lesson.lesson.update',
     ];
 
     try {

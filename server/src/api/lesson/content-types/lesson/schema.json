@@ -1,0 +1,38 @@
+{
+  "kind": "collectionType",
+  "collectionName": "lessons",
+  "info": {
+    "singularName": "lesson",
+    "pluralName": "lessons",
+    "displayName": "Lesson",
+    "description": "A music lesson composed of blocks. Replaces the hardcoded routes under client/src/routes/lessons.*. See docs/superpowers/specs/2026-08-20-strapi-lessons-design.md."
+  },
+  "options": { "draftAndPublish": false },
+  "pluginOptions": {},
+  "attributes": {
+    "title": { "type": "string", "required": true, "maxLength": 160 },
+    "slug": { "type": "uid", "targetField": "title", "required": true },
+    "summary": { "type": "text", "maxLength": 400 },
+    "level": { "type": "enumeration", "enum": ["beginner", "intermediate", "advanced"], "default": "beginner" },
+    "instrument": { "type": "enumeration", "enum": ["guitar", "piano", "push", "any"], "default": "any" },
+    "order": { "type": "integer", "default": 0 },
+    "status": { "type": "enumeration", "enum": ["draft", "published", "ai-generated"], "default": "draft", "required": true },
+    "parameter": { "type": "component", "repeatable": false, "component": "lesson.parameter" },
+    "videos": { "type": "relation", "relation": "manyToMany", "target": "api::video.video" },
+    "body": {
+      "type": "dynamiczone",
+      "components": [
+        "lesson.prose",
+        "lesson.heading",
+        "lesson.callout",
+        "lesson.step",
+        "lesson.diagram",
+        "lesson.degree-chips",
+        "lesson.table",
+        "lesson.interactive",
+        "lesson.param-picker",
+        "lesson.video-ref"
+      ]
+    }
+  }
+}
