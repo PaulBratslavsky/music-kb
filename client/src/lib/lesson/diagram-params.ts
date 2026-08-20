@@ -13,14 +13,14 @@ import {
   type Inversion,
   type TriadQuality,
 } from '@music-kb/music/theory/triad-shapes';
-import type { PitchClass } from '@music-kb/music/types';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 
 export type NeckDotInput = {
   string: number;
   fret: number;
   label?: string;
   root?: boolean;
-  muted?: boolean;
+  dim?: boolean;
 };
 
 export type DiagramBlock = {
@@ -61,6 +61,7 @@ export function resolveDiagramDots(
     | PitchClass
     | undefined;
   if (!root || !block.quality) return [];
+  if (!PITCH_CLASSES.includes(root)) return [];
   if (!TRIAD_QUALITIES.has(block.quality)) return [];
 
   // stringSet arrives as one of the four names in STRING_SETS ("e–B–G",

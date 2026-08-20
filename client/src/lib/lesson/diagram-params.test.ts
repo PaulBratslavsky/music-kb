@@ -55,4 +55,16 @@ describe('resolveDiagramDots', () => {
     };
     expect(resolveDiagramDots(block)).toEqual([]);
   });
+
+  it('returns an empty array for a root outside PITCH_CLASSES', () => {
+    const block: DiagramBlock = {
+      instrument: 'guitar',
+      mode: 'theory',
+      root: 'H',
+      quality: 'major',
+      stringSet: 'e–B–G',
+      inversion: 0,
+    };
+    expect(resolveDiagramDots(block)).toEqual([]);
+  });
 });

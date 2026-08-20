@@ -10,7 +10,7 @@ const mocked = vi.mocked(strapiFetch);
 beforeEach(() => mocked.mockReset());
 
 describe('listLessonsService', () => {
-  it('returns published lessons ordered by `order`', async () => {
+  it('returns the rows Strapi gave, with their fields intact', async () => {
     mocked.mockResolvedValue({
       ok: true,
       data: [
@@ -19,7 +19,10 @@ describe('listLessonsService', () => {
       ],
     } as never);
     const out = await listLessonsService();
-    expect(out.map((l) => l.slug)).toEqual(['b', 'a']);
+    expect(out).toEqual([
+      { documentId: 'b', title: 'B', slug: 'b', order: 2 },
+      { documentId: 'a', title: 'A', slug: 'a', order: 1 },
+    ]);
   });
 
   it('returns [] when the backend is unreachable', async () => {
@@ -45,6 +48,9 @@ describe('getLessonBySlugWithStatus', () => {
       data: [{ documentId: 'x', title: 'T', slug: 't', body: [] }],
     } as never);
     const found = await getLessonBySlugWithStatus('t');
-    expect(found).toMatchObject({ ok: true });
+    expect(found).toMatchObject({
+      ok: true,
+      lesson: { documentId: 'x', slug: 't' },
+    });
   });
 });

@@ -8,7 +8,10 @@
   "attributes": {
     "instrument": { "type": "enumeration", "enum": ["guitar", "bass", "piano", "push"], "default": "guitar", "required": true },
     "mode": { "type": "enumeration", "enum": ["theory", "explicit"], "default": "theory", "required": true },
-    "root": { "type": "string", "maxLength": 3 },
+    "root": {
+      "type": "enumeration",
+      "enum": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    },
     "quality": { "type": "enumeration", "enum": ["major", "minor", "augmented", "diminished", "dominant7", "major7", "minor7"] },
     "stringSet": { "type": "enumeration", "enum": ["e–B–G", "B–G–D", "G–D–A", "D–A–E"] },
     "inversion": { "type": "integer", "min": 0, "max": 2 },

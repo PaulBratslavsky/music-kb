@@ -255,10 +255,9 @@ export interface LessonDiagram extends Struct.ComponentSchema {
         'minor7',
       ]
     >;
-    root: Schema.Attribute.String &
-      Schema.Attribute.SetMinMaxLength<{
-        maxLength: 3;
-      }>;
+    root: Schema.Attribute.Enumeration<
+      ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    >;
     scale: Schema.Attribute.String &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 32;
@@ -320,6 +319,7 @@ export interface LessonNeckDot extends Struct.ComponentSchema {
     displayName: 'Neck dot';
   };
   attributes: {
+    dim: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     fret: Schema.Attribute.Integer &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<
@@ -332,7 +332,6 @@ export interface LessonNeckDot extends Struct.ComponentSchema {
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 8;
       }>;
-    muted: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     root: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     string: Schema.Attribute.Integer &
       Schema.Attribute.Required &
