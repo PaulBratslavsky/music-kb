@@ -228,7 +228,7 @@ The 10 dynamic-zone components. Strapi needs these to exist before the content t
   "collectionName": "components_lesson_diagrams",
   "info": {
     "displayName": "Diagram",
-    "description": "A fretboard, keyboard or Push grid. mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. One block for all three instruments — instrument is a field."
+    "description": "A fretboard, keyboard or Push grid. mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. One block for all three instruments — instrument is a field. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not."
   },
   "options": {},
   "attributes": {
@@ -236,7 +236,7 @@ The 10 dynamic-zone components. Strapi needs these to exist before the content t
     "mode": { "type": "enumeration", "enum": ["theory", "explicit"], "default": "theory", "required": true },
     "root": { "type": "string", "maxLength": 3 },
     "quality": { "type": "enumeration", "enum": ["major", "minor", "augmented", "diminished", "dominant7", "major7", "minor7"] },
-    "stringSet": { "type": "json" },
+    "stringSet": { "type": "enumeration", "enum": ["e–B–G", "B–G–D", "G–D–A", "D–A–E"] },
     "inversion": { "type": "integer", "min": 0, "max": 2 },
     "scale": { "type": "string", "maxLength": 32 },
     "useParam": { "type": "boolean", "default": false },
@@ -434,9 +434,14 @@ In `server/src/index.ts`, find the `const actions = [` array and add these two e
 ```ts
         'api::lesson.lesson.find',
         'api::lesson.lesson.findOne',
+        'api::lesson.lesson.create',
+        'api::lesson.lesson.update',
 ```
 
-Read-only on purpose: lessons are authored in the admin, not written by the client.
+`create`/`update` are needed by the seed script in Task 9, which writes over
+HTTP with no token — the same public-grant pattern
+`server/scripts/seed-music-tags.mjs` already uses for tags. Consistent with
+the existing grants for video, tag and note in this file.
 
 - [ ] **Step 4: Boot and verify the endpoint**
 
@@ -470,7 +475,7 @@ The pure translation layer: stored theory parameters → the explicit `NeckDot[]
 **Interfaces:**
 - Consumes: `@music-kb/music/theory/triad-shapes` (`triadVoicing`, `STRING_SETS`), `@music-kb/music/types` (`PitchClass`)
 - Produces:
-  - `type DiagramBlock = { instrument: string; mode: 'theory' | 'explicit'; root?: string; quality?: string; stringSet?: number[]; inversion?: number; useParam?: boolean; dots?: NeckDotInput[] }`
+  - `type DiagramBlock = { instrument: string; mode: 'theory' | 'explicit'; root?: string; quality?: string; stringSet?: string; inversion?: number; useParam?: boolean; dots?: NeckDotInput[] }`
   - `resolveDiagramDots(block: DiagramBlock, paramValue?: string): NeckDot[]`
   Task 7's renderer calls `resolveDiagramDots`.
 
@@ -500,7 +505,7 @@ describe('resolveDiagramDots', () => {
       mode: 'theory',
       root: 'C',
       quality: 'major',
-      stringSet: [0, 1, 2],
+      stringSet: 'e–B–G',
       inversion: 0,
     };
     const dots = resolveDiagramDots(block);
@@ -515,7 +520,7 @@ describe('resolveDiagramDots', () => {
       mode: 'theory',
       root: 'C',
       quality: 'major',
-      stringSet: [0, 1, 2],
+      stringSet: 'e–B–G',
       inversion: 0,
       useParam: true,
     };
@@ -531,7 +536,7 @@ describe('resolveDiagramDots', () => {
       mode: 'theory',
       root: 'C',
       quality: 'major',
-      stringSet: [99],
+      stringSet: 'not-a-real-set',
       inversion: 0,
     };
     expect(resolveDiagramDots(block)).toEqual([]);
@@ -583,7 +588,8 @@ export type DiagramBlock = {
   mode: 'theory' | 'explicit';
   root?: string | null;
   quality?: string | null;
-  stringSet?: number[] | null;
+  /** One of the STRING_SETS names, e.g. "e–B–G". */
+  stringSet?: string | null;
   inversion?: number | null;
   useParam?: boolean | null;
   dots?: NeckDotInput[] | null;
@@ -617,9 +623,10 @@ export function resolveDiagramDots(
   if (!root || !block.quality) return [];
   if (!TRIAD_QUALITIES.has(block.quality)) return [];
 
-  const set = STRING_SETS.find(
-    (s) => JSON.stringify(s.strings ?? s) === JSON.stringify(block.stringSet),
-  );
+  // stringSet arrives as one of the four names in STRING_SETS ("e–B–G",
+  // "B–G–D", "G–D–A", "D–A–E") rather than a raw [0,1,2] array — a closed
+  // enum an LLM cannot get wrong, and a name a guitarist already knows.
+  const set = STRING_SETS.find((s) => s.name === block.stringSet);
   if (!set) return [];
 
   const voicing = triadVoicing(
@@ -1352,60 +1359,201 @@ git commit -m "feat(lessons): drive the index from Strapi"
 
 ---
 
-### Task 9: Migrate the lessons
+### Task 9: Seed the lessons
 
-Content authoring, not coding — so this is a repeatable procedure rather than code blocks. Order runs easiest→hardest so the vocabulary is stress-tested progressively.
+The 8 lessons become **version-controlled data plus a seed script**, not
+hand-clicking in the admin. Each lesson is a JSON file translated from its
+archived route; the script upserts them by slug so it is safe to re-run.
+
+This is better than admin authoring in three ways that matter here: the
+content is reviewable in a diff, re-seeding after a schema change is one
+command, and phase 2 (AI generation) emits exactly this JSON shape — so these
+eight files become the **few-shot corpus** the generator learns the house
+style from. Migration is not only content preservation; it is building phase
+2's examples. Author them as if a model will imitate them, because one will.
 
 **Files:**
-- Delete (one per lesson, only after verification): `client/src/routes/lessons.<name>.tsx`
-- Modify: `client/src/routeTree.gen.ts` (regenerates itself)
+- Create: `server/seed-data/lessons/<slug>.json` (8 files)
+- Create: `server/scripts/seed-lessons.mjs`
+- Modify: `server/package.json` + root `package.json` (a `lessons:seed` script)
+- Delete (one per lesson, after verifying): `client/src/routes/lessons.<name>.tsx`
 
 **Interfaces:**
-- Consumes: everything from Tasks 2-8
-- Produces: 8 lessons in Strapi; 8 fewer route files
+- Consumes: the REST API from Task 3; the block vocabulary from Task 2
+- Produces: 8 lessons in Strapi; `yarn lessons:seed` re-runnable at any time
 
-**Per-lesson procedure — repeat for each:**
+- [ ] **Step 1: Write the seed script**
 
-1. Open `docs/lessons-archive/lessons.<name>.tsx` beside the Strapi admin.
-2. Create the Lesson: title, slug **matching the old route exactly** (so existing links keep working), summary, level, `order`, `status: published`.
-3. Translate the JSX top-to-bottom into blocks: `<p>`/`<ul>` → `prose`; `<Step>` → `step`; `<MiniNeck>`/`<MiniKeyboard>` → `diagram`; `<table>` → `table`; `<DegreeChips>` → `degree-chips`.
-4. For each diagram, prefer `mode: theory`. Fall back to `mode: explicit` only when the shape will not reduce to root+quality+string-set — **and record that it happened** (see step 5 of this task).
-5. Load `/lessons/<slug>` beside the archived original and compare section by section.
-6. Only once it matches: delete the route file and commit both changes together.
+Create `server/scripts/seed-lessons.mjs`:
 
-**Migration order:**
+```js
+#!/usr/bin/env node
+// Seeds lessons from server/seed-data/lessons/*.json.
+//
+// Idempotent: upserts by `slug`, so re-running after editing a lesson JSON
+// updates in place rather than creating duplicates. Same identity-by-natural-
+// key stance digests take with videoSetKey.
+//
+// Run against a LIVE Strapi (yarn server / yarn start). Uses the public-role
+// create/update grants from server/src/index.ts, so no token is needed.
+//
+// Usage: node server/scripts/seed-lessons.mjs
 
-- [ ] **Step 1: `find-any-chord`** — prose + `Step` only. Proves the basic vocabulary.
+import { readdir, readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const STRAPI = process.env.STRAPI_URL || 'http://localhost:1350';
+const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'seed-data', 'lessons');
+
+async function findBySlug(slug) {
+  const url = `${STRAPI}/api/lessons?filters[slug][$eq]=${encodeURIComponent(slug)}&pagination[pageSize]=1`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`lookup ${slug}: ${res.status}`);
+  const body = await res.json();
+  return body.data?.[0] ?? null;
+}
+
+async function upsert(lesson) {
+  const existing = await findBySlug(lesson.slug);
+  const target = existing
+    ? `${STRAPI}/api/lessons/${existing.documentId}`
+    : `${STRAPI}/api/lessons`;
+  const res = await fetch(target, {
+    method: existing ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: lesson }),
+  });
+  if (!res.ok) {
+    throw new Error(`${existing ? 'update' : 'create'} ${lesson.slug}: ${res.status} ${await res.text()}`);
+  }
+  return existing ? 'updated' : 'created';
+}
+
+const files = (await readdir(DIR)).filter((f) => f.endsWith('.json')).sort();
+if (files.length === 0) {
+  console.log('No lesson JSON files yet — nothing to seed.');
+  process.exit(0);
+}
+
+let created = 0;
+let updated = 0;
+for (const file of files) {
+  const lesson = JSON.parse(await readFile(join(DIR, file), 'utf8'));
+  const action = await upsert(lesson);
+  action === 'created' ? created++ : updated++;
+  console.log(`  ${action}: ${lesson.slug}`);
+}
+console.log(`\nSeeded ${files.length} lesson(s) — ${created} created, ${updated} updated.`);
+```
+
+- [ ] **Step 2: Add the npm scripts**
+
+In `server/package.json` scripts, add:
+
+```json
+    "lessons:seed": "node scripts/seed-lessons.mjs",
+```
+
+In the root `package.json` scripts, add:
+
+```json
+    "lessons:seed": "yarn --cwd ./server lessons:seed",
+```
+
+- [ ] **Step 3: Prove the script works before writing eight lessons**
+
+Create `server/seed-data/lessons/smoke-test.json`:
+
+```json
+{
+  "title": "Smoke test",
+  "slug": "smoke-test",
+  "summary": "Temporary. Deleted once the first real lesson lands.",
+  "level": "beginner",
+  "instrument": "any",
+  "order": 999,
+  "status": "published",
+  "body": [
+    { "__component": "lesson.heading", "text": "It works", "level": "h2" },
+    { "__component": "lesson.prose", "body": "Seeded from JSON." }
+  ]
+}
+```
+
+Then, with Strapi running:
 
 ```bash
+yarn lessons:seed
+```
+
+Expected: `created: smoke-test`. Run it a second time — expected `updated: smoke-test`, and still exactly one lesson at `/lessons`. That second run is the real test; a non-idempotent script silently duplicates.
+
+Visit `http://localhost:3015/lessons/smoke-test` to confirm the blocks render.
+
+- [ ] **Step 4: Commit the machinery**
+
+```bash
+git add server/scripts/seed-lessons.mjs server/seed-data/lessons server/package.json package.json
+git commit -m "feat(lessons): add an idempotent lesson seed script"
+```
+
+**Per-lesson procedure — repeat for each of the 8:**
+
+1. Open `docs/lessons-archive/lessons.<name>.tsx`.
+2. Translate it top-to-bottom into `server/seed-data/lessons/<slug>.json`. Use the **same slug as the old route** so existing links keep working.
+   - `<p>` / `<ul>` / `<h2>` / `<h3>` → `lesson.prose` (markdown). **Merge
+     consecutive prose into one block.** A lesson should be ~12-15 coarse
+     blocks — long prose runs punctuated by diagrams — not one block per
+     paragraph. Fewer boundaries is less for phase 2's model to get wrong,
+     and each block stays readable on its own.
+   - `<h2>` / `<h3>` between blocks → `lesson.heading`
+   - `<Step>` → `lesson.step`
+   - `<MiniNeck>` / `<MiniKeyboard>` → `lesson.diagram`, `mode: "theory"` where the shape reduces to root + quality + string-set, `mode: "explicit"` otherwise
+   - `<table>` → `lesson.table`
+   - `<DegreeChips>` → `lesson.degree-chips`
+3. `yarn lessons:seed`
+4. Open `/lessons/<slug>` beside the archived original and compare section by section.
+5. Only once it matches: `git rm client/src/routes/lessons.<name>.tsx` and commit the JSON, the deletion and the regenerated `routeTree.gen.ts` together.
+
+**Order — easiest to hardest**, so the vocabulary is stress-tested progressively:
+
+- [ ] **Step 5: `find-any-chord`** — prose + `Step` only. Proves the basic vocabulary end-to-end through the seed.
+
+```bash
+yarn lessons:seed
 git rm client/src/routes/lessons.find-any-chord.tsx
-git add client/src/routeTree.gen.ts
+git add server/seed-data/lessons/find-any-chord.json client/src/routeTree.gen.ts
 git commit -m "feat(lessons): migrate find-any-chord to Strapi"
 ```
 
-- [ ] **Step 2: `essential-chords`** — prose at volume.
-- [ ] **Step 3: `music-theory-fundamentals`** — prose at volume.
-- [ ] **Step 4: `caged-and-roman-numerals`** — prose at volume.
+- [ ] **Step 6: `essential-chords`** — prose at volume. Same commit shape.
+- [ ] **Step 7: `music-theory-fundamentals`** — prose at volume. Same commit shape.
+- [ ] **Step 8: `caged-and-roman-numerals`** — prose at volume. Same commit shape.
 
-Each ends with the same `git rm` + commit as Step 1, substituting the filename.
+- [ ] **Step 9: `power-chords`** — the first `diagram` blocks. Record how many needed `mode: "explicit"`.
 
-- [ ] **Step 5: `power-chords`** — the first `diagram` block. Before moving on, note in the PR description how many diagrams needed `mode: explicit`.
+- [ ] **Step 10: `scale-systems-on-the-neck`** — diagrams at volume (6 theory imports). If `resolveDiagramDots` cannot express a scale-position diagram, extend it **with a test** rather than falling back to `explicit`.
 
-- [ ] **Step 6: `scale-systems-on-the-neck`** — diagrams at volume (6 theory imports). If `resolveDiagramDots` cannot express a scale-position diagram, extend it here with a test, rather than reaching for `explicit`.
+- [ ] **Step 11: `triads`** — the first `interactive` block. Add a `case 'lesson.interactive'` to `LessonBody`'s switch rendering the triad grid from `block.config`, plus a `LessonBody` test asserting it renders.
 
-- [ ] **Step 7: `triads`** — the first `interactive` block. Requires adding a `lesson.interactive` case to `LessonBody`'s switch that renders the existing triad grid, configured by `block.config`. Add a `LessonBody` test asserting the interactive block renders.
+- [ ] **Step 12: `half-steps-to-chords`** — the hardest: 11 necks, 7 keyboards, 5 tables, and the lesson-level key parameter. Set `parameter` to `{"name":"key","label":"Key","default":"C"}`, put a `lesson.param-picker` block near the top, and set `"useParam": true` on every diagram and table that recomputed from `keyIdx` in the original.
 
-- [ ] **Step 8: `half-steps-to-chords`** — the hardest: 11 necks, 7 keyboards, 5 tables, and the lesson-level key parameter. Set the lesson's `parameter` to `{name:'key', label:'Key', default:'C'}`, add a `param-picker` block near the top, and set `useParam: true` on every diagram and table that recomputed from `keyIdx` in the original.
+**If a needed block type does not exist, that is a real finding** — add the component, the `LessonBody` case and a test, rather than distorting the lesson to fit the schema.
 
-**If a block type is missing here, that is a real finding** — add the component and a `LessonBody` case, with a test, rather than distorting the lesson to fit.
-
-- [ ] **Step 9: Verify no lesson routes remain**
+- [ ] **Step 13: Remove the smoke test and verify**
 
 ```bash
+git rm server/seed-data/lessons/smoke-test.json
+yarn lessons:seed
 ls client/src/routes/lessons.*.tsx
 ```
 
-Expected: only `lessons.index.tsx` and `lessons.$slug.tsx`.
+Delete the smoke-test lesson row in the admin (the seed does not remove rows whose JSON is gone). Expected from `ls`: only `lessons.index.tsx` and `lessons.$slug.tsx`.
+
+```bash
+git add -A && git commit -m "chore(lessons): drop the seed smoke test"
+```
 
 ---
 
@@ -1446,7 +1594,7 @@ Append to `client/src/lib/services/seroval-safety.test.ts`, inside the existing 
           mode: 'theory',
           root: 'C',
           quality: 'major',
-          stringSet: [0, 1, 2],
+          stringSet: 'e–B–G',
         },
       ],
     };

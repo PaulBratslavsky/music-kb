@@ -102,7 +102,7 @@ populated by phase 2.
 
 | Block | Renders via | Fields |
 |---|---|---|
-| `prose` | markdown | `body` (rich text) — covers `p`, `ul`/`ol`, `h2`/`h3` |
+| `prose` | markdown | `body` (rich text) — covers `p`, `ul`/`ol`, `h2`/`h3`. **Prefer few large blocks over many small ones** |
 | `step` | `Step` | `number`, `title`, `lede`, `body` |
 | `diagram` | `MiniNeck` / `MiniKeyboard` / `MiniPush` | `instrument` enum; `mode` enum; params **or** dots; `useParam` |
 | `degree-chips` | `DegreeChips` | `degrees[]`, `size` |
@@ -113,9 +113,26 @@ populated by phase 2.
 | `video-ref` | player link | `videoId`, `timeSec`, `label` |
 | `heading` | `h2`/`h3` | `text`, `level` — a *standalone* heading between blocks; headings **inside** a prose body stay in its markdown |
 
+**Prose blocks are coarse, not one-per-paragraph.** A `prose` block holds
+markdown, so one block can carry many paragraphs, lists and `##` headings.
+`half-steps-to-chords` should be roughly 12-15 blocks — long prose runs
+punctuated by diagrams — not 38. Fewer boundaries is less for a model to get
+wrong, and it keeps each block a readable chunk. This also demotes the
+standalone `heading` block to a rare case: headings normally live inside
+prose markdown.
+
 **One `diagram` block, not three.** Instrument is a field. Fewer components,
 and a model picks an enum value rather than choosing between three
 near-identical block names.
+
+**Every field that can be an enum, is one.** `stringSet` is the four named
+sets from `STRING_SETS` (`e–B–G`, `B–G–D`, `G–D–A`, `D–A–E`), not a raw
+`[0,1,2]` array. This is the single most important rule for phase 2: freeform
+JSON is where a model goes wrong silently, whereas a closed enum under
+Ollama's JSON mode makes an invalid value impossible to emit. It also asks
+the model for something it is good at — *naming* a chord and string set —
+rather than something it is bad at, which is computing fret positions.
+`resolveDiagramDots` does the arithmetic.
 
 **`diagram` has two modes.** `mode: 'theory'` stores
 `{root, quality, stringSet, inversion}` and computes dots at render;
@@ -222,6 +239,11 @@ did not save.
 
 Phase 2 (AI lesson generation) is a separate spec. Phase 1 must leave:
 
+0. **The 8 migrated lessons as a few-shot corpus.** Hand-verified lesson JSON
+   is precisely what phase 2 shows a model as "this is what good looks like."
+   Migration is not only content preservation — it builds the examples the
+   generator learns the house style from. Every field carries `.describe()`
+   in the phase-2 zod schema; the model reads those as instructions.
 1. **The block vocabulary as a zod schema** — passed to
    `chat({ outputSchema })` exactly as `music-extraction.ts` and
    `learning.ts` already do. This is why the vocabulary is small and
