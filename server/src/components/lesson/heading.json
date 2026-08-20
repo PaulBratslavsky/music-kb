@@ -1,0 +1,9 @@
+{
+  "collectionName": "components_lesson_headings",
+  "info": { "displayName": "Heading", "description": "Standalone heading between blocks. Headings inside a prose body stay in its markdown." },
+  "options": {},
+  "attributes": {
+    "text": { "type": "string", "required": true },
+    "level": { "type": "enumeration", "enum": ["h2", "h3"], "default": "h2", "required": true }
+  }
+}

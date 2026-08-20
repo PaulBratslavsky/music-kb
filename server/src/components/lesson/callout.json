@@ -1,0 +1,10 @@
+{
+  "collectionName": "components_lesson_callouts",
+  "info": { "displayName": "Callout", "description": "Aside or warning." },
+  "options": {},
+  "attributes": {
+    "tone": { "type": "enumeration", "enum": ["note", "tip", "warning"], "default": "note", "required": true },
+    "body": { "type": "text", "required": true },
+    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+  }
+}

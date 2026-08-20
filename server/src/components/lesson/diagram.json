@@ -1,0 +1,23 @@
+{
+  "collectionName": "components_lesson_diagrams",
+  "info": {
+    "displayName": "Diagram",
+    "description": "A fretboard, keyboard or Push grid. mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. One block for all three instruments — instrument is a field. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not."
+  },
+  "options": {},
+  "attributes": {
+    "instrument": { "type": "enumeration", "enum": ["guitar", "bass", "piano", "push"], "default": "guitar", "required": true },
+    "mode": { "type": "enumeration", "enum": ["theory", "explicit"], "default": "theory", "required": true },
+    "root": { "type": "string", "maxLength": 3 },
+    "quality": { "type": "enumeration", "enum": ["major", "minor", "augmented", "diminished", "dominant7", "major7", "minor7"] },
+    "stringSet": { "type": "enumeration", "enum": ["e–B–G", "B–G–D", "G–D–A", "D–A–E"] },
+    "inversion": { "type": "integer", "min": 0, "max": 2 },
+    "scale": { "type": "string", "maxLength": 32 },
+    "useParam": { "type": "boolean", "default": false },
+    "dots": { "type": "component", "repeatable": true, "component": "lesson.neck-dot" },
+    "fromFret": { "type": "integer", "min": 0 },
+    "toFret": { "type": "integer", "min": 0 },
+    "caption": { "type": "string" },
+    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+  }
+}

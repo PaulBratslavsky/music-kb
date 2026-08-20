@@ -1,0 +1,13 @@
+{
+  "collectionName": "components_lesson_parameters",
+  "info": {
+    "displayName": "Lesson parameter",
+    "description": "One reader-controlled variable for the whole lesson. Blocks opt in via useParam. Capped at one per lesson."
+  },
+  "options": {},
+  "attributes": {
+    "name": { "type": "enumeration", "enum": ["key"], "default": "key", "required": true },
+    "label": { "type": "string", "default": "Key" },
+    "default": { "type": "string", "default": "C" }
+  }
+}

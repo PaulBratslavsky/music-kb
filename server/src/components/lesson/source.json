@@ -1,0 +1,12 @@
+{
+  "collectionName": "components_lesson_sources",
+  "info": {
+    "displayName": "Block source",
+    "description": "Provenance for a block: which video and moment it came from. Empty for hand-migrated lessons; populated by AI generation in phase 2."
+  },
+  "options": {},
+  "attributes": {
+    "videoId": { "type": "string", "maxLength": 32 },
+    "timeSec": { "type": "integer", "min": 0 }
+  }
+}

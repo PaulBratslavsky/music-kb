@@ -1,0 +1,12 @@
+{
+  "collectionName": "components_lesson_steps",
+  "info": { "displayName": "Step", "description": "Numbered step. Maps to the Step component." },
+  "options": {},
+  "attributes": {
+    "number": { "type": "integer", "required": true, "min": 1 },
+    "title": { "type": "string", "required": true },
+    "lede": { "type": "text" },
+    "body": { "type": "richtext" },
+    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+  }
+}

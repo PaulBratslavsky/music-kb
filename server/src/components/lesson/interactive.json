@@ -1,0 +1,10 @@
+{
+  "collectionName": "components_lesson_interactives",
+  "info": { "displayName": "Interactive", "description": "Configuration for a stateful widget. The React component owns its own state; this block only configures it." },
+  "options": {},
+  "attributes": {
+    "kind": { "type": "enumeration", "enum": ["triad-explorer", "neck-pattern-picker", "guitar-view"], "required": true },
+    "config": { "type": "json" },
+    "caption": { "type": "string" }
+  }
+}

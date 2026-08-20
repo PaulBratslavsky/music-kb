@@ -1,0 +1,9 @@
+{
+  "collectionName": "components_lesson_degree_chips",
+  "info": { "displayName": "Degree chips", "description": "Scale-degree chips. Maps to DegreeChips." },
+  "options": {},
+  "attributes": {
+    "degrees": { "type": "json", "required": true },
+    "size": { "type": "enumeration", "enum": ["sm", "md"], "default": "md" }
+  }
+}

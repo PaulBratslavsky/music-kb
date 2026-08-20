@@ -1,0 +1,10 @@
+{
+  "collectionName": "components_lesson_video_refs",
+  "info": { "displayName": "Video reference", "description": "Link into a library video at a timecode." },
+  "options": {},
+  "attributes": {
+    "videoId": { "type": "string", "required": true, "maxLength": 32 },
+    "timeSec": { "type": "integer", "min": 0 },
+    "label": { "type": "string" }
+  }
+}

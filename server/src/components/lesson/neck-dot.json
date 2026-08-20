@@ -1,0 +1,15 @@
+{
+  "collectionName": "components_lesson_neck_dots",
+  "info": {
+    "displayName": "Neck dot",
+    "description": "One explicit dot on a fretboard/keyboard diagram. Mirrors NeckDot in client/src/components/lesson/MiniNeck.tsx."
+  },
+  "options": {},
+  "attributes": {
+    "string": { "type": "integer", "required": true, "min": 0 },
+    "fret": { "type": "integer", "required": true, "min": 0 },
+    "label": { "type": "string", "maxLength": 8 },
+    "root": { "type": "boolean", "default": false },
+    "muted": { "type": "boolean", "default": false }
+  }
+}
