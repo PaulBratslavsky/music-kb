@@ -8,6 +8,10 @@
   "attributes": {
     "name": { "type": "enumeration", "enum": ["key"], "default": "key", "required": true },
     "label": { "type": "string", "default": "Key" },
-    "default": { "type": "string", "default": "C" }
+    "default": {
+      "type": "enumeration",
+      "enum": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
+      "default": "C"
+    }
   }
 }

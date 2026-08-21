@@ -3,17 +3,18 @@
 // through the CMS, not here.
 
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { BackendErrorPanel } from '#/components/BackendErrorPanel';
 import { listLessons } from '#/data/server-functions/lessons';
-import type { LessonSummary } from '#/lib/services/lessons';
+import type { LessonListResult } from '#/lib/services/lessons';
 
 export const Route = createFileRoute('/lessons/')({
   component: LessonsIndexPage,
-  loader: async (): Promise<LessonSummary[]> => listLessons(),
+  loader: async (): Promise<LessonListResult> => listLessons(),
   head: () => ({ meta: [{ title: 'Lessons · Music KB' }] }),
 });
 
 function LessonsIndexPage() {
-  const lessons = Route.useLoaderData();
+  const data = Route.useLoaderData();
 
   return (
     <main className="mx-auto w-full px-4 py-8 sm:px-8 sm:py-12 xl:px-12">
@@ -32,32 +33,40 @@ function LessonsIndexPage() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {lessons.map((l) => (
-          <Link
-            key={l.documentId}
-            to="/lessons/$slug"
-            params={{ slug: l.slug }}
-            className="group block rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6 no-underline transition hover:border-[var(--accent)]"
-          >
-            <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)]">
-              <span className="rounded-full border border-[var(--line)] px-2 py-0.5 font-medium">
-                {l.level}
+      {!data.ok ? (
+        <BackendErrorPanel message={data.error} />
+      ) : data.lessons.length === 0 ? (
+        <p className="text-sm text-[var(--ink-soft)]">
+          No lessons yet. Add one through the CMS to see it here.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {data.lessons.map((l) => (
+            <Link
+              key={l.documentId}
+              to="/lessons/$slug"
+              params={{ slug: l.slug }}
+              className="group block rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6 no-underline transition hover:border-[var(--accent)]"
+            >
+              <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)]">
+                <span className="rounded-full border border-[var(--line)] px-2 py-0.5 font-medium">
+                  {l.level}
+                </span>
+                {l.duration ? <span>{l.duration}</span> : null}
+              </div>
+              <h2 className="mt-3 text-base font-semibold text-[var(--ink)] group-hover:text-[var(--accent)]">
+                {l.title}
+              </h2>
+              {l.summary ? (
+                <p className="mt-2 text-sm text-[var(--ink-soft)]">{l.summary}</p>
+              ) : null}
+              <span className="mt-4 inline-block text-xs font-semibold text-[var(--accent)]">
+                Start lesson →
               </span>
-              {l.duration ? <span>{l.duration}</span> : null}
-            </div>
-            <h2 className="mt-3 text-base font-semibold text-[var(--ink)] group-hover:text-[var(--accent)]">
-              {l.title}
-            </h2>
-            {l.summary ? (
-              <p className="mt-2 text-sm text-[var(--ink-soft)]">{l.summary}</p>
-            ) : null}
-            <span className="mt-4 inline-block text-xs font-semibold text-[var(--accent)]">
-              Start lesson →
-            </span>
-          </Link>
-        ))}
-      </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </main>
   );
 }

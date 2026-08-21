@@ -51,6 +51,12 @@ let created = 0;
 let updated = 0;
 for (const file of files) {
   const lesson = JSON.parse(await readFile(join(DIR, file), 'utf8'));
+  if (!lesson.slug) {
+    // Without a slug, findBySlug queries slug=undefined, matches nothing,
+    // and upsert() silently POSTs a new row on every run instead of
+    // updating in place — idempotency breaks with no error.
+    throw new Error(`${file}: lesson JSON is missing "slug" — cannot upsert idempotently`);
+  }
   const action = await upsert(lesson);
   action === 'created' ? created++ : updated++;
   console.log(`  ${action}: ${lesson.slug}`);

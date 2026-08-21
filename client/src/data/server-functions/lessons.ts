@@ -2,15 +2,15 @@ import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import {
   getLessonBySlugWithStatus,
-  listLessonsService,
+  listLessonsWithStatus,
+  type LessonListResult,
   type LessonResult,
-  type LessonSummary,
 } from '#/lib/services/lessons';
 
 const SlugSchema = z.object({ slug: z.string().min(1).max(120) });
 
 export const listLessons = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<LessonSummary[]> => listLessonsService(),
+  async (): Promise<LessonListResult> => listLessonsWithStatus(),
 );
 
 export const getLessonBySlug = createServerFn({ method: 'GET' })

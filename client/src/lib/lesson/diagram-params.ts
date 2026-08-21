@@ -60,15 +60,35 @@ export function resolveDiagramDots(
   const root = (block.useParam && paramValue ? paramValue : block.root) as
     | PitchClass
     | undefined;
-  if (!root || !block.quality) return [];
-  if (!PITCH_CLASSES.includes(root)) return [];
-  if (!TRIAD_QUALITIES.has(block.quality)) return [];
+  if (!root || !block.quality) {
+    console.warn(
+      `[resolveDiagramDots] mode=theory needs root+quality; got root=${JSON.stringify(root)} quality=${JSON.stringify(block.quality)}`,
+    );
+    return [];
+  }
+  if (!PITCH_CLASSES.includes(root)) {
+    console.warn(`[resolveDiagramDots] root "${root}" is not a valid pitch class`);
+    return [];
+  }
+  if (!TRIAD_QUALITIES.has(block.quality)) {
+    console.warn(`[resolveDiagramDots] quality "${block.quality}" is not a renderable triad quality`);
+    return [];
+  }
 
   // stringSet arrives as one of the four names in STRING_SETS ("e–B–G",
   // "B–G–D", "G–D–A", "D–A–E") rather than a raw [0,1,2] array — a closed
   // enum an LLM cannot get wrong, and a name a guitarist already knows.
+  // Conditionally required: mode=theory needs it to voice a triad, but it
+  // cannot be marked `required` in the schema because mode=explicit never
+  // uses it — so a missing/invalid value fails closed here, silently but
+  // for this warning.
   const set = STRING_SETS.find((s) => s.name === block.stringSet);
-  if (!set) return [];
+  if (!set) {
+    console.warn(
+      `[resolveDiagramDots] mode=theory needs a valid stringSet; got ${JSON.stringify(block.stringSet)}`,
+    );
+    return [];
+  }
 
   const voicing = triadVoicing(
     root,
@@ -76,7 +96,12 @@ export function resolveDiagramDots(
     set,
     (block.inversion ?? 0) as Inversion,
   );
-  if (!voicing) return [];
+  if (!voicing) {
+    console.warn(
+      `[resolveDiagramDots] triadVoicing() could not resolve root=${root} quality=${block.quality} stringSet=${block.stringSet}`,
+    );
+    return [];
+  }
 
   // triadVoicing() returns `notes: { string, fret, pc, role }[]` — there is
   // no `label`/`isRoot` field. `role` is one of 'R' / '3' / '5' (with
@@ -129,9 +154,20 @@ export function resolveDiagramMarks(
   const root = (block.useParam && paramValue ? paramValue : block.root) as
     | PitchClass
     | undefined;
-  if (!root || !block.quality) return [];
-  if (!PITCH_CLASSES.includes(root)) return [];
-  if (!TRIAD_QUALITIES.has(block.quality)) return [];
+  if (!root || !block.quality) {
+    console.warn(
+      `[resolveDiagramMarks] mode=theory needs root+quality; got root=${JSON.stringify(root)} quality=${JSON.stringify(block.quality)}`,
+    );
+    return [];
+  }
+  if (!PITCH_CLASSES.includes(root)) {
+    console.warn(`[resolveDiagramMarks] root "${root}" is not a valid pitch class`);
+    return [];
+  }
+  if (!TRIAD_QUALITIES.has(block.quality)) {
+    console.warn(`[resolveDiagramMarks] quality "${block.quality}" is not a renderable triad quality`);
+    return [];
+  }
 
   const voicing = triadVoicing(
     root,
@@ -139,7 +175,12 @@ export function resolveDiagramMarks(
     STRING_SETS[0],
     0,
   );
-  if (!voicing) return [];
+  if (!voicing) {
+    console.warn(
+      `[resolveDiagramMarks] triadVoicing() could not resolve root=${root} quality=${block.quality}`,
+    );
+    return [];
+  }
 
   return voicing.notes.map((n) => ({
     pc: n.pc,

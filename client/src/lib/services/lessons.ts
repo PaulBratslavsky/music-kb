@@ -53,8 +53,17 @@ export type LessonResult =
   | { ok: true; lesson: Lesson }
   | { ok: false; status: number; error: string };
 
-/** Index listing. Never throws — an empty list renders an empty page. */
-export async function listLessonsService(): Promise<LessonSummary[]> {
+export type LessonListResult =
+  | { ok: true; lessons: LessonSummary[] }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Index listing that distinguishes "Strapi has zero lessons" from "Strapi
+ * is unreachable", so the route can render `BackendErrorPanel` instead of
+ * a false empty state — the same convention `getLessonBySlugWithStatus`
+ * uses on the detail route.
+ */
+export async function listLessonsWithStatus(): Promise<LessonListResult> {
   const res = await strapiFetch<LessonSummary[]>('GET', '/api/lessons', {
     query: {
       sort: ['order:asc'],
@@ -62,7 +71,10 @@ export async function listLessonsService(): Promise<LessonSummary[]> {
       fields: ['title', 'slug', 'summary', 'level', 'instrument', 'order', 'duration', 'status'],
     },
   });
-  return res.ok ? (res.data ?? []) : [];
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: res.error };
+  }
+  return { ok: true, lessons: res.data ?? [] };
 }
 
 /**

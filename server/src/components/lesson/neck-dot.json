@@ -6,7 +6,7 @@
   },
   "options": {},
   "attributes": {
-    "string": { "type": "integer", "required": true, "min": 0 },
+    "string": { "type": "integer", "required": true, "min": 0, "max": 5 },
     "fret": { "type": "integer", "required": true, "min": 0 },
     "label": { "type": "string", "maxLength": 8 },
     "root": { "type": "boolean", "default": false },

@@ -3,13 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('./strapi-client', () => ({ strapiFetch: vi.fn() }));
 
 import { strapiFetch } from './strapi-client';
-import { getLessonBySlugWithStatus, listLessonsService } from './lessons';
+import { getLessonBySlugWithStatus, listLessonsWithStatus } from './lessons';
 
 const mocked = vi.mocked(strapiFetch);
 
 beforeEach(() => mocked.mockReset());
 
-describe('listLessonsService', () => {
+describe('listLessonsWithStatus', () => {
   it('returns the rows Strapi gave, with their fields intact', async () => {
     mocked.mockResolvedValue({
       ok: true,
@@ -18,16 +18,28 @@ describe('listLessonsService', () => {
         { documentId: 'a', title: 'A', slug: 'a', order: 1 },
       ],
     } as never);
-    const out = await listLessonsService();
-    expect(out).toEqual([
-      { documentId: 'b', title: 'B', slug: 'b', order: 2 },
-      { documentId: 'a', title: 'A', slug: 'a', order: 1 },
-    ]);
+    const out = await listLessonsWithStatus();
+    expect(out).toEqual({
+      ok: true,
+      lessons: [
+        { documentId: 'b', title: 'B', slug: 'b', order: 2 },
+        { documentId: 'a', title: 'A', slug: 'a', order: 1 },
+      ],
+    });
   });
 
-  it('returns [] when the backend is unreachable', async () => {
+  it('returns an empty list distinctly from a dead backend', async () => {
+    mocked.mockResolvedValue({ ok: true, data: [] } as never);
+    expect(await listLessonsWithStatus()).toEqual({ ok: true, lessons: [] });
+  });
+
+  it('distinguishes a dead backend from an empty collection', async () => {
     mocked.mockResolvedValue({ ok: false, status: 0, error: 'down' } as never);
-    expect(await listLessonsService()).toEqual([]);
+    expect(await listLessonsWithStatus()).toEqual({
+      ok: false,
+      status: 0,
+      error: 'down',
+    });
   });
 });
 

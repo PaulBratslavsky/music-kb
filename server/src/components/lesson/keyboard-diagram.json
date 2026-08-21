@@ -11,7 +11,7 @@
       "type": "enumeration",
       "enum": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
     },
-    "quality": { "type": "enumeration", "enum": ["major", "minor", "augmented", "diminished", "dominant7", "major7", "minor7"] },
+    "quality": { "type": "enumeration", "enum": ["major", "minor", "augmented", "diminished"] },
     "useParam": { "type": "boolean", "default": false },
     "octaves": { "type": "integer", "min": 1, "max": 3 },
     "marks": { "type": "component", "repeatable": true, "component": "lesson.key-mark" },

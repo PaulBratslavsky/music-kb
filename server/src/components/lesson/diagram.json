@@ -47,14 +47,12 @@
         "major",
         "minor",
         "augmented",
-        "diminished",
-        "dominant7",
-        "major7",
-        "minor7"
+        "diminished"
       ]
     },
     "stringSet": {
       "type": "enumeration",
+      "description": "Required when mode=theory and useParam/root select a triad to voice (resolveDiagramDots returns [] without it). Not used, and safe to omit, when mode=explicit.",
       "enum": [
         "e\u2013B\u2013G",
         "B\u2013G\u2013D",
