@@ -12,6 +12,7 @@
       "required": true
     },
     "label": { "type": "string", "maxLength": 8 },
-    "root": { "type": "boolean", "default": false }
+    "root": { "type": "boolean", "default": false },
+    "flag": { "type": "boolean", "default": false }
   }
 }

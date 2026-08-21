@@ -95,6 +95,7 @@ export type KeyMarkInput = {
   pc: PitchClass;
   label?: string;
   root?: boolean;
+  flag?: boolean;
 };
 
 export type KeyboardDiagramBlock = {

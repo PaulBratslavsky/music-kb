@@ -317,6 +317,7 @@ export interface LessonKeyMark extends Struct.ComponentSchema {
     displayName: 'Key mark';
   };
   attributes: {
+    flag: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     label: Schema.Attribute.String &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 8;

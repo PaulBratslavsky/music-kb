@@ -85,6 +85,16 @@ describe('resolveDiagramMarks', () => {
     ]);
   });
 
+  it('preserves flag: true on explicit marks in explicit mode', () => {
+    const block: KeyboardDiagramBlock = {
+      mode: 'explicit',
+      marks: [{ pc: 'E', label: 'E', flag: true }],
+    };
+    expect(resolveDiagramMarks(block)).toEqual([
+      { pc: 'E', label: 'E', flag: true },
+    ]);
+  });
+
   it('computes marks from theory parameters with exactly one root', () => {
     const block: KeyboardDiagramBlock = {
       mode: 'theory',
