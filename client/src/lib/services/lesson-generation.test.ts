@@ -1,10 +1,23 @@
-// Contract tests for the lesson-generation pipeline. `chat()` is fully
-// mocked — this suite never talks to Ollama. It exercises:
-//   - the happy path assembling outline + per-section blocks into a body
-//   - block-level validation (malformed blocks dropped, captions truncated)
+// Contract tests for the lesson-generation pipeline. `chat()` and every
+// network-touching service (embeddings, digest lookup/synthesis, video
+// fetch) are mocked — this suite never talks to Ollama or Strapi. BM25
+// grounding is exercised for real (pure JS, no network) against synthetic
+// `transcriptSegments` on the mocked videos.
+//
+// Covers:
+//   - the happy path assembling outline + per-section blocks into a body,
+//     with a deterministically-injected heading per section
+//   - the relevance floor: below it, generation refuses rather than
+//     grounding a lesson in unrelated videos
+//   - digest reuse: a cached digest short-circuits synthesis
+//   - contradictions becoming deterministic callouts
+//   - citation grounding: sourceVideoId validated against the source set,
+//     timeSec always BM25-derived, never trusted from the model
+//   - assembly fixes: sequential step renumbering, trailing-colon
+//     stripping, model-emitted headings dropped in favor of the injected one
+//   - block-level validation carried over from Task 1
 //   - model-failure handling (single section drop vs whole-run failure)
-//   - the zero-videos-with-embeddings guard, which must short-circuit
-//     BEFORE any chat() call is made (no wasted inference on empty context)
+//   - the zero-videos-with-embeddings guard
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,16 +38,40 @@ vi.mock('./embeddings', async (importOriginal) => {
 });
 
 const listAllVideosMock = vi.fn();
+const fetchVideoByVideoIdMock = vi.fn();
+const fetchVideoByDocumentIdMock = vi.fn();
 vi.mock('./videos', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./videos')>();
   return {
     ...actual,
     listAllVideosForEmbeddingService: () => listAllVideosMock(),
+    fetchVideoByVideoIdService: (id: string) => fetchVideoByVideoIdMock(id),
+    fetchVideoByDocumentIdService: (id: string) => fetchVideoByDocumentIdMock(id),
+  };
+});
+
+const findDigestByVideoSetKeyMock = vi.fn();
+vi.mock('./digests', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./digests')>();
+  return {
+    ...actual,
+    findDigestByVideoSetKeyService: (key: string) => findDigestByVideoSetKeyMock(key),
+  };
+});
+
+const synthesizeDigestMock = vi.fn();
+vi.mock('./digest', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./digest')>();
+  return {
+    ...actual,
+    synthesizeDigest: (videos: unknown) => synthesizeDigestMock(videos),
   };
 });
 
 import { chat } from '@tanstack/ai';
+import { buildBM25Index, type TranscriptChunk } from './transcript';
 import type { StrapiVideo } from './videos';
+import type { Digest } from './digest';
 import { generateLesson } from './lesson-generation';
 
 const mockedChat = vi.mocked(chat);
@@ -44,6 +81,11 @@ const mockedChat = vi.mocked(chat);
 const QUERY_VEC = [1, 0];
 function vec(c: number): number[] {
   return [c, Math.sqrt(1 - c * c)];
+}
+
+function bm25For(text: string): ReturnType<typeof buildBM25Index> {
+  const chunk: TranscriptChunk = { id: 0, text, startWord: 0, timeSec: 42 };
+  return buildBM25Index([chunk]);
 }
 
 function makeVideo(documentId: string, score: number, overrides: Partial<StrapiVideo> = {}): StrapiVideo {
@@ -56,6 +98,10 @@ function makeVideo(documentId: string, score: number, overrides: Partial<StrapiV
     summaryOverview: null,
     musicExtraction: null,
     summaryEmbedding: vec(score),
+    transcriptSegments: {
+      version: 1,
+      bm25: bm25For(`Turnaround content for video ${documentId} about blues turnarounds and shapes`),
+    },
   };
   return { ...base, ...overrides } as StrapiVideo;
 }
@@ -72,28 +118,59 @@ const OUTLINE = {
   ],
 };
 
+const EMPTY_DIGEST: Digest = {
+  title: 'Blues turnarounds across sources',
+  description: 'What the sources say about turnarounds.',
+  overallTheme: 'Both videos cover blues turnaround shapes.',
+  sharedThemes: [],
+  uniqueInsights: [],
+  contradictions: [],
+  viewingOrder: [],
+  bottomLine: 'Turnarounds signal the loop back to the top of the form.',
+};
+
+function makeFullVideo(documentId: string): StrapiVideo {
+  return makeVideo(documentId, 0.9);
+}
+
 beforeEach(() => {
   mockedChat.mockReset();
   embedTextMock.mockReset();
   embedTextMock.mockResolvedValue(QUERY_VEC);
   listAllVideosMock.mockReset();
   listAllVideosMock.mockResolvedValue([makeVideo('A', 0.9), makeVideo('B', 0.7)]);
+
+  fetchVideoByVideoIdMock.mockReset();
+  fetchVideoByDocumentIdMock.mockReset();
+  fetchVideoByVideoIdMock.mockImplementation((id: string) => {
+    const documentId = id.replace(/^yt-/, '');
+    return Promise.resolve(makeFullVideo(documentId));
+  });
+  fetchVideoByDocumentIdMock.mockResolvedValue(null);
+
+  findDigestByVideoSetKeyMock.mockReset();
+  findDigestByVideoSetKeyMock.mockResolvedValue({ success: true, data: null });
+
+  synthesizeDigestMock.mockReset();
+  synthesizeDigestMock.mockResolvedValue({ success: true, data: EMPTY_DIGEST });
 });
 
 describe('generateLesson — happy path', () => {
-  it('assembles blocks from the outline + per-section calls, and returns ranked sources', async () => {
+  it('assembles blocks from the outline + per-section calls, injecting headings deterministically, and returns ranked sources', async () => {
     mockedChat
       .mockResolvedValueOnce(OUTLINE)
       .mockResolvedValueOnce({
         blocks: [
-          { type: 'heading', text: 'What a turnaround does', level: 'h2' },
-          { type: 'prose', body: 'A turnaround signals the loop back to the top of the form.' },
+          {
+            type: 'prose',
+            body: 'A turnaround signals the loop back to the top of the form.',
+            sourceVideoId: 'yt-A',
+          },
         ],
       })
       .mockResolvedValueOnce({
         blocks: [
-          { type: 'heading', text: 'The classic V-IV-I shape', level: 'h2' },
-          { type: 'step', number: 1, title: 'Play the V chord', lede: null, body: 'Start on the V.' },
+          { type: 'step', number: 1, title: 'Play the V chord', lede: null, body: 'Start on the V.', sourceVideoId: null },
           { type: 'degree-chips', degrees: ['V', 'IV', 'I'], size: 'md' },
         ],
       });
@@ -110,7 +187,8 @@ describe('generateLesson — happy path', () => {
     expect(result.lesson.instrument).toBe('guitar');
     expect(result.lesson.duration).toBe('15 min');
 
-    // 2 blocks from section 1 + 3 from section 2, in order, sequential ids.
+    // Heading injected deterministically per section (from the outline, not
+    // the model) + 1 content block for section 1, heading + 2 for section 2.
     expect(result.lesson.body).toHaveLength(5);
     expect(result.lesson.body.map((b) => b.__component)).toEqual([
       'lesson.heading',
@@ -120,10 +198,304 @@ describe('generateLesson — happy path', () => {
       'lesson.degree-chips',
     ]);
     expect(result.lesson.body.map((b) => b.id)).toEqual([1, 2, 3, 4, 5]);
+    expect(result.lesson.body[0].text).toBe('What a turnaround does');
+    expect(result.lesson.body[2].text).toBe('The classic V-IV-I shape');
 
     // Sources ranked by cosine score, highest first.
     expect(result.sources.map((s) => s.documentId)).toEqual(['A', 'B']);
     expect(result.sources[0].score).toBeGreaterThan(result.sources[1].score);
+  });
+});
+
+describe('generateLesson — relevance floor', () => {
+  it('returns { ok: false } naming the topic when everything scores below the floor', async () => {
+    listAllVideosMock.mockResolvedValue([makeVideo('A', 0.1), makeVideo('B', 0.05)]);
+
+    const result = await generateLesson({ topic: 'obscure topic' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('obscure topic');
+    expect(mockedChat).not.toHaveBeenCalled();
+  });
+
+  it('returns { ok: false } when only one video clears the floor (digest needs at least 2)', async () => {
+    listAllVideosMock.mockResolvedValue([makeVideo('A', 0.9), makeVideo('B', 0.1)]);
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(false);
+    expect(mockedChat).not.toHaveBeenCalled();
+  });
+});
+
+describe('generateLesson — digest reuse', () => {
+  it('reuses a cached digest instead of re-synthesizing', async () => {
+    findDigestByVideoSetKeyMock.mockResolvedValue({
+      success: true,
+      data: {
+        id: 1,
+        documentId: 'digest-1',
+        title: EMPTY_DIGEST.title,
+        description: EMPTY_DIGEST.description,
+        overallTheme: EMPTY_DIGEST.overallTheme,
+        bottomLine: EMPTY_DIGEST.bottomLine,
+        sharedThemes: [],
+        uniqueInsights: [],
+        contradictions: [],
+        viewingOrder: [],
+        articleMarkdown: null,
+        model: null,
+        videoSetKey: 'yt-A,yt-B',
+        videos: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [{ type: 'prose', body: 'Content grounded in the cached digest.', sourceVideoId: null }],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    expect(synthesizeDigestMock).not.toHaveBeenCalled();
+    expect(findDigestByVideoSetKeyMock).toHaveBeenCalledWith('yt-A,yt-B');
+  });
+
+  it('synthesizes via the digest service on a cache miss', async () => {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [{ type: 'prose', body: 'Freshly synthesized content.', sourceVideoId: null }],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    expect(synthesizeDigestMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('generateLesson — contradictions', () => {
+  it('turns digest contradictions into deterministic note callouts', async () => {
+    synthesizeDigestMock.mockResolvedValue({
+      success: true,
+      data: {
+        ...EMPTY_DIGEST,
+        contradictions: [
+          {
+            topic: 'Whether to use a V7 or a diminished passing chord',
+            positions: [
+              { videoTitle: 'Title A', stance: 'Prefers a straight V7.' },
+              { videoTitle: 'Title B', stance: 'Prefers a diminished passing chord.' },
+            ],
+          },
+        ],
+      },
+    });
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [{ type: 'prose', body: 'Baseline content.', sourceVideoId: null }],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const callouts = result.lesson.body.filter((b) => b.__component === 'lesson.callout');
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].tone).toBe('note');
+    expect(callouts[0].body as string).toContain('V7 or a diminished passing chord');
+    expect(callouts[0].body as string).toContain('Title A');
+    expect(callouts[0].body as string).toContain('Title B');
+
+    // A heading precedes the contradiction callouts.
+    const headings = result.lesson.body.filter((b) => b.__component === 'lesson.heading');
+    expect(headings.some((h) => h.text === 'Where the sources disagree')).toBe(true);
+  });
+
+  it('adds no contradiction blocks when the digest has none', async () => {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [{ type: 'prose', body: 'Baseline content.', sourceVideoId: null }],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.some((b) => b.__component === 'lesson.callout')).toBe(false);
+  });
+});
+
+describe('generateLesson — citation grounding', () => {
+  it('grounds a valid sourceVideoId to a real BM25 timecode from that video only', async () => {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [
+          {
+            type: 'prose',
+            body: 'blues turnarounds and shapes content for video A',
+            sourceVideoId: 'yt-A',
+          },
+        ],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
+    const source = prose.source as { videoId: string; timeSec?: number };
+    expect(source.videoId).toBe('yt-A');
+    expect(source.timeSec).toBe(42);
+  });
+
+  it('drops a citation naming a video outside the source set', async () => {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [
+          {
+            type: 'prose',
+            body: 'Content citing an unrelated video.',
+            sourceVideoId: 'yt-not-in-the-set',
+          },
+        ],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
+    expect(prose.source).toBeUndefined();
+  });
+
+  it('never trusts a model-supplied timeSec — grounding decides it', async () => {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [
+          {
+            type: 'prose',
+            body: 'blues turnarounds and shapes content for video A',
+            sourceVideoId: 'yt-A',
+            // Not part of the schema — simulates a local model tacking on
+            // an extra, unrequested field. Must be ignored regardless.
+            timeSec: 999999,
+          },
+        ],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
+    const source = prose.source as { videoId: string; timeSec?: number };
+    expect(source.timeSec).not.toBe(999999);
+    expect(source.timeSec).toBe(42);
+  });
+
+  it('yields videoId only, no timeSec, when grounding is weak', async () => {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [
+          {
+            type: 'prose',
+            body: 'completely unrelated words xylophone quokka zeppelin',
+            sourceVideoId: 'yt-A',
+          },
+        ],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
+    const source = prose.source as { videoId: string; timeSec?: number };
+    expect(source.videoId).toBe('yt-A');
+    expect(source.timeSec).toBeUndefined();
+  });
+});
+
+describe('generateLesson — assembly fixes', () => {
+  it('renumbers steps sequentially across sections instead of restarting per section', async () => {
+    mockedChat
+      .mockResolvedValueOnce(OUTLINE)
+      .mockResolvedValueOnce({
+        blocks: [
+          { type: 'step', number: 1, title: 'First step', lede: null, body: null, sourceVideoId: null },
+          { type: 'step', number: 2, title: 'Second step', lede: null, body: null, sourceVideoId: null },
+        ],
+      })
+      .mockResolvedValueOnce({
+        blocks: [
+          { type: 'step', number: 1, title: 'Third step', lede: null, body: null, sourceVideoId: null },
+          { type: 'step', number: 2, title: 'Fourth step', lede: null, body: null, sourceVideoId: null },
+        ],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const steps = result.lesson.body.filter((b) => b.__component === 'lesson.step');
+    expect(steps.map((s) => s.number)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('strips a trailing colon and whitespace from step titles', async () => {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [
+          {
+            type: 'step',
+            number: 1,
+            title: 'Identify the Root:  ',
+            lede: null,
+            body: null,
+            sourceVideoId: null,
+          },
+        ],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const step = result.lesson.body.find((b) => b.__component === 'lesson.step')!;
+    expect(step.title).toBe('Identify the Root');
+  });
+
+  it('drops a model-emitted heading inside a section, keeping only the injected one', async () => {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [
+          { type: 'heading', text: 'A DIFFERENT drifted heading', level: 'h2' },
+          { type: 'prose', body: 'Section content.', sourceVideoId: null },
+        ],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const headings = result.lesson.body.filter((b) => b.__component === 'lesson.heading');
+    expect(headings).toHaveLength(1);
+    expect(headings[0].text).toBe(OUTLINE.sections[0].heading);
+    expect(result.lesson.body.some((b) => b.text === 'A DIFFERENT drifted heading')).toBe(false);
   });
 });
 
@@ -133,9 +505,8 @@ describe('generateLesson — block validation', () => {
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
-          { type: 'heading', text: 'What a turnaround does', level: 'h2' },
           { type: 'prose' }, // missing required `body` — invalid
-          { type: 'callout', tone: 'tip', body: 'Turnarounds often use a chromatic walk-down.' },
+          { type: 'callout', tone: 'tip', body: 'Turnarounds often use a chromatic walk-down.', sourceVideoId: null },
         ],
       });
 
@@ -143,7 +514,7 @@ describe('generateLesson — block validation', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.lesson.body).toHaveLength(2);
+    // Injected heading + the one valid callout.
     expect(result.lesson.body.map((b) => b.__component)).toEqual([
       'lesson.heading',
       'lesson.callout',
@@ -155,9 +526,8 @@ describe('generateLesson — block validation', () => {
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
-          { type: 'heading', text: 'What a turnaround does', level: 'h2' },
           { type: 'diagram', instrument: 'guitar', root: 'E', quality: 'maj' },
-          { type: 'prose', body: 'Turnarounds reset the harmonic loop.' },
+          { type: 'prose', body: 'Turnarounds reset the harmonic loop.', sourceVideoId: null },
         ],
       });
 
@@ -177,7 +547,6 @@ describe('generateLesson — block validation', () => {
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
-          { type: 'heading', text: 'What a turnaround does', level: 'h2' },
           {
             type: 'table',
             headers: ['Bar', 'Chord'],
@@ -202,7 +571,6 @@ describe('generateLesson — block validation', () => {
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
-          { type: 'heading', text: 'What a turnaround does', level: 'h2' },
           {
             type: 'table',
             headers: ['Bar', 1 as unknown as string],
@@ -228,10 +596,7 @@ describe('generateLesson — model failure handling', () => {
       .mockResolvedValueOnce(OUTLINE)
       .mockRejectedValueOnce(new Error('model returned invalid json'))
       .mockResolvedValueOnce({
-        blocks: [
-          { type: 'heading', text: 'The classic V-IV-I shape', level: 'h2' },
-          { type: 'prose', body: 'Descend from V to IV to I.' },
-        ],
+        blocks: [{ type: 'prose', body: 'Descend from V to IV to I.', sourceVideoId: null }],
       });
 
     const result = await generateLesson({ topic: 'blues turnarounds' });

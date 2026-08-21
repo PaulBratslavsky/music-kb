@@ -7,28 +7,57 @@
 // render, see LessonBody.tsx's `default: return null`). So the pipeline
 // asks for a SMALL structured result at every step:
 //
-//   1. retrieve — embed the topic, cosine over stored video embeddings, top N
-//   2. context  — title + summary + musicExtraction per retrieved video
-//   3. outline  — ONE chat() call → { title, summary, level, sections[] }
-//   4. sections — ONE chat() call PER section → 2-4 blocks each
-//   5. assemble — flatten to LessonBlock[], dropping anything invalid
+//   1. retrieve — embed the topic, cosine over stored video embeddings,
+//                 apply a relevance floor, cap to the digest's video range
+//   2. digest   — reuse a cached cross-video digest for this exact video
+//                 set, or synthesize one via the existing digest service
+//   3. context  — title + summary + musicExtraction per source video, plus
+//                 the digest's cross-video synthesis
+//   4. outline  — ONE chat() call → { title, summary, level, sections[] }
+//   5. sections — ONE chat() call PER section → 2-4 content blocks each;
+//                 the section heading is injected deterministically, never
+//                 trusted from the model
+//   6. assemble — flatten to LessonBlock[], renumber steps, append
+//                 contradiction callouts, drop anything invalid
 //
 // This mirrors the map-reduce shape in learning.ts (many small model calls,
 // one deterministic assembly step) and the structured-extraction shape in
 // music-extraction.ts (schema-validated but content-untrusted, sanitized
 // after the fact). Persistence is NOT this module's job — the caller (an
 // in-app server function or an MCP tool, both built later) saves the result.
+// That includes the digest: on a cache miss this module synthesizes one via
+// `synthesizeDigest` but never calls `createDigestService` — persisting it
+// is the /digest page's job (an explicit user Save), not an implicit side
+// effect of generating a lesson.
 
 import { chat } from '@tanstack/ai';
 import { createOllamaChat } from '@tanstack/ai-ollama';
 import { z } from 'zod';
 import { OLLAMA_HOST, OLLAMA_MODEL } from '#/lib/env';
 import { withRetry } from '#/lib/retry';
+import {
+  DIGEST_MAX_VIDEOS,
+  DIGEST_MIN_VIDEOS,
+  synthesizeDigest,
+  type Digest,
+} from '#/lib/services/digest';
+import {
+  findDigestByVideoSetKeyService,
+  makeVideoSetKey,
+  strapiRowToDigest,
+} from '#/lib/services/digests';
 import { cosineSimilarity, embedText } from '#/lib/services/embeddings';
 import { friendlyOllamaError } from '#/lib/services/ollama-errors';
 import { samplingOptions } from '#/lib/services/ollama-model-options';
 import {
+  findEvidenceForQuote,
+  loadStoredIndex,
+  type BM25Index,
+} from '#/lib/services/transcript';
+import {
   buildMusicExtractionText,
+  fetchVideoByDocumentIdService,
+  fetchVideoByVideoIdService,
   listAllVideosForEmbeddingService,
   type StrapiVideo,
 } from '#/lib/services/videos';
@@ -78,10 +107,36 @@ export type GenerateLessonResult =
   | { ok: false; error: string };
 
 // -----------------------------------------------------------------------------
-// Step 1+2: retrieve + context
+// Step 1: retrieve — cosine rank, then a relevance floor
 // -----------------------------------------------------------------------------
 
 const DEFAULT_MAX_VIDEOS = 5;
+
+// Below this cosine score, a video is not "about" the topic — it's noise
+// that happens to share vocabulary. Two pieces of evidence set this value
+// (Strapi was intentionally not started for this task, so it isn't tuned
+// against the live library — see the report):
+//   1. `embeddings.ts`'s own calibration notes (`getMatchTier` comments)
+//      document that raw cosine with nomic-embed-text "saturates around
+//      0.65–0.72 for correct topical matches" and "good" matches run
+//      0.45–0.72 — i.e. 0.45 is the documented floor for "good", not "off
+//      topic".
+//   2. The live diagnostic in `embeddings.ranking.test.ts` (real Ollama,
+//      same embedText/prefix scheme) shows 0.45 is too permissive on its
+//      own: for a query genuinely unrelated to its corpus ("fitness"
+//      against AI/dev-tooling docs), several clearly-irrelevant docs still
+//      scored 0.46–0.55 — well above 0.45. For a genuinely-relevant query
+//      ("running AI models on my laptop"), the true topical matches scored
+//      0.514–0.615, with the best false positive at 0.489.
+// 0.50 sits just above that observed false-positive ceiling while staying
+// below every observed true-positive score in both diagnostics — a better
+// separator than the documented 0.45 floor alone, though still an
+// approximation from a small, non-music, non-library corpus.
+const RELEVANCE_FLOOR = 0.5;
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
+}
 
 // Keeps every prompt in this pipeline small — a per-video context card, not
 // the whole summary. Consistent with the "small structured calls" design:
@@ -92,11 +147,13 @@ function truncate(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max);
 }
 
+// Labeled with the youtubeVideoId so later steps (section citation) can ask
+// the model to name a source by an id it has already seen here.
 function buildVideoContextText(v: StrapiVideo): string {
   const title = v.summaryTitle ?? v.videoTitle ?? 'Untitled video';
   const desc = v.summaryDescription ?? v.summaryOverview ?? '';
   const music = buildMusicExtractionText(v.musicExtraction);
-  const lines = [`- "${title}"`];
+  const lines = [`- [${v.youtubeVideoId}] "${title}"`];
   if (desc.trim()) lines.push(`  ${truncate(desc.trim(), CONTEXT_SNIPPET_MAX_CHARS)}`);
   if (music) lines.push(`  ${music.split('\n').join(' | ')}`);
   return lines.join('\n');
@@ -104,10 +161,10 @@ function buildVideoContextText(v: StrapiVideo): string {
 
 type RankedVideo = { video: StrapiVideo; score: number };
 
-async function retrieveSourceVideos(
-  topic: string,
-  maxVideos: number,
-): Promise<RankedVideo[]> {
+// Ranks every video with a stored embedding against the topic. Does NOT
+// apply the relevance floor or cap — callers do that, so the full ranked
+// list is available for logging while tuning the floor.
+async function rankVideosByTopic(topic: string): Promise<RankedVideo[]> {
   const queryVec = await embedText(topic, 'query');
   const all = await listAllVideosForEmbeddingService();
   const withEmbeddings = all.filter(
@@ -118,12 +175,117 @@ async function retrieveSourceVideos(
       video,
       score: cosineSimilarity(queryVec, video.summaryEmbedding as number[]),
     }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, maxVideos);
+    .sort((a, b) => b.score - a.score);
 }
 
 // -----------------------------------------------------------------------------
-// Step 3: outline — one small structured call
+// Step 2: digest — reuse a cached synthesis for this exact video set, or
+// synthesize (never persist) one via the existing digest service.
+// -----------------------------------------------------------------------------
+
+async function resolveFullVideos(
+  youtubeVideoIds: string[],
+): Promise<{ videos: StrapiVideo[]; missing: string[] }> {
+  const videos: StrapiVideo[] = [];
+  const missing: string[] = [];
+  await Promise.all(
+    youtubeVideoIds.map(async (id) => {
+      const byVid = await fetchVideoByVideoIdService(id).catch(() => null);
+      if (byVid) {
+        videos.push(byVid);
+        return;
+      }
+      const byDoc = await fetchVideoByDocumentIdService(id).catch(() => null);
+      if (byDoc) {
+        videos.push(byDoc);
+        return;
+      }
+      missing.push(id);
+    }),
+  );
+  return { videos, missing };
+}
+
+type DigestResolution =
+  | { ok: true; digest: Digest; fullVideos: StrapiVideo[] }
+  | { ok: false; error: string };
+
+// `listAllVideosForEmbeddingService` (used for retrieval) strips
+// `transcriptSegments` before returning — it's the client-safe listing
+// helper. Grounding needs the real BM25 index, and digest synthesis wants
+// full StrapiVideo rows, so this step re-fetches the selected videos in
+// full via the same fetchers `generateDigestByIds` uses internally.
+async function getOrCreateDigest(
+  topic: string,
+  youtubeVideoIds: string[],
+): Promise<DigestResolution> {
+  const { videos: fullVideos, missing } = await resolveFullVideos(youtubeVideoIds);
+  if (missing.length > 0 || fullVideos.length < DIGEST_MIN_VIDEOS) {
+    logPhase(topic, 'digest ✗ could not load full source videos', { missing });
+    return {
+      ok: false,
+      error: 'Could not load the selected source videos to synthesize a digest.',
+    };
+  }
+
+  const videoSetKey = makeVideoSetKey(youtubeVideoIds);
+  const cached = await findDigestByVideoSetKeyService(videoSetKey);
+  if (cached.success && cached.data) {
+    logPhase(topic, 'digest ✓ cache hit', { videoSetKey });
+    return { ok: true, digest: strapiRowToDigest(cached.data), fullVideos };
+  }
+
+  logPhase(topic, 'digest ▶ cache miss, synthesizing', { videoSetKey });
+  const synthesized = await synthesizeDigest(fullVideos);
+  if (!synthesized.success) {
+    logPhase(topic, 'digest ✗ synthesis failed', { error: synthesized.error });
+    return { ok: false, error: synthesized.error };
+  }
+  return { ok: true, digest: synthesized.data, fullVideos };
+}
+
+// Compact prose rendering of the digest's cross-video synthesis, fed into
+// the outline call so `viewingOrder` can inform section progression and
+// `sharedThemes` / `uniqueInsights` can become section material.
+// `contradictions` is deliberately NOT included here — those are handled
+// deterministically (see `buildContradictionCallouts`), not left to the
+// model to paraphrase.
+function buildDigestContextText(digest: Digest): string {
+  const lines: string[] = [];
+  if (digest.overallTheme.trim()) {
+    lines.push('Cross-video synthesis — overall theme:');
+    lines.push(digest.overallTheme.trim());
+  }
+  if (digest.sharedThemes.length > 0) {
+    lines.push('');
+    lines.push('Themes shared across the sources:');
+    for (const t of digest.sharedThemes) {
+      lines.push(`- ${t.title}: ${truncate(t.body, 300)}`);
+    }
+  }
+  if (digest.uniqueInsights.length > 0) {
+    lines.push('');
+    lines.push('What each source uniquely contributes:');
+    for (const u of digest.uniqueInsights) {
+      lines.push(`- ${u.videoTitle}: ${truncate(u.insight, 300)}`);
+    }
+  }
+  if (digest.viewingOrder.length > 0) {
+    lines.push('');
+    lines.push('Recommended progression across the sources (use this to order sections):');
+    digest.viewingOrder.forEach((v, i) => {
+      lines.push(`${i + 1}. ${v.videoTitle} — ${v.why}`);
+    });
+  }
+  if (digest.bottomLine.trim()) {
+    lines.push('');
+    lines.push(`Cross-video bottom line: ${digest.bottomLine.trim()}`);
+  }
+  return lines.join('\n');
+}
+
+// -----------------------------------------------------------------------------
+// Step 4: outline — one small structured call
 // -----------------------------------------------------------------------------
 
 const LessonOutlineSchema = z.object({
@@ -171,16 +333,22 @@ const OUTLINE_SYSTEM = [
   'Output ONLY the outline shape (title, summary, level, instrument, duration, sections). Do NOT write the lesson body here — every section is generated separately, afterward, one at a time.',
   'Sections are short teaching beats: 2 to 6 of them, each with a heading and a one-sentence goal describing what it should cover, in the order a learner should encounter them.',
   'Ground the outline in what the source videos actually teach. Do not invent chords, keys, techniques, or songs the sources do not mention.',
+  'If a recommended progression across the sources is given, use it to inform section order — a learner should hit prerequisite material before what depends on it.',
+  'Shared themes and unique per-video contributions (if given) are good material for individual sections — the outline should give the learner the throughline AND the standout specifics, not just the throughline.',
   '`instrument` should reflect what the sources are teaching (guitar/piano/push), or "any" when the lesson is instrument-agnostic theory.',
 ].join('\n');
 
-function buildOutlinePrompt(topic: string, contextText: string): string {
-  return [
+function buildOutlinePrompt(topic: string, contextText: string, digestText: string): string {
+  const parts = [
     `Topic: ${topic}`,
     '',
     'Source videos (ground the lesson in these — do not invent content beyond them):',
     contextText,
-  ].join('\n');
+  ];
+  if (digestText.trim()) {
+    parts.push('', digestText);
+  }
+  return parts.join('\n');
 }
 
 // Defensive: treats the model's response as untrusted content, not just an
@@ -220,9 +388,13 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
 }
 
 // -----------------------------------------------------------------------------
-// Step 4: sections — one small structured call PER section
+// Step 5: sections — one small structured call PER section
 // -----------------------------------------------------------------------------
 
+// `heading` stays in the allowed output union defensively (a local model
+// can ignore instructions) but the pipeline never trusts a model-emitted
+// heading — see the section loop below, which drops any `type: 'heading'`
+// block a section call returns and injects the outline's heading instead.
 const LessonBlockOutputSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('heading'),
@@ -236,11 +408,21 @@ const LessonBlockOutputSchema = z.discriminatedUnion('type', [
     body: z
       .string()
       .describe('Markdown paragraph(s) teaching this part of the section. MAX 2000 characters.'),
+    sourceVideoId: z
+      .string()
+      .nullable()
+      .describe(
+        'The youtubeVideoId (copied exactly from the [bracketed] id in the source list) that THIS content is drawn from, or null if it synthesizes multiple sources evenly. Never invent an id — only use one from the list.',
+      ),
   }),
   z.object({
     type: z.literal('callout'),
     tone: z.enum(['note', 'tip', 'warning']),
     body: z.string().describe('One short aside. MAX 500 characters.'),
+    sourceVideoId: z
+      .string()
+      .nullable()
+      .describe('Same rule as prose.sourceVideoId — an id from the list, or null.'),
   }),
   z.object({
     type: z.literal('step'),
@@ -248,6 +430,10 @@ const LessonBlockOutputSchema = z.discriminatedUnion('type', [
     title: z.string().describe('Verb-led short step title. MAX 120 characters.'),
     lede: z.string().nullable().describe('One-sentence lede, or null.'),
     body: z.string().nullable().describe('Step detail (markdown), or null.'),
+    sourceVideoId: z
+      .string()
+      .nullable()
+      .describe('Same rule as prose.sourceVideoId — an id from the list, or null.'),
   }),
   z.object({
     type: z.literal('table'),
@@ -271,11 +457,12 @@ const SectionBlocksSchema = z.object({
 });
 
 const SECTION_SYSTEM = [
-  'You write ONE section of a music lesson as 2 to 4 short structured blocks.',
-  'Allowed block types: heading, prose, callout, step, table, degree-chips. Never use any other type — a diagram/keyboard-diagram block is NOT available in this pipeline.',
-  'Start with a `heading` block (level "h2") whose `text` is EXACTLY the section heading you are given — copy it verbatim, do not paraphrase.',
-  'Then add 1 to 3 more blocks that teach the section goal. Use `step` for sequenced instructions, `table` for comparisons, `degree-chips` for scale-degree sequences, `callout` for a short aside, `prose` for everything else.',
+  'You write ONE section of a music lesson as 2 to 4 short structured content blocks.',
+  'Allowed block types: prose, callout, step, table, degree-chips. Never use any other type — a diagram/keyboard-diagram block is NOT available in this pipeline.',
+  'Do NOT emit a `heading` block. The section heading is added automatically from the outline — start straight in with content.',
+  'Use `step` for sequenced instructions, `table` for comparisons, `degree-chips` for scale-degree sequences, `callout` for a short aside, `prose` for everything else.',
   'Ground content in the provided source videos. Do not invent chords, keys, techniques, or songs the sources do not mention.',
+  'On every prose/callout/step block, set `sourceVideoId` to the exact id shown in [brackets] next to the source video this content is drawn from, or null if the content blends several sources evenly. Copy the id exactly — never invent or guess one.',
 ].join('\n');
 
 function buildSectionPrompt(
@@ -286,10 +473,10 @@ function buildSectionPrompt(
   return [
     `Lesson: "${outline.title}" — ${outline.summary}`,
     '',
-    `This section's heading (copy verbatim into the heading block): "${section.heading}"`,
+    `This section's heading (already added automatically — do not repeat it): "${section.heading}"`,
     `This section's goal: ${section.goal}`,
     '',
-    'Source videos (ground this section in these):',
+    'Source videos (ground this section in these; cite by the [bracketed] id):',
     contextText,
   ].join('\n');
 }
@@ -299,6 +486,39 @@ function buildSectionPrompt(
 // fail" rule for the 255-char Strapi `string` cap on `caption`.
 const CAPTION_MAX = 255;
 
+// -----------------------------------------------------------------------------
+// Citation grounding — never trust a timecode the model produced. The model
+// only ever names WHICH video a block draws from (`sourceVideoId`); WHEN in
+// that video is decided here, by BM25-matching the block's own text against
+// that video's real transcript chunks, exactly the pattern
+// `groundSectionsToTranscript` uses in transcript.ts for summary sections.
+// -----------------------------------------------------------------------------
+
+type GroundingContext = {
+  validVideoIds: Set<string>;
+  bm25ByVideoId: Map<string, BM25Index>;
+};
+
+function resolveBlockSource(
+  rawSourceVideoId: unknown,
+  blockText: string,
+  ground: GroundingContext,
+): { videoId: string; timeSec?: number } | undefined {
+  if (typeof rawSourceVideoId !== 'string') return undefined;
+  const videoId = rawSourceVideoId.trim();
+  if (!videoId || !ground.validVideoIds.has(videoId)) return undefined;
+
+  const index = ground.bm25ByVideoId.get(videoId);
+  const text = blockText.trim();
+  if (!index || !text) return { videoId };
+
+  // Default minScore (1.0) — a weak/no match means we cite the video
+  // without a timestamp rather than guess. A wrong timecode is worse than
+  // no timecode.
+  const evidence = findEvidenceForQuote(text, index);
+  return evidence ? { videoId, timeSec: evidence.timeSec } : { videoId };
+}
+
 // Validates + coerces ONE raw block from the model into a LessonBlock, or
 // drops it. Deliberately does NOT trust that `raw` matches
 // LessonBlockOutputSchema's inferred type — `chat()` only enforces that
@@ -307,7 +527,10 @@ const CAPTION_MAX = 255;
 // Returns null for anything that fails validation, including block types
 // outside the six this pipeline is allowed to emit (lesson.diagram /
 // lesson.keyboard-diagram never come out of here even if the model tries).
-function toLessonBlock(raw: unknown, id: number): LessonBlock | null {
+// Never reads a model-supplied `timeSec` — there isn't one in the schema,
+// and even if a model emits an unrequested extra field, this function only
+// ever pulls known fields off `r`, so it's ignored by construction.
+function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): LessonBlock | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const type = typeof r.type === 'string' ? r.type : null;
@@ -323,18 +546,26 @@ function toLessonBlock(raw: unknown, id: number): LessonBlock | null {
     case 'prose': {
       const body = typeof r.body === 'string' ? r.body.trim() : '';
       if (!body) return null;
-      return { __component: 'lesson.prose', id, body };
+      const block: LessonBlock = { __component: 'lesson.prose', id, body };
+      const source = resolveBlockSource(r.sourceVideoId, body, ground);
+      if (source) block.source = source;
+      return block;
     }
 
     case 'callout': {
       const body = typeof r.body === 'string' ? r.body.trim() : '';
       if (!body) return null;
       const tone = r.tone === 'tip' || r.tone === 'warning' ? r.tone : 'note';
-      return { __component: 'lesson.callout', id, tone, body };
+      const block: LessonBlock = { __component: 'lesson.callout', id, tone, body };
+      const source = resolveBlockSource(r.sourceVideoId, body, ground);
+      if (source) block.source = source;
+      return block;
     }
 
     case 'step': {
-      const title = typeof r.title === 'string' ? r.title.trim() : '';
+      // Trailing colons are a common model tic ("Identify the Root:") —
+      // strip trailing `:`/whitespace so titles read as titles, not labels.
+      const title = (typeof r.title === 'string' ? r.title.trim() : '').replace(/[\s:]+$/, '');
       if (!title) return null;
       const numberRaw = Number(r.number);
       const number = Number.isFinite(numberRaw) && numberRaw >= 1 ? Math.floor(numberRaw) : 1;
@@ -343,6 +574,9 @@ function toLessonBlock(raw: unknown, id: number): LessonBlock | null {
       if (lede) block.lede = lede;
       const body = typeof r.body === 'string' ? r.body.trim() : '';
       if (body) block.body = body;
+      const groundingText = [title, lede, body].filter(Boolean).join('. ');
+      const source = resolveBlockSource(r.sourceVideoId, groundingText, ground);
+      if (source) block.source = source;
       return block;
     }
 
@@ -375,8 +609,12 @@ function toLessonBlock(raw: unknown, id: number): LessonBlock | null {
   }
 }
 
+function isModelHeadingBlock(raw: unknown): boolean {
+  return !!raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'heading';
+}
+
 // -----------------------------------------------------------------------------
-// Step 5: orchestrate
+// Step 6: assemble
 // -----------------------------------------------------------------------------
 
 function slugify(text: string): string {
@@ -386,6 +624,41 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'lesson';
+}
+
+const CONTRADICTIONS_HEADING = 'Where the sources disagree';
+// Digest.contradictions has no upper bound in its schema — cap what we turn
+// into callouts so a chatty synthesis can't blow out the lesson body.
+const MAX_CONTRADICTION_CALLOUTS = 5;
+const CONTRADICTION_CALLOUT_MAX = 500;
+
+// The highest-value thing a generated lesson can offer that a single-video
+// summary can't: where two sources actually disagree. Built deterministically
+// from the digest's own structured `contradictions` field — never left to the
+// model to notice or phrase on its own, and never given a `source` (a
+// disagreement is inherently cross-video, so no single transcript grounds it).
+function buildContradictionCallouts(digest: Digest, startId: number): LessonBlock[] {
+  const contradictions = digest.contradictions.slice(0, MAX_CONTRADICTION_CALLOUTS);
+  if (contradictions.length === 0) return [];
+
+  const blocks: LessonBlock[] = [];
+  let id = startId;
+  blocks.push({
+    __component: 'lesson.heading',
+    id,
+    text: CONTRADICTIONS_HEADING,
+    level: 'h2',
+  });
+  id += 1;
+
+  for (const c of contradictions) {
+    const stance = c.positions.map((p) => `${p.videoTitle}: ${p.stance}`).join(' — vs. — ');
+    const body = truncate(`${c.topic}. ${stance}`, CONTRADICTION_CALLOUT_MAX);
+    blocks.push({ __component: 'lesson.callout', id, tone: 'note', body });
+    id += 1;
+  }
+
+  return blocks;
 }
 
 /**
@@ -398,27 +671,58 @@ export async function generateLesson(
 ): Promise<GenerateLessonResult> {
   const topic = input.topic.trim();
   if (!topic) return { ok: false, error: 'Topic is required.' };
-  const maxVideos =
+  const requestedMax =
     typeof input.maxVideos === 'number' && input.maxVideos > 0
       ? input.maxVideos
       : DEFAULT_MAX_VIDEOS;
+  // The digest step (step 2) hard-caps at DIGEST_MAX_VIDEOS — never select
+  // more videos than a digest can actually synthesize over.
+  const maxVideos = Math.min(requestedMax, DIGEST_MAX_VIDEOS);
 
-  // --- 1+2: retrieve + context ----------------------------------------------
-  let ranked: RankedVideo[];
+  // --- 1: retrieve + relevance floor ------------------------------------
+  let allRanked: RankedVideo[];
   try {
-    ranked = await retrieveSourceVideos(topic, maxVideos);
+    allRanked = await rankVideosByTopic(topic);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Retrieval failed';
     logPhase(topic, 'retrieve ✗ failed', { error: message });
     return { ok: false, error: friendlyOllamaError(message) };
   }
 
-  if (ranked.length === 0) {
+  if (allRanked.length === 0) {
     logPhase(topic, 'retrieve ✗ no videos with embeddings');
     return {
       ok: false,
       error:
         'No videos in the library have embeddings yet — generate summaries first, then retry.',
+    };
+  }
+
+  logPhase(topic, 'retrieve · scored', {
+    floor: RELEVANCE_FLOOR,
+    scores: allRanked.slice(0, 10).map((r) => ({
+      youtubeVideoId: r.video.youtubeVideoId,
+      score: round3(r.score),
+    })),
+  });
+
+  const aboveFloor = allRanked.filter((r) => r.score >= RELEVANCE_FLOOR);
+  const ranked = aboveFloor.slice(0, maxVideos);
+
+  // The digest this pipeline is built around needs at least DIGEST_MIN_VIDEOS
+  // (2) to synthesize anything. Fewer than that above the floor — whether
+  // zero or exactly one — means the library doesn't have enough on-topic
+  // breadth to ground a cross-video lesson, so refuse rather than generate
+  // from a single loosely-related video. See the report for the full
+  // reasoning on why 2 (the digest's own floor) rather than a stricter 3.
+  if (ranked.length < DIGEST_MIN_VIDEOS) {
+    logPhase(topic, 'retrieve ✗ below relevance floor', {
+      aboveFloorCount: aboveFloor.length,
+      needed: DIGEST_MIN_VIDEOS,
+    });
+    return {
+      ok: false,
+      error: `The library doesn't have enough videos closely related to "${topic}" to build a lesson — nothing scored above the relevance floor. Try a broader topic, or add more videos on this subject.`,
     };
   }
 
@@ -428,13 +732,32 @@ export async function generateLesson(
     title: r.video.summaryTitle ?? r.video.videoTitle,
     score: r.score,
   }));
-  const contextText = ranked.map((r) => buildVideoContextText(r.video)).join('\n');
   logPhase(topic, 'retrieve ✓', {
     videos: sources.length,
     top: sources[0]?.title ?? null,
   });
 
-  // --- 3: outline -------------------------------------------------------------
+  // --- 2: digest — cached reuse, or synthesize (never persist) ----------
+  const youtubeVideoIds = ranked.map((r) => r.video.youtubeVideoId);
+  const digestResolution = await getOrCreateDigest(topic, youtubeVideoIds);
+  if (!digestResolution.ok) {
+    return { ok: false, error: friendlyOllamaError(digestResolution.error) };
+  }
+  const { digest, fullVideos } = digestResolution;
+
+  // --- 3: context ---------------------------------------------------------
+  const contextText = fullVideos.map((v) => buildVideoContextText(v)).join('\n');
+  const digestContextText = buildDigestContextText(digest);
+
+  const validVideoIds = new Set(fullVideos.map((v) => v.youtubeVideoId));
+  const bm25ByVideoId = new Map<string, BM25Index>();
+  for (const v of fullVideos) {
+    const stored = loadStoredIndex(v.transcriptSegments);
+    if (stored) bm25ByVideoId.set(v.youtubeVideoId, stored.bm25);
+  }
+  const ground: GroundingContext = { validVideoIds, bm25ByVideoId };
+
+  // --- 4: outline -------------------------------------------------------------
   let outline: LessonOutline | null;
   try {
     const raw = await withRetry(
@@ -443,7 +766,10 @@ export async function generateLesson(
           adapter: ollamaAdapter,
           messages: [
             { role: 'system', content: OUTLINE_SYSTEM },
-            { role: 'user', content: buildOutlinePrompt(topic, contextText) },
+            {
+              role: 'user',
+              content: buildOutlinePrompt(topic, contextText, digestContextText),
+            },
           ] as never,
           outputSchema: LessonOutlineSchema,
           modelOptions: samplingOptions(OLLAMA_MODEL, 0.3),
@@ -473,7 +799,7 @@ export async function generateLesson(
     sections: outline.sections.length,
   });
 
-  // --- 4: sections --------------------------------------------------------
+  // --- 5: sections --------------------------------------------------------
   let blockId = 1;
   const body: LessonBlock[] = [];
   let succeededSections = 0;
@@ -508,18 +834,35 @@ export async function generateLesson(
         ? (raw as { blocks: unknown[] }).blocks
         : [];
 
-      let addedInSection = 0;
+      // Build the section's content blocks WITHOUT committing them to
+      // `body` yet — the heading is only injected once we know the section
+      // actually produced usable content, so a failed section never leaves
+      // an orphan heading with nothing under it.
+      const sectionBlocks: LessonBlock[] = [];
+      let nextId = blockId + 1; // id 0 (blockId) reserved for the heading
       for (const rawBlock of rawBlocks) {
-        const block = toLessonBlock(rawBlock, blockId);
+        // The model is instructed not to emit a heading; if it does anyway,
+        // drop it — the outline's heading is injected below, never this one.
+        if (isModelHeadingBlock(rawBlock)) continue;
+        const block = toLessonBlock(rawBlock, nextId, ground);
         if (!block) continue;
-        body.push(block);
-        blockId += 1;
-        addedInSection += 1;
+        sectionBlocks.push(block);
+        nextId += 1;
       }
 
-      if (addedInSection > 0) {
+      if (sectionBlocks.length > 0) {
+        body.push(
+          {
+            __component: 'lesson.heading',
+            id: blockId,
+            text: truncate(section.heading, 150),
+            level: 'h2',
+          },
+          ...sectionBlocks,
+        );
+        blockId = nextId;
         succeededSections += 1;
-        logPhase(topic, `section "${section.heading}" ✓`, { blocks: addedInSection });
+        logPhase(topic, `section "${section.heading}" ✓`, { blocks: sectionBlocks.length });
       } else {
         logPhase(topic, `section "${section.heading}" ⚠ zero usable blocks`, {
           rawCount: rawBlocks.length,
@@ -542,7 +885,28 @@ export async function generateLesson(
     };
   }
 
-  // --- 5: assemble ----------------------------------------------------------
+  // --- 6: assemble ----------------------------------------------------------
+  // Steps are generated per-section independently, so numbering restarts
+  // at 1 in every section. Renumber sequentially across the whole assembled
+  // body so a flattened lesson never has two "Step 1"s.
+  let stepCounter = 0;
+  for (const block of body) {
+    if (block.__component === 'lesson.step') {
+      stepCounter += 1;
+      block.number = stepCounter;
+    }
+  }
+
+  // The highest-value thing the digest offers: genuine cross-video
+  // disagreements. Appended deterministically, after we know the body is
+  // non-empty.
+  const contradictionBlocks = buildContradictionCallouts(digest, blockId);
+  if (contradictionBlocks.length > 0) {
+    body.push(...contradictionBlocks);
+    blockId += contradictionBlocks.length;
+    logPhase(topic, 'contradictions ✓ appended', { callouts: contradictionBlocks.length - 1 });
+  }
+
   const title = truncate(outline.title, 160);
   const lesson: GeneratedLesson = {
     title,
