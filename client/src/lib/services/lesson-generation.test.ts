@@ -1,12 +1,20 @@
 // Contract tests for the lesson-generation pipeline. `chat()` and every
 // network-touching service (embeddings, digest lookup/synthesis, video
-// fetch) are mocked — this suite never talks to Ollama or Strapi. BM25
-// grounding is exercised for real (pure JS, no network) against synthetic
-// `transcriptSegments` on the mocked videos.
+// fetch) are mocked — this suite never talks to Ollama, Anthropic, or
+// Strapi (resolveLessonModel() itself is mocked too — see "model tier"
+// below). BM25 grounding is exercised for real (pure JS, no network)
+// against synthetic `transcriptSegments` on the mocked videos.
 //
 // Covers:
 //   - the happy path assembling outline + per-section blocks into a body,
 //     with a deterministically-injected heading per section
+//   - model tier: a successful result is stamped with whichever
+//     tier/model resolveLessonModel() returned; the assembled body is
+//     byte-identical across tiers given identical mocked model output,
+//     proving one staged pipeline serves both, not two divergent ones; a
+//     frontier auth failure maps to a friendly message that never
+//     contains the key (see also lesson-model.test.ts /
+//     anthropic-errors.test.ts for the unit-level guarantees)
 //   - the relevance floor: below it, generation refuses rather than
 //     grounding a lesson in unrelated videos
 //   - digest reuse: a cached digest short-circuits synthesis
@@ -24,9 +32,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@tanstack/ai', () => ({
   chat: vi.fn(),
 }));
-vi.mock('@tanstack/ai-ollama', () => ({
-  createOllamaChat: vi.fn(() => ({})),
+
+// lesson-generation.ts no longer picks an adapter itself — it asks
+// lesson-model.ts once via resolveLessonModel(). Mocking that call directly
+// (rather than the two underlying adapter packages) matches the "ONLY
+// place the choice is made" contract and lets tests flip tier without
+// touching @tanstack/ai-ollama / @tanstack/ai-anthropic at all.
+const resolveLessonModelMock = vi.fn();
+vi.mock('./lesson-model', () => ({
+  resolveLessonModel: () => resolveLessonModelMock(),
+  // Pass-through here — redaction itself is unit-tested for real against
+  // the actual module in lesson-model.test.ts. These tests only care that
+  // friendlyAnthropicError's canned messages never echo input at all.
+  redactAnthropicKey: (text: string) => text,
 }));
+
+const LOCAL_MODEL = { adapter: {}, tier: 'local' as const, model: 'gemma4-kb:latest' };
+const FRONTIER_MODEL = { adapter: {}, tier: 'frontier' as const, model: 'claude-sonnet-5' };
 
 const embedTextMock = vi.fn();
 vi.mock('./embeddings', async (importOriginal) => {
@@ -135,6 +157,8 @@ function makeFullVideo(documentId: string): StrapiVideo {
 
 beforeEach(() => {
   mockedChat.mockReset();
+  resolveLessonModelMock.mockReset();
+  resolveLessonModelMock.mockReturnValue(LOCAL_MODEL);
   embedTextMock.mockReset();
   embedTextMock.mockResolvedValue(QUERY_VEC);
   listAllVideosMock.mockReset();
@@ -204,6 +228,71 @@ describe('generateLesson — happy path', () => {
     // Sources ranked by cosine score, highest first.
     expect(result.sources.map((s) => s.documentId)).toEqual(['A', 'B']);
     expect(result.sources[0].score).toBeGreaterThan(result.sources[1].score);
+  });
+});
+
+describe('generateLesson — model tier', () => {
+  function outlineAndOneSectionMocks() {
+    mockedChat
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [
+          {
+            type: 'prose',
+            body: 'blues turnarounds and shapes content for video A',
+            sourceVideoId: 'yt-A',
+          },
+        ],
+      });
+  }
+
+  it('stamps a successful result with the local tier when no frontier key is configured', async () => {
+    resolveLessonModelMock.mockReturnValue(LOCAL_MODEL);
+    outlineAndOneSectionMocks();
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.tier).toBe('local');
+    expect(result.model).toBe('gemma4-kb:latest');
+  });
+
+  it('stamps a successful result with the frontier tier and model when resolveLessonModel picks frontier', async () => {
+    resolveLessonModelMock.mockReturnValue(FRONTIER_MODEL);
+    outlineAndOneSectionMocks();
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.tier).toBe('frontier');
+    expect(result.model).toBe('claude-sonnet-5');
+    // Every chat() call used the adapter resolveLessonModel() handed back —
+    // proves the pipeline doesn't construct its own adapter anywhere.
+    for (const call of mockedChat.mock.calls) {
+      expect(call[0].adapter).toBe(FRONTIER_MODEL.adapter);
+    }
+  });
+
+  it('produces byte-identical blocks on both tiers given the same mocked model output — proves one code path, not two', async () => {
+    resolveLessonModelMock.mockReturnValue(LOCAL_MODEL);
+    outlineAndOneSectionMocks();
+    const localResult = await generateLesson({ topic: 'blues turnarounds' });
+
+    resolveLessonModelMock.mockReturnValue(FRONTIER_MODEL);
+    outlineAndOneSectionMocks();
+    const frontierResult = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(localResult.ok).toBe(true);
+    expect(frontierResult.ok).toBe(true);
+    if (!localResult.ok || !frontierResult.ok) return;
+    expect(frontierResult.lesson.body).toEqual(localResult.lesson.body);
+    expect(frontierResult.lesson.title).toBe(localResult.lesson.title);
+    expect(frontierResult.sources).toEqual(localResult.sources);
+    // The only difference between the two runs is the tier/model stamp.
+    expect(localResult.tier).toBe('local');
+    expect(frontierResult.tier).toBe('frontier');
   });
 });
 
@@ -629,6 +718,27 @@ describe('generateLesson — model failure handling', () => {
     const result = await generateLesson({ topic: 'blues turnarounds' });
 
     expect(result.ok).toBe(false);
+  });
+
+  it('maps a frontier auth failure to a friendly message that never contains the key', async () => {
+    resolveLessonModelMock.mockReturnValue(FRONTIER_MODEL);
+    const FAKE_KEY = 'sk-ant-api03-totally-real-secret-value-should-never-leak';
+    // Worst-case shape: even if a raw provider error message somehow
+    // embedded the key (it doesn't, in practice — see anthropic-errors.ts
+    // for why — but never trust that), the mapped message must not.
+    mockedChat.mockRejectedValueOnce(
+      new Error(
+        `Structured output generation failed: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key ${FAKE_KEY}"}}`,
+      ),
+    );
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).not.toContain(FAKE_KEY);
+    expect(result.error).toContain('Anthropic');
+    expect(result.error).toContain('ANTHROPIC_API_KEY');
   });
 });
 

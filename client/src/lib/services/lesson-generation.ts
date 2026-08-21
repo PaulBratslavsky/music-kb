@@ -29,11 +29,18 @@
 // `synthesizeDigest` but never calls `createDigestService` — persisting it
 // is the /digest page's job (an explicit user Save), not an implicit side
 // effect of generating a lesson.
+//
+// WHICH model runs steps 4/5 is decided exactly once, by
+// `resolveLessonModel()` (lesson-model.ts) — a frontier Anthropic model
+// when ANTHROPIC_API_KEY is set, the local Ollama model otherwise. This
+// module never picks an adapter itself; it asks once and uses whatever it
+// gets back for every chat() call, so a lesson never mixes tiers. Both
+// tiers run this exact same staged pipeline — see lesson-model.ts for why
+// (comparability between a local and a frontier lesson matters more than
+// letting a frontier model collapse the staging into one call).
 
 import { chat } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import { z } from 'zod';
-import { OLLAMA_HOST, OLLAMA_MODEL } from '#/lib/env';
 import { withRetry } from '#/lib/retry';
 import {
   DIGEST_MAX_VIDEOS,
@@ -47,6 +54,12 @@ import {
   strapiRowToDigest,
 } from '#/lib/services/digests';
 import { cosineSimilarity, embedText } from '#/lib/services/embeddings';
+import { friendlyAnthropicError } from '#/lib/services/anthropic-errors';
+import {
+  redactAnthropicKey,
+  resolveLessonModel,
+  type ModelTier,
+} from '#/lib/services/lesson-model';
 import { friendlyOllamaError } from '#/lib/services/ollama-errors';
 import { samplingOptions } from '#/lib/services/ollama-model-options';
 import {
@@ -63,7 +76,24 @@ import {
 } from '#/lib/services/videos';
 import type { LessonBlock } from '#/lib/services/lessons';
 
-const ollamaAdapter = createOllamaChat(OLLAMA_MODEL, OLLAMA_HOST);
+// Translates a caught error's message through the tier-appropriate friendly
+// mapper. Frontier errors get the non-echoing Anthropic mapper (never
+// leaks provider payload / the key); local errors keep the existing Ollama
+// mapper, which is safe to echo since Ollama runs on localhost.
+function friendlyModelError(tier: ModelTier, message: string): string {
+  return tier === 'frontier' ? friendlyAnthropicError(message) : friendlyOllamaError(message);
+}
+
+// The two adapters take differently-shaped `modelOptions`: Ollama nests
+// sampling knobs under `.options` and requires a (structurally unused)
+// top-level `model` field (see samplingOptions' own doc comment); Anthropic
+// takes sampling knobs flat, with no `model` field in modelOptions at all
+// (model is bound at adapter-construction time either way — this is purely
+// about satisfying each adapter's declared provider-options shape).
+function buildModelOptions(lessonModel: ReturnType<typeof resolveLessonModel>, temperature: number) {
+  if (lessonModel.tier === 'frontier') return { temperature };
+  return samplingOptions(lessonModel.model, temperature);
+}
 
 function logPhase(topic: string, phase: string, extra?: Record<string, unknown>) {
   const ts = new Date().toISOString().slice(11, 23);
@@ -103,7 +133,17 @@ export type GeneratedLesson = {
 };
 
 export type GenerateLessonResult =
-  | { ok: true; lesson: GeneratedLesson; sources: SourceVideo[] }
+  | {
+      ok: true;
+      lesson: GeneratedLesson;
+      sources: SourceVideo[];
+      /** Which model tier actually generated this lesson — a frontier
+       * lesson and a local one are not the same artifact; callers/UI
+       * should surface this. */
+      tier: ModelTier;
+      /** The specific model id used within that tier. */
+      model: string;
+    }
   | { ok: false; error: string };
 
 // -----------------------------------------------------------------------------
@@ -679,12 +719,18 @@ export async function generateLesson(
   // more videos than a digest can actually synthesize over.
   const maxVideos = Math.min(requestedMax, DIGEST_MAX_VIDEOS);
 
+  // Decided ONCE, up front — the only place tier/model choice happens (see
+  // lesson-model.ts). Every chat() call below uses this same adapter, so a
+  // lesson never mixes tiers mid-generation.
+  const lessonModel = resolveLessonModel();
+  logPhase(topic, `model ✓ ${lessonModel.tier}`, { model: lessonModel.model });
+
   // --- 1: retrieve + relevance floor ------------------------------------
   let allRanked: RankedVideo[];
   try {
     allRanked = await rankVideosByTopic(topic);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Retrieval failed';
+    const message = redactAnthropicKey(err instanceof Error ? err.message : 'Retrieval failed');
     logPhase(topic, 'retrieve ✗ failed', { error: message });
     return { ok: false, error: friendlyOllamaError(message) };
   }
@@ -763,7 +809,7 @@ export async function generateLesson(
     const raw = await withRetry(
       () =>
         chat({
-          adapter: ollamaAdapter,
+          adapter: lessonModel.adapter,
           messages: [
             { role: 'system', content: OUTLINE_SYSTEM },
             {
@@ -772,22 +818,24 @@ export async function generateLesson(
             },
           ] as never,
           outputSchema: LessonOutlineSchema,
-          modelOptions: samplingOptions(OLLAMA_MODEL, 0.3),
+          modelOptions: buildModelOptions(lessonModel, 0.3),
         }),
       {
         attempts: 2,
         onRetry: (err, attempt, delayMs) => {
           logPhase(topic, `outline ↻ retry ${attempt}/1 in ${delayMs}ms`, {
-            cause: err instanceof Error ? err.message : 'unknown',
+            cause: redactAnthropicKey(err instanceof Error ? err.message : 'unknown'),
           });
         },
       },
     );
     outline = sanitizeOutline(raw);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Lesson outline generation failed';
+    const message = redactAnthropicKey(
+      err instanceof Error ? err.message : 'Lesson outline generation failed',
+    );
     logPhase(topic, 'outline ✗ failed', { error: message });
-    return { ok: false, error: friendlyOllamaError(message) };
+    return { ok: false, error: friendlyModelError(lessonModel.tier, message) };
   }
 
   if (!outline) {
@@ -809,7 +857,7 @@ export async function generateLesson(
       const raw = await withRetry(
         () =>
           chat({
-            adapter: ollamaAdapter,
+            adapter: lessonModel.adapter,
             messages: [
               { role: 'system', content: SECTION_SYSTEM },
               {
@@ -818,13 +866,13 @@ export async function generateLesson(
               },
             ] as never,
             outputSchema: SectionBlocksSchema,
-            modelOptions: samplingOptions(OLLAMA_MODEL, 0.4),
+            modelOptions: buildModelOptions(lessonModel, 0.4),
           }),
         {
           attempts: 2,
           onRetry: (err, attempt, delayMs) => {
             logPhase(topic, `section "${section.heading}" ↻ retry ${attempt}/1 in ${delayMs}ms`, {
-              cause: err instanceof Error ? err.message : 'unknown',
+              cause: redactAnthropicKey(err instanceof Error ? err.message : 'unknown'),
             });
           },
         },
@@ -872,7 +920,7 @@ export async function generateLesson(
       // Single-section failure is non-fatal: drop it and keep going. Only
       // "every section failed" (checked below) fails the whole run.
       logPhase(topic, `section "${section.heading}" ✗ failed, dropping`, {
-        error: err instanceof Error ? err.message : 'unknown',
+        error: redactAnthropicKey(err instanceof Error ? err.message : 'unknown'),
       });
     }
   }
@@ -881,7 +929,7 @@ export async function generateLesson(
     logPhase(topic, '✗ every section failed — no usable body');
     return {
       ok: false,
-      error: friendlyOllamaError('Every lesson section failed to generate.'),
+      error: friendlyModelError(lessonModel.tier, 'Every lesson section failed to generate.'),
     };
   }
 
@@ -922,7 +970,9 @@ export async function generateLesson(
   logPhase(topic, '✓ generation complete', {
     sections: `${succeededSections}/${outline.sections.length}`,
     blocks: body.length,
+    tier: lessonModel.tier,
+    model: lessonModel.model,
   });
 
-  return { ok: true, lesson, sources };
+  return { ok: true, lesson, sources, tier: lessonModel.tier, model: lessonModel.model };
 }
