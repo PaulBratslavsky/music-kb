@@ -26,14 +26,6 @@ import { Route as ApiDigestChatRouteImport } from './routes/api.digest-chat'
 import { Route as LearnVideoIdRouteImport } from './routes/learn.$videoId'
 import { Route as LessonsIndexRouteImport } from './routes/lessons.index'
 import { Route as LessonsSlugRouteImport } from './routes/lessons.$slug'
-import { Route as LessonsCagedAndRomanNumeralsRouteImport } from './routes/lessons.caged-and-roman-numerals'
-import { Route as LessonsEssentialChordsRouteImport } from './routes/lessons.essential-chords'
-import { Route as LessonsFindAnyChordRouteImport } from './routes/lessons.find-any-chord'
-import { Route as LessonsHalfStepsToChordsRouteImport } from './routes/lessons.half-steps-to-chords'
-import { Route as LessonsMusicTheoryFundamentalsRouteImport } from './routes/lessons.music-theory-fundamentals'
-import { Route as LessonsPowerChordsRouteImport } from './routes/lessons.power-chords'
-import { Route as LessonsScaleSystemsOnTheNeckRouteImport } from './routes/lessons.scale-systems-on-the-neck'
-import { Route as LessonsTriadsRouteImport } from './routes/lessons.triads'
 import { Route as VideoDocumentIdRouteImport } from './routes/video.$documentId'
 import { Route as ApiNotesComposeRouteImport } from './routes/api.notes.compose'
 
@@ -122,50 +114,6 @@ const LessonsSlugRoute = LessonsSlugRouteImport.update({
   path: '/lessons/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LessonsCagedAndRomanNumeralsRoute =
-  LessonsCagedAndRomanNumeralsRouteImport.update({
-    id: '/lessons/caged-and-roman-numerals',
-    path: '/lessons/caged-and-roman-numerals',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const LessonsEssentialChordsRoute = LessonsEssentialChordsRouteImport.update({
-  id: '/lessons/essential-chords',
-  path: '/lessons/essential-chords',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LessonsFindAnyChordRoute = LessonsFindAnyChordRouteImport.update({
-  id: '/lessons/find-any-chord',
-  path: '/lessons/find-any-chord',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LessonsHalfStepsToChordsRoute =
-  LessonsHalfStepsToChordsRouteImport.update({
-    id: '/lessons/half-steps-to-chords',
-    path: '/lessons/half-steps-to-chords',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const LessonsMusicTheoryFundamentalsRoute =
-  LessonsMusicTheoryFundamentalsRouteImport.update({
-    id: '/lessons/music-theory-fundamentals',
-    path: '/lessons/music-theory-fundamentals',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const LessonsPowerChordsRoute = LessonsPowerChordsRouteImport.update({
-  id: '/lessons/power-chords',
-  path: '/lessons/power-chords',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LessonsScaleSystemsOnTheNeckRoute =
-  LessonsScaleSystemsOnTheNeckRouteImport.update({
-    id: '/lessons/scale-systems-on-the-neck',
-    path: '/lessons/scale-systems-on-the-neck',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const LessonsTriadsRoute = LessonsTriadsRouteImport.update({
-  id: '/lessons/triads',
-  path: '/lessons/triads',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const VideoDocumentIdRoute = VideoDocumentIdRouteImport.update({
   id: '/video/$documentId',
   path: '/video/$documentId',
@@ -194,14 +142,6 @@ export interface FileRoutesByFullPath {
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
-  '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
-  '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
-  '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
-  '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
-  '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
-  '/lessons/power-chords': typeof LessonsPowerChordsRoute
-  '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
-  '/lessons/triads': typeof LessonsTriadsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons/': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -223,14 +163,6 @@ export interface FileRoutesByTo {
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
-  '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
-  '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
-  '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
-  '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
-  '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
-  '/lessons/power-chords': typeof LessonsPowerChordsRoute
-  '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
-  '/lessons/triads': typeof LessonsTriadsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -253,14 +185,6 @@ export interface FileRoutesById {
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
-  '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
-  '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
-  '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
-  '/lessons/half-steps-to-chords': typeof LessonsHalfStepsToChordsRoute
-  '/lessons/music-theory-fundamentals': typeof LessonsMusicTheoryFundamentalsRoute
-  '/lessons/power-chords': typeof LessonsPowerChordsRoute
-  '/lessons/scale-systems-on-the-neck': typeof LessonsScaleSystemsOnTheNeckRoute
-  '/lessons/triads': typeof LessonsTriadsRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
   '/lessons/': typeof LessonsIndexRoute
   '/api/notes/compose': typeof ApiNotesComposeRoute
@@ -284,14 +208,6 @@ export interface FileRouteTypes {
     | '/api/digest-chat'
     | '/learn/$videoId'
     | '/lessons/$slug'
-    | '/lessons/caged-and-roman-numerals'
-    | '/lessons/essential-chords'
-    | '/lessons/find-any-chord'
-    | '/lessons/half-steps-to-chords'
-    | '/lessons/music-theory-fundamentals'
-    | '/lessons/power-chords'
-    | '/lessons/scale-systems-on-the-neck'
-    | '/lessons/triads'
     | '/video/$documentId'
     | '/lessons/'
     | '/api/notes/compose'
@@ -313,14 +229,6 @@ export interface FileRouteTypes {
     | '/api/digest-chat'
     | '/learn/$videoId'
     | '/lessons/$slug'
-    | '/lessons/caged-and-roman-numerals'
-    | '/lessons/essential-chords'
-    | '/lessons/find-any-chord'
-    | '/lessons/half-steps-to-chords'
-    | '/lessons/music-theory-fundamentals'
-    | '/lessons/power-chords'
-    | '/lessons/scale-systems-on-the-neck'
-    | '/lessons/triads'
     | '/video/$documentId'
     | '/lessons'
     | '/api/notes/compose'
@@ -342,14 +250,6 @@ export interface FileRouteTypes {
     | '/api/digest-chat'
     | '/learn/$videoId'
     | '/lessons/$slug'
-    | '/lessons/caged-and-roman-numerals'
-    | '/lessons/essential-chords'
-    | '/lessons/find-any-chord'
-    | '/lessons/half-steps-to-chords'
-    | '/lessons/music-theory-fundamentals'
-    | '/lessons/power-chords'
-    | '/lessons/scale-systems-on-the-neck'
-    | '/lessons/triads'
     | '/video/$documentId'
     | '/lessons/'
     | '/api/notes/compose'
@@ -372,14 +272,6 @@ export interface RootRouteChildren {
   ApiDigestChatRoute: typeof ApiDigestChatRoute
   LearnVideoIdRoute: typeof LearnVideoIdRoute
   LessonsSlugRoute: typeof LessonsSlugRoute
-  LessonsCagedAndRomanNumeralsRoute: typeof LessonsCagedAndRomanNumeralsRoute
-  LessonsEssentialChordsRoute: typeof LessonsEssentialChordsRoute
-  LessonsFindAnyChordRoute: typeof LessonsFindAnyChordRoute
-  LessonsHalfStepsToChordsRoute: typeof LessonsHalfStepsToChordsRoute
-  LessonsMusicTheoryFundamentalsRoute: typeof LessonsMusicTheoryFundamentalsRoute
-  LessonsPowerChordsRoute: typeof LessonsPowerChordsRoute
-  LessonsScaleSystemsOnTheNeckRoute: typeof LessonsScaleSystemsOnTheNeckRoute
-  LessonsTriadsRoute: typeof LessonsTriadsRoute
   VideoDocumentIdRoute: typeof VideoDocumentIdRoute
   LessonsIndexRoute: typeof LessonsIndexRoute
   ApiNotesComposeRoute: typeof ApiNotesComposeRoute
@@ -506,62 +398,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LessonsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/lessons/caged-and-roman-numerals': {
-      id: '/lessons/caged-and-roman-numerals'
-      path: '/lessons/caged-and-roman-numerals'
-      fullPath: '/lessons/caged-and-roman-numerals'
-      preLoaderRoute: typeof LessonsCagedAndRomanNumeralsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lessons/essential-chords': {
-      id: '/lessons/essential-chords'
-      path: '/lessons/essential-chords'
-      fullPath: '/lessons/essential-chords'
-      preLoaderRoute: typeof LessonsEssentialChordsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lessons/find-any-chord': {
-      id: '/lessons/find-any-chord'
-      path: '/lessons/find-any-chord'
-      fullPath: '/lessons/find-any-chord'
-      preLoaderRoute: typeof LessonsFindAnyChordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lessons/half-steps-to-chords': {
-      id: '/lessons/half-steps-to-chords'
-      path: '/lessons/half-steps-to-chords'
-      fullPath: '/lessons/half-steps-to-chords'
-      preLoaderRoute: typeof LessonsHalfStepsToChordsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lessons/music-theory-fundamentals': {
-      id: '/lessons/music-theory-fundamentals'
-      path: '/lessons/music-theory-fundamentals'
-      fullPath: '/lessons/music-theory-fundamentals'
-      preLoaderRoute: typeof LessonsMusicTheoryFundamentalsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lessons/power-chords': {
-      id: '/lessons/power-chords'
-      path: '/lessons/power-chords'
-      fullPath: '/lessons/power-chords'
-      preLoaderRoute: typeof LessonsPowerChordsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lessons/scale-systems-on-the-neck': {
-      id: '/lessons/scale-systems-on-the-neck'
-      path: '/lessons/scale-systems-on-the-neck'
-      fullPath: '/lessons/scale-systems-on-the-neck'
-      preLoaderRoute: typeof LessonsScaleSystemsOnTheNeckRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lessons/triads': {
-      id: '/lessons/triads'
-      path: '/lessons/triads'
-      fullPath: '/lessons/triads'
-      preLoaderRoute: typeof LessonsTriadsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/video/$documentId': {
       id: '/video/$documentId'
       path: '/video/$documentId'
@@ -596,14 +432,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDigestChatRoute: ApiDigestChatRoute,
   LearnVideoIdRoute: LearnVideoIdRoute,
   LessonsSlugRoute: LessonsSlugRoute,
-  LessonsCagedAndRomanNumeralsRoute: LessonsCagedAndRomanNumeralsRoute,
-  LessonsEssentialChordsRoute: LessonsEssentialChordsRoute,
-  LessonsFindAnyChordRoute: LessonsFindAnyChordRoute,
-  LessonsHalfStepsToChordsRoute: LessonsHalfStepsToChordsRoute,
-  LessonsMusicTheoryFundamentalsRoute: LessonsMusicTheoryFundamentalsRoute,
-  LessonsPowerChordsRoute: LessonsPowerChordsRoute,
-  LessonsScaleSystemsOnTheNeckRoute: LessonsScaleSystemsOnTheNeckRoute,
-  LessonsTriadsRoute: LessonsTriadsRoute,
   VideoDocumentIdRoute: VideoDocumentIdRoute,
   LessonsIndexRoute: LessonsIndexRoute,
   ApiNotesComposeRoute: ApiNotesComposeRoute,

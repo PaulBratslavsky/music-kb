@@ -208,8 +208,8 @@ function Block({
       );
     }
 
-    // lesson.interactive lands in Task 9, alongside the triads migration
-    // it configures. Until then it falls through to the safe default.
+    // lesson.interactive has no consumer yet — it's a phase-2 seam that
+    // renders null until something needs it.
     default:
       if (import.meta.env.DEV) {
         console.warn(`[LessonBody] unknown block: ${block.__component}`);

@@ -11,7 +11,7 @@
 //   - When the chord lives high up the neck, we show a fret-number
 //     label on the left of the topmost displayed fret (e.g. "7fr").
 //
-// Used by the essential-chords lesson page. Read-only — no interaction.
+// Used by ChordMini.tsx (guitar orientation). Read-only — no interaction.
 
 const STRING_COUNT = 6;
 
