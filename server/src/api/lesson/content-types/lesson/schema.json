@@ -16,6 +16,7 @@
     "level": { "type": "enumeration", "enum": ["beginner", "intermediate", "advanced"], "default": "beginner" },
     "instrument": { "type": "enumeration", "enum": ["guitar", "piano", "push", "any"], "default": "any" },
     "order": { "type": "integer", "default": 0 },
+    "duration": { "type": "string", "maxLength": 40 },
     "status": { "type": "enumeration", "enum": ["draft", "published", "ai-generated"], "default": "draft", "required": true },
     "parameter": { "type": "component", "repeatable": false, "component": "lesson.parameter" },
     "videos": { "type": "relation", "relation": "manyToMany", "target": "api::video.video" },

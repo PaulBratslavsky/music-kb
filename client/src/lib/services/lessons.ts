@@ -41,6 +41,7 @@ export type Lesson = {
   level: string;
   instrument: string;
   order: number;
+  duration: string | null;
   status: string;
   parameter: LessonParameter | null;
   body: LessonBlock[];
@@ -58,7 +59,7 @@ export async function listLessonsService(): Promise<LessonSummary[]> {
     query: {
       sort: ['order:asc'],
       pagination: { pageSize: 100 },
-      fields: ['title', 'slug', 'summary', 'level', 'instrument', 'order', 'status'],
+      fields: ['title', 'slug', 'summary', 'level', 'instrument', 'order', 'duration', 'status'],
     },
   });
   return res.ok ? (res.data ?? []) : [];

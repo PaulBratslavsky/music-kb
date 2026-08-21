@@ -44,6 +44,7 @@ function LessonsIndexPage() {
               <span className="rounded-full border border-[var(--line)] px-2 py-0.5 font-medium">
                 {l.level}
               </span>
+              {l.duration ? <span>{l.duration}</span> : null}
             </div>
             <h2 className="mt-3 text-base font-semibold text-[var(--ink)] group-hover:text-[var(--accent)]">
               {l.title}
