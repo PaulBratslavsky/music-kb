@@ -21,7 +21,7 @@ publicly.
 
 - `client/` — TanStack Start (Vite + React 19) app on port **3015**. Server functions and Nitro API routes live alongside the React routes.
 - `server/` — Strapi 5 (SQLite for dev) on port **1350**. Hosts the data model, REST API, the official Strapi MCP server at `/mcp`, and the `seed-data/` archive.
-- `web/` — **Paul's Music Helper**, the light companion SPA. No backend, no LLM, `localStorage` only; deploys to Vercel. Hash-routed (`useHashRoute.ts`), Tailwind v4. Has its own `CLAUDE.md`.
+- `web/` — **Paul's Music Helper**, the light companion SPA. No backend, no LLM, `localStorage` only; deploys to Vercel. Hash-routed (`useHashRoute.ts`), Tailwind v4. Has its own `CLAUDE.md`. **Owns the hand-written lessons** — see "Two kinds of lesson" below.
 - `packages/music/` — `@music-kb/music`, the music-theory layer **shared by `client/` and `web/`**: `theory/`, `instruments/*/layout.ts`, `state/gameModeStorage.ts`, `types.ts`. Framework-free by rule — no React, no DOM beyond `localStorage`, one runtime dependency (`tonal`).
 - `docs/` — design notes, planning docs, and architecture deep-dive (`architecture.md`).
 - Root `package.json` is a task runner: delegating scripts plus `concurrently` / `wait-on` / `typescript`. It has **no** workspace list and no React. **Do not run app code from the root** — it has no `src/`.
@@ -149,6 +149,11 @@ The **official Strapi MCP server** (built into 5.47+) serves `/mcp`, gated by ad
 - **Don't introduce cloud AI adapters.** Local-first is a design constraint — Ollama only for inference + embeddings. Frontier models are reachable via MCP from Claude Desktop / Code, not via in-app cloud SDKs.
 - **Install per package** — `yarn install:all` from the root, or a plain `yarn install` inside the one you're changing. There is no workspace and no hoisting, **on purpose**: Strapi needs React 18 (`@strapi/admin` peers `^17 || ^18`) while `client` and `web` are on React 19. Sharing one root put both in reach of each other and gave the client a second React *instance*, which nulls the hook dispatcher and killed SSR on `/feed` and `/learn` (`docs/ssr-client-fallback.md`). Isolation costs four installs and four lockfiles; it buys the guarantee that the two React majors can never meet.
 - **`packages/music` is linked, not published.** `client` and `web` depend on it as `link:../packages/music`, which symlinks — edits are live in both. Never change this to `file:`; that *copies* and silently goes stale.
+- **Two kinds of lesson — do not merge them.** This split is deliberate and was decided 2026-08-20:
+  - **`web/src/lessons/*.tsx`** — the hand-written, interactive React lessons (triads, half-steps-to-chords, …), with their own widget set in `web/src/lessons/components/`. These are authored by hand (with Claude) and are the *only* home for that format. **Do not migrate these into Strapi.**
+  - **`client/` `/lessons`** — the `api::lesson.lesson` Strapi collection, rendered from a dynamic zone of typed blocks (`LessonBody.tsx`). This is where AI-generated lessons land. It holds no hardcoded lessons.
+
+  The client used to carry duplicate copies of all 8 hand-written lessons; they were deleted once this split was made. If you find yourself re-adding a hardcoded lesson route under `client/src/routes/lessons.*.tsx`, or translating a `web/` lesson into Strapi blocks, stop — that is undoing this decision. Design notes: `docs/superpowers/specs/2026-08-20-strapi-lessons-design.md`.
 - **Theory changes hit both apps at once.** `packages/music` has no version skew to hide behind — break it and you break two builds. Its 195 tests are the guard; run them.
 - **`yarn seed` requires Strapi stopped.** SQLite needs exclusive write access for the import; running it against a live Strapi corrupts the DB.
 - **Bump `EMBEDDING_VERSION` when changing the text-builder.** Otherwise old vectors silently survive a meaning-changing edit.

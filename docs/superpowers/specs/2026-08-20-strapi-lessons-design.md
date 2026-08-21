@@ -1,6 +1,7 @@
 # Design: lessons served from Strapi
 
-**Status:** Approved, not started
+**Status:** Approved. **Amended 2026-08-20 — see "Scope revision" below;
+the Migration section is superseded.**
 **Date:** 2026-08-20
 **Scope:** Phase 1 only — move the 8 hardcoded lessons into a Strapi
 collection rendered from a dynamic zone. AI lesson generation is phase 2 and
@@ -206,7 +207,56 @@ returns nothing. An AI-generated lesson naming a block that does not exist
 degrades to a gap rather than a white page — the same defensive posture
 `chat-stream.ts` takes toward unknown SSE event types.
 
+## Scope revision (2026-08-20, after Task 8)
+
+The Migration section below assumed `client/src/routes/lessons.*.tsx` held the
+only copies of the 8 hand-written lessons, and that serving them from Strapi
+therefore meant translating all 3,456 lines into blocks.
+
+That assumption was wrong. **`web/src/lessons/` already contains all 8**, with
+its own complete widget set (`web/src/lessons/components/` — including
+`LessonChordDiagram` and `NaturalNotesStrings`, which the client never had).
+They were duplicated when the monorepo refactor folded `web/` in; line counts
+differ only by the TanStack route wrapper.
+
+The ruling, made by the repo owner:
+
+- The **hand-written React format stays in `web/`** and continues to be
+  authored there by hand. It is not a legacy format awaiting migration — it is
+  one of two supported lesson formats, and the better one for the intricate,
+  bespoke, heavily-interactive lessons that motivated it.
+- **`client/`'s `/lessons` becomes Strapi-only.** It carries the
+  `api::lesson.lesson` collection and nothing hardcoded. This is where
+  AI-generated lessons land.
+- The 8 client route copies are **deleted**, not translated.
+
+Everything above this section — the block vocabulary, content model, and
+rendering contract — stands unchanged. What changes is only what fills the
+collection: phase-2 AI output rather than back-ported hand-written lessons.
+
+**The cost of this, stated plainly:** the plan's migration was also its
+validation. Translating 8 real lessons was how the block vocabulary was going
+to be proven expressive enough before phase 2 depended on it. That evidence is
+now not collected. The vocabulary ships tested (`LessonBody` renders every
+block type) but unproven against real lesson content, and the first honest
+test of it will be the first AI-generated lesson. Expect to discover missing
+blocks then, and treat the vocabulary as provisional until a few real lessons
+have exercised it.
+
+Two lesser consequences:
+
+- `lesson.interactive` has no consumer. It was specified for the triads
+  lesson's live chord builder; nothing now uses it. It stays in the schema as
+  a phase-2 seam, rendering `null` until something needs it.
+- Three cross-links in `TheoryReference.tsx` pointed at deleted routes. Since
+  the client has no URL for the deployed companion app, the links were reduced
+  to plain text rather than rewritten — the prose still names the lesson, it
+  just no longer navigates.
+
 ## Migration
+
+> **Superseded by the Scope revision above.** Kept for the reasoning it
+> records about block coverage, which informed the vocabulary.
 
 ### Step 0 — archive before touching anything
 
