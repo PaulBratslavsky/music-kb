@@ -2,25 +2,95 @@
   "collectionName": "components_lesson_diagrams",
   "info": {
     "displayName": "Diagram",
-    "description": "A fretboard diagram (guitar or bass). mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. Position-addressed (string/fret) — keyboard diagrams use lesson.keyboard-diagram instead, which is pitch-class-addressed. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not."
+    "description": "A fretboard diagram (guitar or bass). mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. Position-addressed (string/fret) \u2014 keyboard diagrams use lesson.keyboard-diagram instead, which is pitch-class-addressed. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not."
   },
   "options": {},
   "attributes": {
-    "instrument": { "type": "enumeration", "enum": ["guitar", "bass"], "default": "guitar", "required": true },
-    "mode": { "type": "enumeration", "enum": ["theory", "explicit"], "default": "theory", "required": true },
+    "instrument": {
+      "type": "enumeration",
+      "enum": [
+        "guitar",
+        "bass"
+      ],
+      "default": "guitar",
+      "required": true
+    },
+    "mode": {
+      "type": "enumeration",
+      "enum": [
+        "theory",
+        "explicit"
+      ],
+      "default": "theory",
+      "required": true
+    },
     "root": {
       "type": "enumeration",
-      "enum": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+      "enum": [
+        "C",
+        "C#",
+        "D",
+        "D#",
+        "E",
+        "F",
+        "F#",
+        "G",
+        "G#",
+        "A",
+        "A#",
+        "B"
+      ]
     },
-    "quality": { "type": "enumeration", "enum": ["major", "minor", "augmented", "diminished", "dominant7", "major7", "minor7"] },
-    "stringSet": { "type": "enumeration", "enum": ["e–B–G", "B–G–D", "G–D–A", "D–A–E"] },
-    "inversion": { "type": "integer", "min": 0, "max": 2 },
-    "scale": { "type": "string", "maxLength": 32 },
-    "useParam": { "type": "boolean", "default": false },
-    "dots": { "type": "component", "repeatable": true, "component": "lesson.neck-dot" },
-    "fromFret": { "type": "integer", "min": 0 },
-    "toFret": { "type": "integer", "min": 0 },
-    "caption": { "type": "string" },
-    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+    "quality": {
+      "type": "enumeration",
+      "enum": [
+        "major",
+        "minor",
+        "augmented",
+        "diminished",
+        "dominant7",
+        "major7",
+        "minor7"
+      ]
+    },
+    "stringSet": {
+      "type": "enumeration",
+      "enum": [
+        "e\u2013B\u2013G",
+        "B\u2013G\u2013D",
+        "G\u2013D\u2013A",
+        "D\u2013A\u2013E"
+      ]
+    },
+    "inversion": {
+      "type": "integer",
+      "min": 0,
+      "max": 2
+    },
+    "useParam": {
+      "type": "boolean",
+      "default": false
+    },
+    "dots": {
+      "type": "component",
+      "repeatable": true,
+      "component": "lesson.neck-dot"
+    },
+    "fromFret": {
+      "type": "integer",
+      "min": 0
+    },
+    "toFret": {
+      "type": "integer",
+      "min": 0
+    },
+    "caption": {
+      "type": "string"
+    },
+    "source": {
+      "type": "component",
+      "repeatable": false,
+      "component": "lesson.source"
+    }
   }
 }

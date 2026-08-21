@@ -1,0 +1,346 @@
+{
+  "title": "One fret, one half step",
+  "slug": "one-fret-one-half-step",
+  "summary": "Every interval on the guitar is a fret count. Learn the count once and you stop memorizing shapes — you start deriving them.",
+  "level": "beginner",
+  "instrument": "guitar",
+  "order": 10,
+  "duration": "~6 min read",
+  "status": "published",
+  "parameter": {
+    "name": "key",
+    "label": "Root",
+    "default": "G"
+  },
+  "body": [
+    {
+      "__component": "lesson.heading",
+      "text": "One fret, one half step",
+      "level": "h2"
+    },
+    {
+      "__component": "lesson.prose",
+      "body": "A **half step** is the smallest distance Western music uses. On a piano it is any two keys that touch — including the two white pairs with no black key between them. That exception is the only thing that makes the keyboard awkward to count on."
+    },
+    {
+      "__component": "lesson.keyboard-diagram",
+      "mode": "explicit",
+      "octaves": 1,
+      "caption": "E→F and B→C are half steps with no black key between them. Every other white pair is a whole step.",
+      "marks": [
+        {
+          "pc": "E",
+          "label": "E",
+          "flag": true
+        },
+        {
+          "pc": "F",
+          "label": "F",
+          "flag": true
+        },
+        {
+          "pc": "B",
+          "label": "B",
+          "flag": true
+        },
+        {
+          "pc": "C",
+          "label": "C",
+          "flag": true
+        }
+      ]
+    },
+    {
+      "__component": "lesson.prose",
+      "body": "The guitar has no such exception. **One fret is one half step, everywhere, on every string.** Walk up the low E and you get all twelve notes in order, then E again."
+    },
+    {
+      "__component": "lesson.diagram",
+      "instrument": "guitar",
+      "mode": "explicit",
+      "fromFret": 0,
+      "toFret": 12,
+      "caption": "The low E string, nut to 12th fret. Sharps are faded so the natural notes read as the landmarks they are.",
+      "dots": [
+        {
+          "string": 5,
+          "fret": 0,
+          "label": "E",
+          "root": true,
+          "dim": false
+        },
+        {
+          "string": 5,
+          "fret": 1,
+          "label": "F",
+          "root": false,
+          "dim": false
+        },
+        {
+          "string": 5,
+          "fret": 2,
+          "label": "F♯",
+          "root": false,
+          "dim": true
+        },
+        {
+          "string": 5,
+          "fret": 3,
+          "label": "G",
+          "root": false,
+          "dim": false
+        },
+        {
+          "string": 5,
+          "fret": 4,
+          "label": "G♯",
+          "root": false,
+          "dim": true
+        },
+        {
+          "string": 5,
+          "fret": 5,
+          "label": "A",
+          "root": false,
+          "dim": false
+        },
+        {
+          "string": 5,
+          "fret": 6,
+          "label": "A♯",
+          "root": false,
+          "dim": true
+        },
+        {
+          "string": 5,
+          "fret": 7,
+          "label": "B",
+          "root": false,
+          "dim": false
+        },
+        {
+          "string": 5,
+          "fret": 8,
+          "label": "C",
+          "root": false,
+          "dim": false
+        },
+        {
+          "string": 5,
+          "fret": 9,
+          "label": "C♯",
+          "root": false,
+          "dim": true
+        },
+        {
+          "string": 5,
+          "fret": 10,
+          "label": "D",
+          "root": false,
+          "dim": false
+        },
+        {
+          "string": 5,
+          "fret": 11,
+          "label": "D♯",
+          "root": false,
+          "dim": true
+        },
+        {
+          "string": 5,
+          "fret": 12,
+          "label": "E",
+          "root": true,
+          "dim": false
+        }
+      ]
+    },
+    {
+      "__component": "lesson.callout",
+      "tone": "tip",
+      "body": "Notice E→F is one fret and B→C is one fret, same as the keyboard. The guitar does not hide the exception — it just stops making it look special."
+    },
+    {
+      "__component": "lesson.heading",
+      "text": "Every interval is a fret count",
+      "level": "h3"
+    },
+    {
+      "__component": "lesson.prose",
+      "body": "An interval name is a label for a number of half steps. On the guitar that number *is* a number of frets, so the names below are directly playable on one string."
+    },
+    {
+      "__component": "lesson.table",
+      "caption": "Counting up from an open low E.",
+      "headers": [
+        "Interval",
+        "Half steps",
+        "Fret",
+        "Note"
+      ],
+      "rows": [
+        [
+          "Unison",
+          "0",
+          "0",
+          "E"
+        ],
+        [
+          "Minor 2nd",
+          "1",
+          "1",
+          "F"
+        ],
+        [
+          "Major 2nd",
+          "2",
+          "2",
+          "F♯"
+        ],
+        [
+          "Minor 3rd",
+          "3",
+          "3",
+          "G"
+        ],
+        [
+          "Major 3rd",
+          "4",
+          "4",
+          "G♯"
+        ],
+        [
+          "Perfect 4th",
+          "5",
+          "5",
+          "A"
+        ],
+        [
+          "Tritone",
+          "6",
+          "6",
+          "A♯"
+        ],
+        [
+          "Perfect 5th",
+          "7",
+          "7",
+          "B"
+        ],
+        [
+          "Minor 6th",
+          "8",
+          "8",
+          "C"
+        ],
+        [
+          "Major 6th",
+          "9",
+          "9",
+          "C♯"
+        ],
+        [
+          "Minor 7th",
+          "10",
+          "10",
+          "D"
+        ],
+        [
+          "Major 7th",
+          "11",
+          "11",
+          "D♯"
+        ],
+        [
+          "Octave",
+          "12",
+          "12",
+          "E"
+        ]
+      ]
+    },
+    {
+      "__component": "lesson.prose",
+      "body": "The major scale picks seven of those thirteen. In degree terms:"
+    },
+    {
+      "__component": "lesson.degree-chips",
+      "size": "md",
+      "degrees": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ]
+    },
+    {
+      "__component": "lesson.prose",
+      "body": "Which comes out as the fret pattern **2 – 2 – 1 – 2 – 2 – 2 – 1**: two frets, two frets, one, two, two, two, one. That sequence is the major scale. Everything else in this lesson follows from it."
+    },
+    {
+      "__component": "lesson.heading",
+      "text": "Practice",
+      "level": "h3"
+    },
+    {
+      "__component": "lesson.step",
+      "number": 1,
+      "title": "Name frets, don't find them",
+      "lede": "Reverse the usual drill.",
+      "body": "Pick a random fret on the low E and name it *before* you play it, by counting up from the open string. Slow is fine. You are building the count, not the recall."
+    },
+    {
+      "__component": "lesson.step",
+      "number": 2,
+      "title": "Play intervals from one anchor",
+      "lede": "Stay on one string.",
+      "body": "Hold fret 5 (A) as your root. Play a major 3rd (4 frets up, fret 9), then a perfect 5th (7 up, fret 12). Sing each one. The sound and the fret count should start arriving together."
+    },
+    {
+      "__component": "lesson.step",
+      "number": 3,
+      "title": "Cross to the A string",
+      "lede": "Where the count pays off.",
+      "body": "The A string is a perfect 4th above E — 5 half steps. So any fret on E is the same note as *five frets lower* on A, one string up. You just derived the tuning instead of memorizing it."
+    },
+    {
+      "__component": "lesson.heading",
+      "text": "Why chord shapes look the way they do",
+      "level": "h3"
+    },
+    {
+      "__component": "lesson.param-picker",
+      "label": "Root note"
+    },
+    {
+      "__component": "lesson.prose",
+      "body": "A major triad is root, major 3rd, perfect 5th — 0, 4, 7 half steps. A minor triad flattens the third to 3. **One half step is the entire difference**, and on the neck that is one fret."
+    },
+    {
+      "__component": "lesson.diagram",
+      "instrument": "guitar",
+      "mode": "theory",
+      "quality": "major",
+      "stringSet": "D–A–E",
+      "useParam": true,
+      "caption": "Major triad. The third is 4 half steps above the root in pitch, but sits on the next string up — and that string change already accounts for 5 frets, which is why its dot looks lower on the neck."
+    },
+    {
+      "__component": "lesson.diagram",
+      "instrument": "guitar",
+      "mode": "theory",
+      "quality": "minor",
+      "stringSet": "D–A–E",
+      "useParam": true,
+      "caption": "Minor triad. Identical shape, third moved down exactly one fret: 3 half steps instead of 4. That one fret is the whole major/minor distinction."
+    },
+    {
+      "__component": "lesson.callout",
+      "tone": "note",
+      "body": "Change the root above and both shapes move together, keeping their fret counts. That is the whole reason guitarists talk in shapes: the counts are fixed, so the shape is portable."
+    }
+  ]
+}

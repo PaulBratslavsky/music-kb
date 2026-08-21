@@ -81,7 +81,8 @@ export function resolveDiagramDots(
   // triadVoicing() returns `notes: { string, fret, pc, role }[]` — there is
   // no `label`/`isRoot` field. `role` is one of 'R' / '3' / '5' (with
   // quality-specific accidentals, e.g. '♭3'), matching the existing usage
-  // in routes/lessons.triads.tsx: the role string doubles as the dot label,
+  // in the hand-written triads lesson (now web/src/lessons/triads.tsx): the
+  // role string doubles as the dot label,
   // and the root dot is the one whose role is literally 'R'.
   return voicing.notes.map((n) => ({
     string: n.string,

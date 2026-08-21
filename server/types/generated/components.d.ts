@@ -256,10 +256,6 @@ export interface LessonDiagram extends Struct.ComponentSchema {
     root: Schema.Attribute.Enumeration<
       ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
     >;
-    scale: Schema.Attribute.String &
-      Schema.Attribute.SetMinMaxLength<{
-        maxLength: 32;
-      }>;
     source: Schema.Attribute.Component<'lesson.source', false>;
     stringSet: Schema.Attribute.Enumeration<
       [
@@ -492,7 +488,6 @@ export interface LessonTable extends Struct.ComponentSchema {
     caption: Schema.Attribute.String;
     headers: Schema.Attribute.JSON & Schema.Attribute.Required;
     rows: Schema.Attribute.JSON & Schema.Attribute.Required;
-    useParam: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
   };
 }
 

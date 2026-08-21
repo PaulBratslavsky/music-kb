@@ -1,11 +1,21 @@
 {
   "collectionName": "components_lesson_tables",
-  "info": { "displayName": "Table", "description": "Headers plus rows. useParam recomputes cells from the lesson parameter." },
+  "info": {
+    "displayName": "Table",
+    "description": "Headers plus rows. useParam recomputes cells from the lesson parameter."
+  },
   "options": {},
   "attributes": {
-    "headers": { "type": "json", "required": true },
-    "rows": { "type": "json", "required": true },
-    "useParam": { "type": "boolean", "default": false },
-    "caption": { "type": "string" }
+    "headers": {
+      "type": "json",
+      "required": true
+    },
+    "rows": {
+      "type": "json",
+      "required": true
+    },
+    "caption": {
+      "type": "string"
+    }
   }
 }
