@@ -236,12 +236,31 @@ collection: phase-2 AI output rather than back-ported hand-written lessons.
 
 **The cost of this, stated plainly:** the plan's migration was also its
 validation. Translating 8 real lessons was how the block vocabulary was going
-to be proven expressive enough before phase 2 depended on it. That evidence is
-now not collected. The vocabulary ships tested (`LessonBody` renders every
-block type) but unproven against real lesson content, and the first honest
-test of it will be the first AI-generated lesson. Expect to discover missing
-blocks then, and treat the vocabulary as provisional until a few real lessons
-have exercised it.
+to be proven expressive enough before phase 2 depended on it.
+
+That cost was not theoretical, and it came due immediately. Writing a *single*
+real lesson (`server/seed-data/lessons/one-fret-one-half-step.json`) plus one
+adversarial review of the branch surfaced seven contract defects that
+`LessonBody`'s own unit tests did not catch, because those tests fed it
+well-formed data:
+
+- `caption` was declared on four block types and rendered by nothing, while
+  the renderer read a `label` field those schemas never declared — content
+  written by an author, accepted by Strapi, and silently dropped. The seeded
+  lesson tripped this five times and nobody noticed while writing it.
+- Three `json`-typed fields crashed the whole route (SSR 500, not a missing
+  block) on plausible model output such as `degrees: [1,2,3]`.
+- Three of the seven `quality` enum values could never render, so a model
+  picking a legal value got a blank.
+- `parameter.default` was a freeform string while the picker offered seven
+  naturals; a default of `Eb` blanked every parameterised diagram in a lesson.
+
+All are fixed. The lesson to carry into phase 2 is not "the vocabulary is now
+proven" — one lesson is not proof — but that **the failure mode of this design
+is silence.** Nothing threw. Typecheck was clean and every test passed through
+all of it. Any future block type, or any change to an existing one, needs a
+render check against real data, because neither the compiler nor the unit
+tests can see this class of bug.
 
 Two lesser consequences:
 
