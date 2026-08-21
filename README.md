@@ -14,6 +14,7 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 - **Cross-video digests** — synthesize 2–5 videos into structured themes, contradictions, unique insights, and a long-form article. Saved digests are upserted by a deterministic `videoSetKey` so re-saving the same selection updates in place instead of duplicating.
 - **Notes that stick** — "Summarize to note" turns a chat conversation into a markdown note attached to the video. MCP clients (Claude Desktop, etc.) can also leave notes. Every note is markdown; every note renders timecode chips back into the player.
 - **Music-aware AI extraction** — after each summary, a best-effort pass extracts key, chords, techniques, and referenced songs into `Video.musicExtraction` (`client/src/lib/services/music-extraction.ts`). Timecodes are BM25-grounded against the stored transcript, never model-emitted. The extraction feeds the embedding text-builder and the BM25 legs, so "videos in E minor" / "videos teaching travis picking" work on `/feed` semantic search and `/api/ask`. Trigger it from the learn page Theory tab or in bulk from `/settings`.
+- **Lessons as data, not code** — `/lessons` renders from an `api::lesson.lesson` Strapi collection: a dynamic zone of typed blocks (prose, steps, callouts, fretboard and keyboard diagrams, degree chips, tables). Diagrams store *musical parameters* — root, quality, string set — not rendered coordinates, so a diagram stays correct if the theory layer changes underneath it. The vocabulary is deliberately small and enum-heavy because it doubles as the output schema for AI-generated lessons.
 - **Semantic discovery** — per-video embeddings from the summary layer power "Related videos" on the learn page and library-wide semantic search on the feed. Same `embeddings.ts` infra ready to layer onto transcript chunks for moment-level search.
 - **Frontier-model bridge via MCP** — Strapi's official [MCP server](https://modelcontextprotocol.io) at `/mcp` lets you drive the knowledge base from Claude Desktop / Claude Code / Cursor with a bigger model when you need one. 24 tools cover transcripts, videos, tags, notes, music data — defined once in Strapi, no duplication with the in-app chat. See [`docs/mcp.md`](./docs/mcp.md).
 - **Handles long videos** — map-reduce summary pipeline kicks in past ~15K tokens. Transcript caching means regeneration never re-hits YouTube.
@@ -98,6 +99,8 @@ flowchart TD
 - **Note** — markdown entry attached to one or more videos. Four sources: `chat` (summarized from an in-app conversation), `digest-chat` (summarized from a cross-video digest chat), `mcp` (written by an external MCP client), `manual` (user-authored scratchpad).
 - **Digest** — structured cross-video synthesis, stored as first-class Strapi components (`sharedThemes`, `uniqueInsights`, `contradictions`, `viewingOrder`, `bottomLine` + `overallTheme`). Optionally carries a long-form `articleMarkdown`. Upserted by `videoSetKey` so the same source-video selection updates one row instead of duplicating.
 
+- **Lesson** — a lesson served from Strapi, with a `body` dynamic zone of typed blocks and an optional lesson-level `parameter` (currently `key`) that transposable blocks follow. `status` distinguishes `draft` / `published` / `ai-generated`. Seeded from JSON in `server/seed-data/lessons/` via `node server/scripts/seed-lessons.mjs` (idempotent — upserts by slug, never deletes).
+
 ### The chat path
 
 ```mermaid
@@ -150,6 +153,15 @@ Saved digests live at `/digests` with full-text search (`title` + `description`)
 
 ### Notes
 From any video chat, click **Summarize to note** — the conversation + full transcript get synthesized into a markdown note attached to the video, written in personal-note voice with preserved `[mm:ss]` timecode chips. The **Notes** tab on the learn page lists every note for that video (chat summaries, digest-chat summaries, MCP-authored notes, manual entries) with delete affordance.
+
+### Lessons
+
+**There are two kinds of lesson in this repo, and they are deliberately not the same thing.**
+
+- **`/lessons` in the KB app** is the Strapi collection described above — typed blocks, editable in the admin without a deploy, and the landing place for AI-generated lessons. It holds nothing hardcoded.
+- **The companion app (`web/`)** holds the hand-written interactive React lessons — triads, half steps to chords, CAGED, and the rest — with their own widget set in `web/src/lessons/components/`. These are authored by hand and are not migrating to Strapi; the React format buys interactivity a block vocabulary cannot express.
+
+Blocks that draw an instrument (`diagram`, `keyboard-diagram`) store root/quality/string-set rather than fret coordinates, and resolve through `client/src/lib/lesson/diagram-params.ts` at render time. A block the renderer doesn't recognise renders as nothing rather than throwing, so a malformed AI lesson degrades to gaps instead of a blank page.
 
 ### Related videos + semantic search
 - **Related videos** — bottom of any learn page, thumbnail grid of the semantically closest entries in the library. Cosine over the per-video topical embedding.
