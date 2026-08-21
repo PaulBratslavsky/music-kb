@@ -1,0 +1,21 @@
+{
+  "collectionName": "components_lesson_keyboard_diagrams",
+  "info": {
+    "displayName": "Keyboard diagram",
+    "description": "A piano/keyboard diagram, addressed by pitch class rather than fretboard position. mode=theory stores musical parameters and computes marks at render; mode=explicit stores hand-placed marks. Split from lesson.diagram (which is fretboard-only, guitar/bass) because MiniKeyboard's marks are pitch-class-addressed, a different shape than MiniNeck's position-addressed dots — stringSet/inversion/fromFret/toFret would be meaningless-but-structurally-valid here."
+  },
+  "options": {},
+  "attributes": {
+    "mode": { "type": "enumeration", "enum": ["theory", "explicit"], "default": "theory", "required": true },
+    "root": {
+      "type": "enumeration",
+      "enum": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    },
+    "quality": { "type": "enumeration", "enum": ["major", "minor", "augmented", "diminished", "dominant7", "major7", "minor7"] },
+    "useParam": { "type": "boolean", "default": false },
+    "octaves": { "type": "integer", "min": 1, "max": 3 },
+    "marks": { "type": "component", "repeatable": true, "component": "lesson.key-mark" },
+    "caption": { "type": "string" },
+    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+  }
+}

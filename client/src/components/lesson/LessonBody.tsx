@@ -10,8 +10,14 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Step } from './Step';
 import { MiniNeck } from './MiniNeck';
+import { MiniKeyboard } from './MiniKeyboard';
 import { DegreeChips } from './DegreeChips';
-import { resolveDiagramDots, type DiagramBlock } from '#/lib/lesson/diagram-params';
+import {
+  resolveDiagramDots,
+  resolveDiagramMarks,
+  type DiagramBlock,
+  type KeyboardDiagramBlock,
+} from '#/lib/lesson/diagram-params';
 import type { LessonBlock, LessonParameter } from '#/lib/services/lessons';
 
 const PITCH_OPTIONS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
@@ -88,19 +94,12 @@ function Block({
       );
 
     case 'lesson.diagram': {
+      // lesson.diagram is fretboard-only (guitar/bass) — resolveDiagramDots
+      // only ever produces fretboard-shaped dots ({string, fret, ...}), and
+      // MiniNeck is the only renderer that takes them. Keyboard diagrams
+      // are a separate block (lesson.keyboard-diagram, below): pitch-class
+      // addressed, a different shape entirely.
       const diagramBlock = block as unknown as DiagramBlock;
-      // resolveDiagramDots (Task 4) only ever produces fretboard-shaped
-      // dots ({string, fret, ...}) — that's what its own tests cover, and
-      // it's the only shape triadVoicing()/explicit dots can produce.
-      // MiniKeyboard's `marks` are pitch-class-addressed (KeyMark.pc) and
-      // MiniPush's `marks`/`pads` are pitch-class- or grid-addressed;
-      // neither accepts a `dots` prop at all, and there is no converter
-      // from fretboard dots to either shape. Rather than invent one, a
-      // piano/push diagram degrades to the same "gap, not a throw" the
-      // unknown-block default uses — that conversion is a later phase.
-      if (diagramBlock.instrument !== 'guitar' && diagramBlock.instrument !== 'bass') {
-        return null;
-      }
       const dots = resolveDiagramDots(diagramBlock, paramValue);
       if (dots.length === 0) return null;
       const fromFret = typeof block.fromFret === 'number' ? block.fromFret : undefined;
@@ -111,10 +110,27 @@ function Block({
           : `${diagramBlock.instrument} chord diagram`;
       return (
         <MiniNeck
-          instrument={diagramBlock.instrument}
+          instrument={diagramBlock.instrument as 'guitar' | 'bass'}
           dots={dots}
           fromFret={fromFret}
           toFret={toFret}
+          ariaLabel={ariaLabel}
+        />
+      );
+    }
+
+    case 'lesson.keyboard-diagram': {
+      const keyboardBlock = block as unknown as KeyboardDiagramBlock;
+      const marks = resolveDiagramMarks(keyboardBlock, paramValue);
+      if (marks.length === 0) return null;
+      const ariaLabel =
+        typeof block.label === 'string' && block.label.length > 0
+          ? block.label
+          : 'keyboard chord diagram';
+      return (
+        <MiniKeyboard
+          marks={marks}
+          octaves={keyboardBlock.octaves ?? undefined}
           ariaLabel={ariaLabel}
         />
       );

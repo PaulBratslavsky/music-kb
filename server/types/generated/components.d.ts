@@ -215,7 +215,7 @@ export interface LessonDegreeChips extends Struct.ComponentSchema {
 export interface LessonDiagram extends Struct.ComponentSchema {
   collectionName: 'components_lesson_diagrams';
   info: {
-    description: 'A fretboard, keyboard or Push grid. mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. One block for all three instruments \u2014 instrument is a field. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not.';
+    description: 'A fretboard diagram (guitar or bass). mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. Position-addressed (string/fret) \u2014 keyboard diagrams use lesson.keyboard-diagram instead, which is pitch-class-addressed. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not.';
     displayName: 'Diagram';
   };
   attributes: {
@@ -228,9 +228,7 @@ export interface LessonDiagram extends Struct.ComponentSchema {
         },
         number
       >;
-    instrument: Schema.Attribute.Enumeration<
-      ['guitar', 'bass', 'piano', 'push']
-    > &
+    instrument: Schema.Attribute.Enumeration<['guitar', 'bass']> &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'guitar'>;
     inversion: Schema.Attribute.Integer &
@@ -309,6 +307,64 @@ export interface LessonInteractive extends Struct.ComponentSchema {
       ['triad-explorer', 'neck-pattern-picker', 'guitar-view']
     > &
       Schema.Attribute.Required;
+  };
+}
+
+export interface LessonKeyMark extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_key_marks';
+  info: {
+    description: 'One explicit mark on a keyboard diagram, addressed by pitch class rather than position. Mirrors KeyMark in client/src/components/lesson/MiniKeyboard.tsx.';
+    displayName: 'Key mark';
+  };
+  attributes: {
+    label: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 8;
+      }>;
+    pc: Schema.Attribute.Enumeration<
+      ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    > &
+      Schema.Attribute.Required;
+    root: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+  };
+}
+
+export interface LessonKeyboardDiagram extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_keyboard_diagrams';
+  info: {
+    description: "A piano/keyboard diagram, addressed by pitch class rather than fretboard position. mode=theory stores musical parameters and computes marks at render; mode=explicit stores hand-placed marks. Split from lesson.diagram (which is fretboard-only, guitar/bass) because MiniKeyboard's marks are pitch-class-addressed, a different shape than MiniNeck's position-addressed dots \u2014 stringSet/inversion/fromFret/toFret would be meaningless-but-structurally-valid here.";
+    displayName: 'Keyboard diagram';
+  };
+  attributes: {
+    caption: Schema.Attribute.String;
+    marks: Schema.Attribute.Component<'lesson.key-mark', true>;
+    mode: Schema.Attribute.Enumeration<['theory', 'explicit']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'theory'>;
+    octaves: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 3;
+          min: 1;
+        },
+        number
+      >;
+    quality: Schema.Attribute.Enumeration<
+      [
+        'major',
+        'minor',
+        'augmented',
+        'diminished',
+        'dominant7',
+        'major7',
+        'minor7',
+      ]
+    >;
+    root: Schema.Attribute.Enumeration<
+      ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    >;
+    source: Schema.Attribute.Component<'lesson.source', false>;
+    useParam: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
   };
 }
 
@@ -479,6 +535,8 @@ declare module '@strapi/strapi' {
       'lesson.diagram': LessonDiagram;
       'lesson.heading': LessonHeading;
       'lesson.interactive': LessonInteractive;
+      'lesson.key-mark': LessonKeyMark;
+      'lesson.keyboard-diagram': LessonKeyboardDiagram;
       'lesson.neck-dot': LessonNeckDot;
       'lesson.param-picker': LessonParamPicker;
       'lesson.parameter': LessonParameter;

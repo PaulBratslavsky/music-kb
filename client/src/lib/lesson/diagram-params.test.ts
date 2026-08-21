@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDiagramDots, type DiagramBlock } from './diagram-params';
+import {
+  resolveDiagramDots,
+  resolveDiagramMarks,
+  type DiagramBlock,
+  type KeyboardDiagramBlock,
+} from './diagram-params';
 
 describe('resolveDiagramDots', () => {
   it('returns explicit dots unchanged in explicit mode', () => {
@@ -66,5 +71,49 @@ describe('resolveDiagramDots', () => {
       inversion: 0,
     };
     expect(resolveDiagramDots(block)).toEqual([]);
+  });
+});
+
+describe('resolveDiagramMarks', () => {
+  it('returns explicit marks unchanged in explicit mode', () => {
+    const block: KeyboardDiagramBlock = {
+      mode: 'explicit',
+      marks: [{ pc: 'G', label: 'G', root: true }],
+    };
+    expect(resolveDiagramMarks(block)).toEqual([
+      { pc: 'G', label: 'G', root: true },
+    ]);
+  });
+
+  it('computes marks from theory parameters with exactly one root', () => {
+    const block: KeyboardDiagramBlock = {
+      mode: 'theory',
+      root: 'C',
+      quality: 'major',
+    };
+    const marks = resolveDiagramMarks(block);
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks.filter((m) => m.root)).toHaveLength(1);
+  });
+
+  it('prefers the lesson parameter over the block root when useParam is set', () => {
+    const block: KeyboardDiagramBlock = {
+      mode: 'theory',
+      root: 'C',
+      quality: 'major',
+      useParam: true,
+    };
+    const inC = resolveDiagramMarks(block, 'C');
+    const inD = resolveDiagramMarks(block, 'D');
+    expect(inD).not.toEqual(inC);
+  });
+
+  it('returns an empty array for a root outside PITCH_CLASSES', () => {
+    const block: KeyboardDiagramBlock = {
+      mode: 'theory',
+      root: 'H',
+      quality: 'major',
+    };
+    expect(resolveDiagramMarks(block)).toEqual([]);
   });
 });

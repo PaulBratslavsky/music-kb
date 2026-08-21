@@ -90,3 +90,58 @@ export function resolveDiagramDots(
     root: n.role === 'R',
   }));
 }
+
+export type KeyMarkInput = {
+  pc: PitchClass;
+  label?: string;
+  root?: boolean;
+};
+
+export type KeyboardDiagramBlock = {
+  mode: 'theory' | 'explicit';
+  root?: string | null;
+  quality?: string | null;
+  useParam?: boolean | null;
+  octaves?: number | null;
+  marks?: KeyMarkInput[] | null;
+};
+
+/**
+ * Resolve a keyboard-diagram block to marks for MiniKeyboard.
+ *
+ * Same rules as resolveDiagramDots: explicit mode passes marks through
+ * unchanged, theory mode derives them from root/quality via triadVoicing().
+ * A keyboard has no strings, but triadVoicing() needs a string set to
+ * compute fret positions — it's only used here to get at
+ * `TriadVoicing.notes[].pc`, and pc is derived purely from root/quality/
+ * inversion (PITCH_CLASSES[(rootIdx + intervals[which]) % 12]), never from
+ * which string set was passed in. So any entry in STRING_SETS produces the
+ * same pitch classes; STRING_SETS[0] is used because it's the first one.
+ */
+export function resolveDiagramMarks(
+  block: KeyboardDiagramBlock,
+  paramValue?: string,
+): KeyMarkInput[] {
+  if (block.mode === 'explicit') return block.marks ?? [];
+
+  const root = (block.useParam && paramValue ? paramValue : block.root) as
+    | PitchClass
+    | undefined;
+  if (!root || !block.quality) return [];
+  if (!PITCH_CLASSES.includes(root)) return [];
+  if (!TRIAD_QUALITIES.has(block.quality)) return [];
+
+  const voicing = triadVoicing(
+    root,
+    block.quality as TriadQuality,
+    STRING_SETS[0],
+    0,
+  );
+  if (!voicing) return [];
+
+  return voicing.notes.map((n) => ({
+    pc: n.pc,
+    label: n.role,
+    root: n.role === 'R',
+  }));
+}

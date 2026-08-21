@@ -567,6 +567,7 @@ export interface ApiLessonLesson extends Struct.CollectionTypeSchema {
         'lesson.callout',
         'lesson.step',
         'lesson.diagram',
+        'lesson.keyboard-diagram',
         'lesson.degree-chips',
         'lesson.table',
         'lesson.interactive',

@@ -56,6 +56,23 @@ describe('LessonBody', () => {
     expect(container.textContent).toBe('');
   });
 
+  it('renders a lesson.keyboard-diagram block', () => {
+    const { container } = render(
+      <LessonBody
+        blocks={[
+          block({
+            __component: 'lesson.keyboard-diagram',
+            mode: 'theory',
+            root: 'C',
+            quality: 'major',
+          }),
+        ]}
+        parameter={null}
+      />,
+    );
+    expect(container.querySelector('svg')).toBeTruthy();
+  });
+
   it('renders the blocks it knows even when an unknown one is present', () => {
     render(
       <LessonBody

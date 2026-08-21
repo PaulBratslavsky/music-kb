@@ -2,11 +2,11 @@
   "collectionName": "components_lesson_diagrams",
   "info": {
     "displayName": "Diagram",
-    "description": "A fretboard, keyboard or Push grid. mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. One block for all three instruments — instrument is a field. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not."
+    "description": "A fretboard diagram (guitar or bass). mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. Position-addressed (string/fret) — keyboard diagrams use lesson.keyboard-diagram instead, which is pitch-class-addressed. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not."
   },
   "options": {},
   "attributes": {
-    "instrument": { "type": "enumeration", "enum": ["guitar", "bass", "piano", "push"], "default": "guitar", "required": true },
+    "instrument": { "type": "enumeration", "enum": ["guitar", "bass"], "default": "guitar", "required": true },
     "mode": { "type": "enumeration", "enum": ["theory", "explicit"], "default": "theory", "required": true },
     "root": {
       "type": "enumeration",
