@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, cleanup } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { LessonBody } from './LessonBody';
 import type { LessonBlock } from '#/lib/services/lessons';
@@ -38,6 +38,13 @@ vi.mock('@tanstack/react-router', () => ({
 
 const block = (b: Partial<LessonBlock> & { __component: string }): LessonBlock =>
   ({ id: 1, ...b }) as LessonBlock;
+
+// RTL auto-cleanup only registers itself when vitest runs with `globals: true`;
+// this config does not, so without an explicit afterEach every render in this
+// file accumulates in document.body and `screen` queries match leftovers from
+// earlier tests. That silently weakens every assertion here — a test can pass
+// on markup a different test rendered.
+afterEach(cleanup);
 
 describe('LessonBody', () => {
   it('renders a prose block', () => {
@@ -187,10 +194,12 @@ describe('LessonBody', () => {
     expect(screen.getByText('Warning')).toBeTruthy();
   });
 
-  it('degrades degree-chips to an empty render instead of throwing on a malformed json field', () => {
+  it('coerces numeric degree-chips rather than throwing', () => {
     // Reproduced by review: `degrees: [1, 2, 3]` (numbers, not strings) is
-    // legal for a Strapi `json` column and crashes DegreeChips.includes().
-    const { container } = render(
+    // legal for a Strapi `json` column and crashed DegreeChips.includes().
+    // Numbers are the common case and stringify to exactly what the author
+    // meant, so the right outcome is real chips, not an empty render.
+    render(
       <LessonBody
         blocks={[
           block({ __component: 'lesson.degree-chips', degrees: [1, 2, 3] as unknown as string[] }),
@@ -198,7 +207,29 @@ describe('LessonBody', () => {
         parameter={null}
       />,
     );
-    expect(container.querySelector('span')).toBeTruthy();
+    for (const d of ['1', '2', '3']) {
+      expect(screen.getByText(d)).toBeTruthy();
+    }
+  });
+
+  it('renders object-shaped degrees as visible garbage rather than crashing', () => {
+    // The honest limit of the coercion: `.map(String)` on an object yields
+    // "[object Object]". That is deliberate — a visibly wrong chip is a
+    // better failure than an SSR 500 that takes the whole lesson down, and
+    // it is legible to whoever has to debug the generated lesson. Pinned so
+    // nobody "fixes" it into a silent drop, which would hide the bad data.
+    render(
+      <LessonBody
+        blocks={[
+          block({
+            __component: 'lesson.degree-chips',
+            degrees: [{ a: 'x' }] as unknown as string[],
+          }),
+        ]}
+        parameter={null}
+      />,
+    );
+    expect(screen.getByText('[object Object]')).toBeTruthy();
   });
 
   it('degrades a table to an empty render instead of throwing on malformed headers/rows', () => {
