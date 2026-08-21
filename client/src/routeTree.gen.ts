@@ -25,6 +25,7 @@ import { Route as ApiChatRouteImport } from './routes/api.chat'
 import { Route as ApiDigestChatRouteImport } from './routes/api.digest-chat'
 import { Route as LearnVideoIdRouteImport } from './routes/learn.$videoId'
 import { Route as LessonsIndexRouteImport } from './routes/lessons.index'
+import { Route as LessonsSlugRouteImport } from './routes/lessons.$slug'
 import { Route as LessonsCagedAndRomanNumeralsRouteImport } from './routes/lessons.caged-and-roman-numerals'
 import { Route as LessonsEssentialChordsRouteImport } from './routes/lessons.essential-chords'
 import { Route as LessonsFindAnyChordRouteImport } from './routes/lessons.find-any-chord'
@@ -116,6 +117,11 @@ const LessonsIndexRoute = LessonsIndexRouteImport.update({
   path: '/lessons/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LessonsSlugRoute = LessonsSlugRouteImport.update({
+  id: '/lessons/$slug',
+  path: '/lessons/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LessonsCagedAndRomanNumeralsRoute =
   LessonsCagedAndRomanNumeralsRouteImport.update({
     id: '/lessons/caged-and-roman-numerals',
@@ -187,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/$slug': typeof LessonsSlugRoute
   '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/$slug': typeof LessonsSlugRoute
   '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
@@ -244,6 +252,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
+  '/lessons/$slug': typeof LessonsSlugRoute
   '/lessons/caged-and-roman-numerals': typeof LessonsCagedAndRomanNumeralsRoute
   '/lessons/essential-chords': typeof LessonsEssentialChordsRoute
   '/lessons/find-any-chord': typeof LessonsFindAnyChordRoute
@@ -274,6 +283,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/$slug'
     | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
@@ -302,6 +312,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/$slug'
     | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
@@ -330,6 +341,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/learn/$videoId'
+    | '/lessons/$slug'
     | '/lessons/caged-and-roman-numerals'
     | '/lessons/essential-chords'
     | '/lessons/find-any-chord'
@@ -359,6 +371,7 @@ export interface RootRouteChildren {
   ApiChatRoute: typeof ApiChatRoute
   ApiDigestChatRoute: typeof ApiDigestChatRoute
   LearnVideoIdRoute: typeof LearnVideoIdRoute
+  LessonsSlugRoute: typeof LessonsSlugRoute
   LessonsCagedAndRomanNumeralsRoute: typeof LessonsCagedAndRomanNumeralsRoute
   LessonsEssentialChordsRoute: typeof LessonsEssentialChordsRoute
   LessonsFindAnyChordRoute: typeof LessonsFindAnyChordRoute
@@ -486,6 +499,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LessonsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lessons/$slug': {
+      id: '/lessons/$slug'
+      path: '/lessons/$slug'
+      fullPath: '/lessons/$slug'
+      preLoaderRoute: typeof LessonsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lessons/caged-and-roman-numerals': {
       id: '/lessons/caged-and-roman-numerals'
       path: '/lessons/caged-and-roman-numerals'
@@ -575,6 +595,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatRoute: ApiChatRoute,
   ApiDigestChatRoute: ApiDigestChatRoute,
   LearnVideoIdRoute: LearnVideoIdRoute,
+  LessonsSlugRoute: LessonsSlugRoute,
   LessonsCagedAndRomanNumeralsRoute: LessonsCagedAndRomanNumeralsRoute,
   LessonsEssentialChordsRoute: LessonsEssentialChordsRoute,
   LessonsFindAnyChordRoute: LessonsFindAnyChordRoute,
