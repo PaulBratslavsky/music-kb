@@ -1509,7 +1509,14 @@ git commit -m "feat(lessons): add an idempotent lesson seed script"
      and each block stays readable on its own.
    - `<h2>` / `<h3>` between blocks → `lesson.heading`
    - `<Step>` → `lesson.step`
-   - `<MiniNeck>` / `<MiniKeyboard>` → `lesson.diagram`, `mode: "theory"` where the shape reduces to root + quality + string-set, `mode: "explicit"` otherwise
+   - `<MiniNeck>` → `lesson.diagram` (guitar/bass only), `mode: "theory"` where
+     the shape reduces to root + quality + string-set, `mode: "explicit"` otherwise
+   - `<MiniKeyboard>` → **`lesson.keyboard-diagram`** — a separate block, because
+     keyboards are pitch-class-addressed (`marks: [{pc}]`) while fretboards are
+     position-addressed (`dots: [{string, fret}]`). `half-steps-to-chords` has
+     seven of these.
+   - `<MiniPush>` → no block exists; `push` was dropped from the schema since no
+     lesson uses it. If one turns up, that is a real finding — add the block.
    - `<table>` → `lesson.table`
    - `<DegreeChips>` → `lesson.degree-chips`
 3. `yarn lessons:seed`

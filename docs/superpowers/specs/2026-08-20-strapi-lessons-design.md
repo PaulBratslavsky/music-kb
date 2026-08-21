@@ -96,7 +96,7 @@ between them, and no current lesson needs it.
 
 ### Block vocabulary
 
-Ten components under `lesson-blocks.*`. Every block carries an optional
+Eleven components under `lesson.*`. Every block carries an optional
 `source` component (`videoId`, `timeSec`) — empty for migrated lessons,
 populated by phase 2.
 
@@ -104,7 +104,8 @@ populated by phase 2.
 |---|---|---|
 | `prose` | markdown | `body` (rich text) — covers `p`, `ul`/`ol`, `h2`/`h3`. **Prefer few large blocks over many small ones** |
 | `step` | `Step` | `number`, `title`, `lede`, `body` |
-| `diagram` | `MiniNeck` / `MiniKeyboard` / `MiniPush` | `instrument` enum; `mode` enum; params **or** dots; `useParam` |
+| `diagram` | `MiniNeck` | `instrument` enum (**guitar/bass only**); `mode` enum; params **or** dots; `useParam` |
+| `keyboard-diagram` | `MiniKeyboard` | `mode` enum; params **or** marks; `useParam`; `octaves` |
 | `degree-chips` | `DegreeChips` | `degrees[]`, `size` |
 | `table` | table | `headers[]`, `rows[][]`, `useParam` |
 | `callout` | — | `tone` enum, `body` |
@@ -121,7 +122,24 @@ wrong, and it keeps each block a readable chunk. This also demotes the
 standalone `heading` block to a rare case: headings normally live inside
 prose markdown.
 
-**One `diagram` block, not three.** Instrument is a field. Fewer components,
+**Split by addressing scheme, not by instrument** (revised 2026-08-20 after
+implementation surfaced the gap). `MiniNeck` is *position*-addressed
+(`{string, fret}`); `MiniKeyboard` is *pitch-class*-addressed (`{pc}`). Guitar
+and bass are the same shape with a different string count, so they share one
+block with `instrument` as a field. Piano is a different shape and gets its
+own block.
+
+Keeping all three in one block would have made `stringSet`/`inversion`/
+`fromFret`/`toFret` meaningless-but-valid whenever `instrument` was `piano` —
+conditional knowledge, which is exactly what a model gets wrong, and the same
+error as leaving `root` freeform. It also left `mode: "explicit"`
+*unexpressible* for piano, since `dots` is `NeckDot[]` with no `pc`.
+
+`push` is dropped entirely: no lesson uses `MiniPush`, so a third conversion
+would be speculative. The component stays; it is simply not offered as a block
+instrument until something needs it.
+
+**One `diagram` block for guitar and bass.** Instrument is a field there. Fewer components,
 and a model picks an enum value rather than choosing between three
 near-identical block names.
 
