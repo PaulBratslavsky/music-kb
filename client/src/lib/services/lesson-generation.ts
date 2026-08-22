@@ -273,7 +273,15 @@ async function rankVideosByTopic(topic: string): Promise<RankedVideo[]> {
 // permission to continue), and (c) on refusal the message names both the
 // requested topic and what the library actually has, so the user knows
 // what to search for or add.
-const CoverageVerdictSchema = z.object({
+// Exported (along with LessonOutlineSchema and SectionBlocksSchema below)
+// so lesson-generation.test.ts can walk every schema actually passed to
+// `outputSchema` and assert none of them carries an array `.min(n)` with
+// n > 1 — Anthropic's structured-output validator 400s on that (see
+// LessonOutlineSchema's `sections` field comment for the exact error).
+// This schema itself has no arrays today, but it's exported alongside the
+// other two so the guard test enumerates "every outputSchema", not a
+// hand-picked subset that can silently miss the next one added here.
+export const CoverageVerdictSchema = z.object({
   covered: z
     .boolean()
     .describe(
@@ -448,7 +456,7 @@ function buildDigestContextText(digest: Digest): string {
 // Step 4: outline — one small structured call
 // -----------------------------------------------------------------------------
 
-const LessonOutlineSchema = z.object({
+export const LessonOutlineSchema = z.object({
   title: z.string().describe('Short lesson title. MAX 150 characters.'),
   summary: z
     .string()
@@ -474,10 +482,26 @@ const LessonOutlineSchema = z.object({
           ),
       }),
     )
-    .min(2)
+    // NOT .min(2) here — Anthropic's structured-output schema support
+    // rejects `minItems` values other than 0 or 1 on an array
+    // (`output_config.format.schema: For 'array' type, 'minItems' values
+    // other than 0 or 1 are not supported`), so a `.min(2)` here 400s
+    // every frontier call at the outline step. The local Ollama tier
+    // accepts it fine, which is exactly why this shipped unnoticed — mocked
+    // tests and local runs never exercise Anthropic's schema validator.
+    // The "at least MIN_OUTLINE_SECTIONS sections" intent still holds; see
+    // that constant, sanitizeOutline, and the 'outline ⚠ thin' log below.
     .max(6)
     .describe('2 to 6 teaching beats, in the order the lesson should cover them.'),
 });
+
+// The target minimum section count — see LessonOutlineSchema's comment
+// above for why it isn't a schema `.min()`. Below this, sanitizeOutline
+// still accepts the outline (a single-beat topic is real, and failing the
+// whole generation over a quantity target would throw away real content),
+// but it's logged as thin — see the 'outline ⚠ thin' log in
+// generateLesson — rather than silently treated as if nothing were short.
+const MIN_OUTLINE_SECTIONS = 2;
 
 type LessonOutline = {
   title: string;
@@ -550,6 +574,18 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
       return { heading, goal };
     })
     .filter((s): s is { heading: string; goal: string } => s !== null);
+  // Only the empty case is treated as unusable (same bar as before this
+  // sanitizer existed). 2 is the real target minimum — see
+  // LessonOutlineSchema's comment above for why it can't live in the
+  // schema's `.min()` for the frontier tier — but this pipeline already
+  // tolerates a shorter-than-intended lesson (a single successful section
+  // still assembles into a real, if thin, lesson body) and a personal-KB
+  // topic genuinely can be one teaching beat. Failing the WHOLE generation
+  // over a thin-but-usable outline would throw away real content for a
+  // quantity target, not a correctness one. The shortfall is logged
+  // instead (see the 'outline ✓' log below) — visible, not silent, which
+  // is what actually mattered here; see `MIN_SECTION_BLOCKS` above for the
+  // matching per-section call.
   if (sections.length === 0) return null;
 
   return { title, summary, level, instrument, duration, sections };
@@ -620,9 +656,28 @@ const LessonBlockOutputSchema = z.discriminatedUnion('type', [
   }),
 ]);
 
-const SectionBlocksSchema = z.object({
-  blocks: z.array(LessonBlockOutputSchema).min(2).max(4),
+export const SectionBlocksSchema = z.object({
+  // NOT .min(2) here — same Anthropic `minItems` restriction as the
+  // outline's `sections` array above (only 0 or 1 are accepted); a
+  // `.min(2)` 400s every frontier section call. "A section with one block
+  // is thin" is real intent, so it's tracked in code below via
+  // MIN_SECTION_BLOCKS — logged when a section falls short, not silently
+  // accepted as if nothing were missing. See that constant's own comment
+  // for why a shortfall is logged rather than dropped.
+  blocks: z.array(LessonBlockOutputSchema).max(4),
 });
+
+// The target "2 to 4 blocks" a section should contain — see the schema
+// comment above for why this can't live in the schema itself for the
+// frontier tier. Below this, a section is "thin" (logged) rather than
+// dropped: `sectionBlocks.length > 0` (below) still assembles it into the
+// lesson body, because a thin-but-grounded section is real content, and
+// failing the whole section over a 1-vs-2 block count would throw away
+// content for a quantity target, not a correctness one. Checked against
+// the SANITIZED block count (after toLessonBlock has dropped anything
+// invalid), not the raw model output count, so a section that named 3
+// blocks but had 2 rejected is correctly flagged thin.
+const MIN_SECTION_BLOCKS = 2;
 
 const SECTION_SYSTEM = [
   'You write ONE section of a music lesson as 2 to 4 short structured content blocks.',
@@ -1042,6 +1097,15 @@ export async function generateLesson(
     logPhase(topic, 'outline ✗ unusable shape');
     return { ok: false, error: 'The model returned an unusable lesson outline.' };
   }
+  // See MIN_OUTLINE_SECTIONS's own comment for why this isn't a hard
+  // failure — a 1-section outline still generates, but it's worth knowing
+  // it happened, not discovering it by reading a suspiciously short lesson
+  // later.
+  if (outline.sections.length < MIN_OUTLINE_SECTIONS) {
+    logPhase(topic, `outline ⚠ thin (${outline.sections.length} section(s), target ≥${MIN_OUTLINE_SECTIONS})`, {
+      title: outline.title,
+    });
+  }
   logPhase(topic, 'outline ✓', {
     title: outline.title,
     sections: outline.sections.length,
@@ -1098,6 +1162,18 @@ export async function generateLesson(
         nextId += 1;
       }
 
+      // Only "zero usable blocks" fails the section outright (same bar as
+      // before this comment existed) — a single-block section is thin
+      // relative to MIN_SECTION_BLOCKS (see SectionBlocksSchema's comment
+      // for why that target can't be a schema `.min()` on the frontier
+      // tier), but it's still real, grounded content; dropping a whole
+      // section over a 1-vs-2 block count would throw away content for a
+      // quantity target, not a correctness one — the same call made for
+      // sanitizeOutline's section count above. Logged as thin instead, so
+      // it's visible rather than silently accepted.
+      if (sectionBlocks.length > 0 && sectionBlocks.length < MIN_SECTION_BLOCKS) {
+        logPhase(topic, `section "${section.heading}" ⚠ thin (${sectionBlocks.length} block, target ≥${MIN_SECTION_BLOCKS})`);
+      }
       if (sectionBlocks.length > 0) {
         body.push(
           {
@@ -1112,8 +1188,10 @@ export async function generateLesson(
         succeededSections += 1;
         logPhase(topic, `section "${section.heading}" ✓`, { blocks: sectionBlocks.length });
       } else {
-        logPhase(topic, `section "${section.heading}" ⚠ zero usable blocks`, {
+        logPhase(topic, `section "${section.heading}" ⚠ too few usable blocks, dropping`, {
           rawCount: rawBlocks.length,
+          usableCount: sectionBlocks.length,
+          minRequired: MIN_SECTION_BLOCKS,
         });
       }
     } catch (err) {

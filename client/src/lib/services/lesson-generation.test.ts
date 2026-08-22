@@ -101,7 +101,13 @@ import { chat } from '@tanstack/ai';
 import { buildBM25Index, type TranscriptChunk } from './transcript';
 import type { StrapiVideo } from './videos';
 import type { Digest } from './digest';
-import { generateLesson } from './lesson-generation';
+import {
+  generateLesson,
+  CoverageVerdictSchema,
+  LessonOutlineSchema,
+  SectionBlocksSchema,
+} from './lesson-generation';
+import { z } from 'zod';
 
 const mockedChat = vi.mocked(chat);
 
@@ -858,5 +864,101 @@ describe('generateLesson — retrieval guard', () => {
 
     expect(result.ok).toBe(false);
     expect(mockedChat).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Regression guard: Anthropic's structured-output schema support rejects any
+// array `minItems` other than 0 or 1 — a live 400 was:
+//   "output_config.format.schema: For 'array' type, 'minItems' values other
+//    than 0 or 1 are not supported (got: [2, 5])"
+// Every schema handed to `chat({ outputSchema })` in lesson-generation.ts
+// must therefore never carry a zod `.min(n)` on an array with n > 1 — Ollama
+// (the local tier) accepts it fine, which is exactly why a mocked/local-only
+// test suite never caught this the first time. This walks the REAL schema
+// objects (not a hand-maintained list of "known" array fields) so a new
+// array field added later, anywhere in these three schemas, is covered
+// automatically — the failure names the exact path, not just "something
+// regressed".
+// -----------------------------------------------------------------------------
+describe('outputSchema regression guard — no array minItems > 1', () => {
+  // Reaches into zod v4's internal `_zod.def` representation (there is no
+  // public introspection API for "what checks does this array have").
+  // Deliberately loose-typed (`any`) — this is test-only reflection over a
+  // third-party internal shape, not app code.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function findMinItemsViolations(schema: any, path: string, seen = new Set<any>()): string[] {
+    if (!schema || typeof schema !== 'object' || !schema._zod) return [];
+    if (seen.has(schema)) return []; // guards against a schema reused at two paths, not real recursion
+    seen.add(schema);
+
+    const def = schema._zod.def;
+    const violations: string[] = [];
+
+    switch (def.type) {
+      case 'array': {
+        for (const check of def.checks ?? []) {
+          const checkDef = check._zod?.def;
+          if (checkDef?.check === 'min_length' && checkDef.minimum > 1) {
+            violations.push(
+              `${path}: array has .min(${checkDef.minimum}) — Anthropic rejects any array minItems other than 0 or 1. Use .min(0) or .min(1) (or drop it) and enforce the real minimum in code after the call, the way sanitizeOutline/MIN_SECTION_BLOCKS do.`,
+            );
+          }
+        }
+        violations.push(...findMinItemsViolations(def.element, `${path}[]`, seen));
+        break;
+      }
+      case 'object': {
+        for (const [key, value] of Object.entries(def.shape ?? {})) {
+          violations.push(...findMinItemsViolations(value, `${path}.${key}`, seen));
+        }
+        break;
+      }
+      case 'union':
+      case 'intersection': {
+        const options = def.options ?? [def.left, def.right].filter(Boolean);
+        options.forEach((option: unknown, i: number) => {
+          violations.push(...findMinItemsViolations(option, `${path}<union:${i}>`, seen));
+        });
+        break;
+      }
+      default: {
+        // Transparent wrappers — optional/nullable/default/catch/readonly/etc
+        // all carry `innerType` in zod v4. Anything else (string/number/
+        // boolean/enum/literal/…) is a leaf with nothing further to walk.
+        if (def.innerType) {
+          violations.push(...findMinItemsViolations(def.innerType, path, seen));
+        }
+      }
+    }
+    return violations;
+  }
+
+  it.each([
+    ['CoverageVerdictSchema', CoverageVerdictSchema],
+    ['LessonOutlineSchema', LessonOutlineSchema],
+    ['SectionBlocksSchema', SectionBlocksSchema],
+  ])('%s has no array field with .min(n) where n > 1', (name, schema) => {
+    const violations = findMinItemsViolations(schema, name);
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
+
+  // Sanity check on the guard itself — if this ever stops catching an
+  // obviously-bad schema, the three assertions above are worthless.
+  it('the guard actually catches a >1 array minimum when one exists', () => {
+    const bad = z.object({ items: z.array(z.string()).min(2) });
+    const violations = findMinItemsViolations(bad, 'bad');
+    expect(violations).toEqual([
+      "bad.items: array has .min(2) — Anthropic rejects any array minItems other than 0 or 1. Use .min(0) or .min(1) (or drop it) and enforce the real minimum in code after the call, the way sanitizeOutline/MIN_SECTION_BLOCKS do.",
+    ]);
+  });
+
+  it('the guard does not false-positive on .min(1) or .min(0)', () => {
+    const ok = z.object({
+      a: z.array(z.string()).min(1),
+      b: z.array(z.string()).min(0),
+      c: z.array(z.string()),
+    });
+    expect(findMinItemsViolations(ok, 'ok')).toEqual([]);
   });
 });
