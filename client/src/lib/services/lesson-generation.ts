@@ -527,8 +527,17 @@ const OUTLINE_SYSTEM = [
 // Only the structural-judgment excerpt, not the block reference: the
 // outline call never emits a block, so the block vocabulary would be dead
 // weight in this prompt (see getOutlineGuideExcerpt's own comment).
-const OUTLINE_GUIDE_EXCERPT = getOutlineGuideExcerpt();
-const OUTLINE_SYSTEM_WITH_GUIDE = `${OUTLINE_SYSTEM}\n\n---\n\n${OUTLINE_GUIDE_EXCERPT}`;
+// LAZY, not module scope. The guide is read from disk with node:fs, and
+// this module ends up in the browser graph, so evaluating it at import time
+// threw `Module "node:fs" has been externalized for browser compatibility`
+// and broke the /lessons page outright. Deferring the read means importing
+// this module is free and only a real generation call (which always runs
+// server-side) ever touches the filesystem.
+let outlineSystemWithGuide: string | null = null;
+function getOutlineSystemWithGuide(): string {
+  outlineSystemWithGuide ??= `${OUTLINE_SYSTEM}\n\n---\n\n${getOutlineGuideExcerpt()}`;
+  return outlineSystemWithGuide;
+}
 
 function buildOutlinePrompt(topic: string, contextText: string, digestText: string): string {
   const parts = [
@@ -692,8 +701,12 @@ const SECTION_SYSTEM = [
 // The block-reference entries for exactly the five block types this call
 // is allowed to emit, plus the judgment on what makes those blocks good
 // rather than generic (see getSectionBlockGuideExcerpt's own comment).
-const SECTION_GUIDE_EXCERPT = getSectionBlockGuideExcerpt();
-const SECTION_SYSTEM_WITH_GUIDE = `${SECTION_SYSTEM}\n\n---\n\n${SECTION_GUIDE_EXCERPT}`;
+// Lazy for the same reason as getOutlineSystemWithGuide above.
+let sectionSystemWithGuide: string | null = null;
+function getSectionSystemWithGuide(): string {
+  sectionSystemWithGuide ??= `${SECTION_SYSTEM}\n\n---\n\n${getSectionBlockGuideExcerpt()}`;
+  return sectionSystemWithGuide;
+}
 
 function buildSectionPrompt(
   outline: LessonOutline,
@@ -1066,7 +1079,7 @@ export async function generateLesson(
         chat({
           adapter: lessonModel.adapter,
           messages: [
-            { role: 'system', content: OUTLINE_SYSTEM_WITH_GUIDE },
+            { role: 'system', content: getOutlineSystemWithGuide() },
             {
               role: 'user',
               content: buildOutlinePrompt(topic, contextText, digestContextText),
@@ -1123,7 +1136,7 @@ export async function generateLesson(
           chat({
             adapter: lessonModel.adapter,
             messages: [
-              { role: 'system', content: SECTION_SYSTEM_WITH_GUIDE },
+              { role: 'system', content: getSectionSystemWithGuide() },
               {
                 role: 'user',
                 content: buildSectionPrompt(outline as LessonOutline, section, contextText),
