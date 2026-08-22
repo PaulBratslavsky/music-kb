@@ -54,7 +54,9 @@ function isScaleType(s: string | null): s is ScaleType {
   return s != null && (SCALE_TYPES as readonly string[]).includes(s);
 }
 function isViewMode(s: string | null): s is ViewMode {
-  return s === 'chord' || s === 'scale' || s === 'note' || s === 'all';
+  return (
+    s === 'chord' || s === 'arpeggio' || s === 'scale' || s === 'note' || s === 'all'
+  );
 }
 
 function parseIntSafe(s: string | null, fallback: number): number {
@@ -101,14 +103,27 @@ export function urlFromState(state: AppState): string {
     params.set('quality', state.chord.quality);
     params.set('inv', String(state.chord.inversion));
     params.set('v', String(state.chord.voicingIndex));
+  } else if (state.mode === 'arpeggio') {
+    // Same root + quality picker as chord mode; no inversion/voicing since
+    // arpeggio has no single voicing to step through.
+    params.set('root', state.chord.root);
+    params.set('quality', state.chord.quality);
   } else if (state.mode === 'scale') {
     params.set('root', state.scale.root);
     params.set('type', state.scale.type);
     if (state.scalePosition !== 'all') {
       params.set('pos', String(state.scalePosition));
     }
-  } else {
+  } else if (state.mode === 'note') {
     params.set('note', state.singleNote);
+  } else if (state.mode === 'all') {
+    // No extra params — every position lights up.
+  } else {
+    // Exhaustiveness guard — see resolve.ts for the same pattern. Without
+    // this, an unhandled mode used to fall through to the 'note' branch
+    // and silently serialize the wrong param.
+    const _exhaustiveMode: never = state.mode;
+    throw new Error(`urlFromState: unhandled mode "${_exhaustiveMode}"`);
   }
   if (state.mode !== 'all' && state.preferFlats) {
     params.set('flats', '1');

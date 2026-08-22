@@ -30,9 +30,18 @@ import { QUALITY_LABELS } from '@music-kb/music/theory/quality-labels';
 type Props = Readonly<{
   chord: ChordSelection;
   setChord: (updater: (c: ChordSelection) => ChordSelection) => void;
+  /**
+   * Chord mode voices one specific shape, so it needs the Inversion +
+   * Voicing steppers. Arpeggio mode reuses this same root/quality picker
+   * (see resolve.ts's arpeggio branch) but floods every occurrence of the
+   * chord's tones across the whole instrument — there's no single voicing
+   * to step through, so those two controls are hidden. Defaults to true so
+   * every existing chord-mode call site is unaffected.
+   */
+  showVoicing?: boolean;
 }>;
 
-export function ChordControlPanel({ chord, setChord }: Props) {
+export function ChordControlPanel({ chord, setChord, showVoicing = true }: Props) {
   return (
     <>
       <div className="selection-group">
@@ -76,24 +85,28 @@ export function ChordControlPanel({ chord, setChord }: Props) {
         </div>
       </div>
 
-      <div className="selection-group">
-        <span className="group-label">Inversion</span>
-        <Stepper
-          value={chord.inversion}
-          max={Math.max(0, chordInversionCount(chord) - 1)}
-          onChange={(n) => setChord((c) => ({ ...c, inversion: n }))}
-        />
-      </div>
+      {showVoicing && (
+        <>
+          <div className="selection-group">
+            <span className="group-label">Inversion</span>
+            <Stepper
+              value={chord.inversion}
+              max={Math.max(0, chordInversionCount(chord) - 1)}
+              onChange={(n) => setChord((c) => ({ ...c, inversion: n }))}
+            />
+          </div>
 
-      <div className="selection-group">
-        <span className="group-label">Voicing</span>
-        <Stepper
-          value={chord.voicingIndex}
-          max={Math.max(0, chordVoicingCount(chord) - 1)}
-          onChange={(n) => setChord((c) => ({ ...c, voicingIndex: n }))}
-        />
-        <ShapeBadge chord={chord} />
-      </div>
+          <div className="selection-group">
+            <span className="group-label">Voicing</span>
+            <Stepper
+              value={chord.voicingIndex}
+              max={Math.max(0, chordVoicingCount(chord) - 1)}
+              onChange={(n) => setChord((c) => ({ ...c, voicingIndex: n }))}
+            />
+            <ShapeBadge chord={chord} />
+          </div>
+        </>
+      )}
     </>
   );
 }

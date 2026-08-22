@@ -106,6 +106,36 @@ export function resolveSelection(
       previewedChordRoot: null,
     };
   }
+  if (state.mode === 'arpeggio') {
+    // Same root + quality as chord mode, but "every occurrence of the
+    // chord's pitch classes across the whole instrument" instead of one
+    // voicing — chord:arpeggio :: one position:whole neck. Mirrors how
+    // scale mode floods the full range (matchByPitchClass), just restricted
+    // to chord tones and labelled by chord degree (pcDegrees, above).
+    const pcs = getChordPitchClasses(state.chord.root, state.chord.quality);
+    const notes = notesAscending(pcs, 4);
+    const rootLabel = spelledRoot(state.chord.root, state.preferFlats);
+    const label = `${rootLabel}${QUALITY_LABELS[state.chord.quality]} — arpeggio`;
+
+    return {
+      piano: notes,
+      guitar: notes,
+      bass: notes,
+      push: notes,
+      rootPitchClass: state.chord.root,
+      label,
+      pianoMatchByPitchClass: true,
+      guitarMatchByPitchClass: true,
+      pcDegrees,
+      pcDisplay: buildDisplayMap(
+        getChordNoteNames(state.chord.root, state.chord.quality, state.preferFlats),
+      ),
+      guitarShapePositions: null,
+      guitarBarre: null,
+      previewedChordPCs: null,
+      previewedChordRoot: null,
+    };
+  }
   if (state.mode === 'scale') {
     const pcs = getScalePitchClasses(state.scale);
     // Generate notes in true ascending order from the scale root (so E minor
@@ -194,24 +224,33 @@ export function resolveSelection(
       previewedChordRoot: null,
     };
   }
-  // mode === 'all' — every position lights up with its note name.
-  const allNotes = notesFromPitchClasses([...PITCH_CLASSES]);
-  return {
-    piano: allNotes,
-    guitar: allNotes,
-    bass: allNotes,
-    push: allNotes,
-    rootPitchClass: null,
-    label: 'All notes',
-    pianoMatchByPitchClass: true,
-    guitarMatchByPitchClass: true,
-    pcDegrees: {},
-    pcDisplay: {},
-    guitarShapePositions: null,
-    guitarBarre: null,
-    previewedChordPCs: null,
-    previewedChordRoot: null,
-  };
+  if (state.mode === 'all') {
+    // every position lights up with its note name.
+    const allNotes = notesFromPitchClasses([...PITCH_CLASSES]);
+    return {
+      piano: allNotes,
+      guitar: allNotes,
+      bass: allNotes,
+      push: allNotes,
+      rootPitchClass: null,
+      label: 'All notes',
+      pianoMatchByPitchClass: true,
+      guitarMatchByPitchClass: true,
+      pcDegrees: {},
+      pcDisplay: {},
+      guitarShapePositions: null,
+      guitarBarre: null,
+      previewedChordPCs: null,
+      previewedChordRoot: null,
+    };
+  }
+  // Exhaustiveness guard — if ViewMode grows a new member without a branch
+  // above, `state.mode` fails to narrow to `never` here and this line stops
+  // typechecking. Without this, an unhandled mode used to fall through to
+  // the 'all' branch and silently render as "All notes" — the exact
+  // silent-failure pattern this file now refuses to reproduce.
+  const _exhaustiveMode: never = state.mode;
+  throw new Error(`resolveSelection: unhandled mode "${_exhaustiveMode}"`);
 }
 
 export function chordInversionCount(selection: ChordSelection): number {

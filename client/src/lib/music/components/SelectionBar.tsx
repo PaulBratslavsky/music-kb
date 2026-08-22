@@ -14,6 +14,20 @@ import { FLAT_NAMES } from '@music-kb/music/theory/notes';
 
 type Props = ReturnType<typeof useAppState>;
 
+// Record<ViewMode, string> instead of a chained ternary: TypeScript will
+// refuse to compile this file if ViewMode ever grows a member without a
+// matching label here, instead of the new mode silently falling through
+// to whatever the ternary's last branch happened to be (the bug this
+// codebase keeps getting bitten by — see resolve.ts's exhaustiveness guard
+// for the same failure mode on the rendering side).
+const MODE_LABELS: Record<ViewMode, string> = {
+  chord: 'Chord',
+  arpeggio: 'Arpeggio',
+  scale: 'Scale',
+  note: 'Note',
+  all: 'All',
+};
+
 export function SelectionBar({
   state,
   setMode,
@@ -27,7 +41,7 @@ export function SelectionBar({
   showNaturals,
   setShowNaturals,
 }: Props) {
-  const modes: ViewMode[] = ['chord', 'scale', 'note', 'all'];
+  const modes: ViewMode[] = ['chord', 'arpeggio', 'scale', 'note', 'all'];
 
   return (
     <div className="panel selection-bar">
@@ -40,15 +54,18 @@ export function SelectionBar({
               className={`chip${state.mode === m ? ' active' : ''}`}
               onClick={() => setMode(m)}
             >
-              {m === 'chord' ? 'Chord' : m === 'scale' ? 'Scale' : m === 'note' ? 'Note' : 'All'}
+              {MODE_LABELS[m]}
             </button>
           ))}
         </div>
       </div>
 
       {state.mode !== 'all' && (() => {
+        // Arpeggio reuses the chord selection (same root + quality picker
+        // as chord mode — see resolve.ts), so it reads chord.root here too.
+        // Only 'note' is left for the final branch, not a silent catch-all.
         const currentRoot: PitchClass =
-          state.mode === 'chord'
+          state.mode === 'chord' || state.mode === 'arpeggio'
             ? state.chord.root
             : state.mode === 'scale'
             ? state.scale.root
@@ -100,8 +117,12 @@ export function SelectionBar({
         );
       })()}
 
-      {state.mode === 'chord' && (
-        <ChordControlPanel chord={state.chord} setChord={setChord} />
+      {(state.mode === 'chord' || state.mode === 'arpeggio') && (
+        <ChordControlPanel
+          chord={state.chord}
+          setChord={setChord}
+          showVoicing={state.mode === 'chord'}
+        />
       )}
 
       {state.mode === 'scale' && (

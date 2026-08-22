@@ -63,12 +63,15 @@ export function scaleDegrees(
 
 /** Convenience for the resolve layer. */
 export function degreesForSelection(
-  mode: 'chord' | 'scale' | 'note' | 'all',
+  mode: 'chord' | 'arpeggio' | 'scale' | 'note' | 'all',
   chord: ChordSelection,
   scale: ScaleSelection,
   singleNote: PitchClass,
 ): Partial<Record<PitchClass, string>> {
-  if (mode === 'chord') return chordDegrees(chord.root, chord.quality);
+  // Arpeggio reuses the chord's own degree map — R / 3 / b3 / 5 / b7 …,
+  // same tones as chord mode, just flooded across the whole instrument
+  // instead of shown as one voicing.
+  if (mode === 'chord' || mode === 'arpeggio') return chordDegrees(chord.root, chord.quality);
   if (mode === 'scale') return scaleDegrees(scale);
   if (mode === 'note') return { [singleNote]: '1' };
   return {};
