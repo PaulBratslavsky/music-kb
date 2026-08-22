@@ -73,7 +73,7 @@ Rotate by minting a new token and revoking the old one
 
 ## Tools
 
-24 tools across three permission tiers — 16 read, 4 write, 4 maintenance:
+28 tools across three permission tiers — 18 read, 6 write, 4 maintenance:
 
 | Tool | Tier | Purpose |
 |---|---|---|
@@ -93,9 +93,13 @@ Rotate by minting a new token and revoking the old one
 | `listUntagged` | read | List videos with zero tags + enough context to suggest tags |
 | `listTags` | read | List existing tags |
 | `verifyCitations` | read | BM25-ground `[mm:ss]` citations in a draft text against a video's transcript; rewrites drifted ones, reports ungrounded ones |
+| `listLessons` | read | Paged catalog of lessons (slug, title, status, level, instrument) |
+| `getLesson` | read | Fetch one lesson with its full block body, by slug |
 | `saveSummary` | write | Persist a frontier-model-generated summary to a Video |
 | `tagVideo` / `untagVideo` | write | Add / remove a tag on a video |
 | `saveNote` | write | Attach a short note to a video |
+| `createLesson` | write | Create a lesson from typed blocks — never overwrites; appends `-2`, `-3`, … on a slug collision |
+| `updateLesson` | write | Update an existing lesson by `documentId` |
 | `addVideo` | maintenance | Ingest a YouTube URL (creates Video + fetches transcript) |
 | `fetchTranscript` | maintenance | Fetch from YouTube + upsert; acts as "regenerate" with `force=true` |
 | `reindexEmbeddings` | maintenance | Backfill / refresh topical embeddings (`missing` / `stale` / `all`); serial Ollama run |
@@ -212,10 +216,16 @@ fetchTranscript(videoId: <id>, force: true)
   grounding for a Claude-generated summary, regenerate from the app UI
   afterwards.
 - Adding a tool: author a `ToolDef` in `server/src/mcp/tools/` — importing
-  `z` from `@strapi/utils`, **not** from `zod` — then add a one-line entry
+  `z` from the app's own top-level `zod` dependency, **not** the `z`
+  re-exported from `@strapi/utils` — then add a one-line entry
   (`{ tool, title, access }`) to `server/src/mcp/catalog.ts`. Registration
-  is automatic.
+  is automatic. Name it **camelCase**: Strapi's content-manager plugin
+  derives its own built-in per-content-type tools as `{verb}_${slug}`
+  (`create_video`, `get_lesson`, …) and registers them unconditionally at
+  boot; a name collision there throws outside this adapter's per-tool
+  try/catch and crashes the whole Strapi boot, not just that one
+  registration.
 - The input schema is declared **once**, on the tool. Its `.describe()` text
   is what MCP clients read to decide how to call the tool, so write it for an
-  agent. See ADR 0008 for why `@strapi/utils`' `z` is required and why the
-  schemas are no longer declared twice.
+  agent. See ADR 0008 for why the app's own `zod` import is required (not
+  `@strapi/utils`'s) and why the schemas are no longer declared twice.

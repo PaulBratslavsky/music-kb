@@ -43,6 +43,10 @@ import { saveNoteTool } from './tools/save-note';
 import { fetchTranscriptTool } from './tools/fetch-transcript';
 import { reindexEmbeddingsTool } from './tools/reindex-embeddings';
 import { generateDigestTool } from './tools/generate-digest';
+import { listLessonsTool } from './tools/list-lessons';
+import { getLessonTool } from './tools/get-lesson';
+import { createLessonTool } from './tools/create-lesson';
+import { updateLessonTool } from './tools/update-lesson';
 
 export const domainTools: DomainTool[] = [
   // ---- Read tools (gated by the music-kb-mcp.read admin action) ----
@@ -62,12 +66,16 @@ export const domainTools: DomainTool[] = [
   { tool: relatedVideosTool, title: 'Related videos', access: 'read' },
   { tool: getReadableArticleTool, title: 'Get the readable article', access: 'read' },
   { tool: verifyCitationsTool, title: 'Verify transcript citations', access: 'read' },
+  { tool: listLessonsTool, title: 'List lessons', access: 'read' },
+  { tool: getLessonTool, title: 'Get a lesson', access: 'read' },
 
   // ---- Write tools (gated by the music-kb-mcp.write admin action) ----
   { tool: saveSummaryTool, title: 'Save a video summary', access: 'write' },
   { tool: tagVideoTool, title: 'Tag a video', access: 'write' },
   { tool: untagVideoTool, title: 'Untag a video', access: 'write' },
   { tool: saveNoteTool, title: 'Save a note', access: 'write' },
+  { tool: createLessonTool, title: 'Create a lesson', access: 'write' },
+  { tool: updateLessonTool, title: 'Update a lesson', access: 'write' },
 
   // ---- Maintenance tools (expensive / external side effects / hard to undo)
   //      gated by the music-kb-mcp.maintenance admin action ----
