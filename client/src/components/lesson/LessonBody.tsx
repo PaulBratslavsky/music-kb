@@ -267,8 +267,13 @@ function Block({
       );
     }
 
-    // lesson.interactive has no consumer yet — it's a phase-2 seam that
-    // renders null until something needs it.
+    // Unknown blocks render as nothing rather than throwing, so a malformed
+    // or newer lesson degrades to a gap instead of taking down the page.
+    // `lesson.interactive` used to land here — it was declared in the schema
+    // with no renderer, which meant an author (or a model, via the createLesson
+    // MCP tool) could produce an invisible hole with no error anywhere. It was
+    // removed from the dynamic zone rather than left as a seam; re-add it here
+    // and in the schema together, never one without the other.
     default:
       if (import.meta.env.DEV) {
         console.warn(`[LessonBody] unknown block: ${block.__component}`);

@@ -264,9 +264,12 @@ tests can see this class of bug.
 
 Two lesser consequences:
 
-- `lesson.interactive` has no consumer. It was specified for the triads
-  lesson's live chord builder; nothing now uses it. It stays in the schema as
-  a phase-2 seam, rendering `null` until something needs it.
+- `lesson.interactive` was removed from the dynamic zone entirely (2026-08-22).
+  It was specified for the triads lesson's live chord builder, that migration
+  was cancelled, and it shipped declared-but-unrendered. Once the `createLesson`
+  MCP tool let a model author blocks, a schema-legal `interactive` block became
+  an invisible hole with no error — so the declaration went rather than the
+  renderer arriving. Re-add schema and renderer together or not at all.
 - Three cross-links in `TheoryReference.tsx` pointed at deleted routes. Since
   the client has no URL for the deployed companion app, the links were reduced
   to plain text rather than rewritten — the prose still names the lesson, it
