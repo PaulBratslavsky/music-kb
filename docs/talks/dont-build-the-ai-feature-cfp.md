@@ -41,7 +41,7 @@ needs and what a model can actually do.
 - Per-call sampling options — why tool calls work or quietly don't
 - `@tanstack/ai-ollama` — a local model as a first-class provider
 - Two retrieval layers: BM25 inside a transcript, embeddings across the library
-- 24 MCP tools — Claude Code / Desktop drives the same knowledge base
+- 28 MCP tools — Claude Code / Desktop drives the same knowledge base
 - `read` / `write` / `maintenance` tiers — exposing data isn't all-or-nothing
 - Picking models by fit, not size — true between hosted tiers too
 - Token cost as a design constraint, and how an MCP surface shifts it
