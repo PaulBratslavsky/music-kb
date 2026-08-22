@@ -64,6 +64,9 @@ export const createLessonTool: ToolDef<z.infer<typeof schema>> = {
     `legal __component values: ${LESSON_BLOCK_COMPONENTS.join(', ')}). ` +
     'Every block is schema-validated before anything is written — a bad enum value, an over-length caption, or a block ' +
     'missing a field its render mode needs is rejected with a message naming the offending block\'s array index and field. ' +
+    'This validates SHAPE, not quality — call `getLessonAuthoringGuide` first for the field reference plus the traps a ' +
+    'schema can\'t express (e.g. `diagram.stringSet`\'s en-dash separators) and for what makes a lesson worth reading ' +
+    'rather than generic filler. ' +
     'NEVER overwrites an existing lesson: if the slug collides, a numeric suffix is appended and the actual slug used is ' +
     'returned — read it from the result. Defaults `status` to "ai-generated", never "published".',
   schema,

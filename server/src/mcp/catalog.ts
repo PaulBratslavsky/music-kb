@@ -45,6 +45,7 @@ import { reindexEmbeddingsTool } from './tools/reindex-embeddings';
 import { generateDigestTool } from './tools/generate-digest';
 import { listLessonsTool } from './tools/list-lessons';
 import { getLessonTool } from './tools/get-lesson';
+import { getLessonAuthoringGuideTool } from './tools/get-lesson-authoring-guide';
 import { createLessonTool } from './tools/create-lesson';
 import { updateLessonTool } from './tools/update-lesson';
 
@@ -68,6 +69,7 @@ export const domainTools: DomainTool[] = [
   { tool: verifyCitationsTool, title: 'Verify transcript citations', access: 'read' },
   { tool: listLessonsTool, title: 'List lessons', access: 'read' },
   { tool: getLessonTool, title: 'Get a lesson', access: 'read' },
+  { tool: getLessonAuthoringGuideTool, title: 'Get the lesson authoring guide', access: 'read' },
 
   // ---- Write tools (gated by the music-kb-mcp.write admin action) ----
   { tool: saveSummaryTool, title: 'Save a video summary', access: 'write' },

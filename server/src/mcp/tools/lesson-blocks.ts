@@ -86,7 +86,11 @@ const neckDotSchema = z
       .int()
       .min(0)
       .max(5)
-      .describe('String index: 0 = lowest-pitched string (low E on guitar), increasing toward the highest string.'),
+      .describe(
+        'String index: 0 = the HIGHEST-pitched string (high e on guitar), increasing toward the lowest (5 = low E). ' +
+          'This is the opposite of standard tab numbering — mixing it up puts every dot on the wrong string. Matches ' +
+          '@music-kb/music/theory/triad-shapes.ts\'s STRING_SETS and MiniNeck.tsx\'s own string-0-is-high-e convention.',
+      ),
     fret: z.number().int().min(0),
     label: z.string().max(8).optional().describe('Text shown on the dot, e.g. a note name or scale-degree role.'),
     root: z.boolean().default(false).describe('True if this dot is the chord root — rendered distinctly.'),
@@ -123,7 +127,9 @@ const proseBlock = z
       .string()
       .min(1)
       .describe(
-        'Markdown body: paragraphs, lists, inline headings. This is the only block whose text is rendered as markdown — every other text field in these blocks is plain text.',
+        'Markdown body: paragraphs, lists, inline headings. Along with lesson.step\'s `body`, this is one of only two ' +
+          'block text fields rendered through a markdown parser — every other text field in these blocks (callout ' +
+          'body, step lede, table cells, captions) is plain text.',
       ),
     source: sourceSchema,
   })

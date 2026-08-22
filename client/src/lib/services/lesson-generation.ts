@@ -47,6 +47,10 @@ import { chat } from '@tanstack/ai';
 import { z } from 'zod';
 import { withRetry } from '#/lib/retry';
 import {
+  getOutlineGuideExcerpt,
+  getSectionBlockGuideExcerpt,
+} from '#/lib/lesson/authoring-guide';
+import {
   DIGEST_MAX_VIDEOS,
   DIGEST_MIN_VIDEOS,
   synthesizeDigest,
@@ -494,6 +498,14 @@ const OUTLINE_SYSTEM = [
   '`instrument` should reflect what the sources are teaching (guitar/piano/push), or "any" when the lesson is instrument-agnostic theory.',
 ].join('\n');
 
+// Loaded once at module scope, not per call — see authoring-guide.ts's own
+// comment for why this reads from disk instead of a Vite `?raw` import.
+// Only the structural-judgment excerpt, not the block reference: the
+// outline call never emits a block, so the block vocabulary would be dead
+// weight in this prompt (see getOutlineGuideExcerpt's own comment).
+const OUTLINE_GUIDE_EXCERPT = getOutlineGuideExcerpt();
+const OUTLINE_SYSTEM_WITH_GUIDE = `${OUTLINE_SYSTEM}\n\n---\n\n${OUTLINE_GUIDE_EXCERPT}`;
+
 function buildOutlinePrompt(topic: string, contextText: string, digestText: string): string {
   const parts = [
     `Topic: ${topic}`,
@@ -620,6 +632,13 @@ const SECTION_SYSTEM = [
   'Ground content in the provided source videos. Do not invent chords, keys, techniques, or songs the sources do not mention.',
   'On every prose/callout/step block, set `sourceVideoId` to the exact id shown in [brackets] next to the source video this content is drawn from, or null if the content blends several sources evenly. Copy the id exactly — never invent or guess one.',
 ].join('\n');
+
+// Loaded once at module scope — see OUTLINE_GUIDE_EXCERPT's comment above.
+// The block-reference entries for exactly the five block types this call
+// is allowed to emit, plus the judgment on what makes those blocks good
+// rather than generic (see getSectionBlockGuideExcerpt's own comment).
+const SECTION_GUIDE_EXCERPT = getSectionBlockGuideExcerpt();
+const SECTION_SYSTEM_WITH_GUIDE = `${SECTION_SYSTEM}\n\n---\n\n${SECTION_GUIDE_EXCERPT}`;
 
 function buildSectionPrompt(
   outline: LessonOutline,
@@ -992,7 +1011,7 @@ export async function generateLesson(
         chat({
           adapter: lessonModel.adapter,
           messages: [
-            { role: 'system', content: OUTLINE_SYSTEM },
+            { role: 'system', content: OUTLINE_SYSTEM_WITH_GUIDE },
             {
               role: 'user',
               content: buildOutlinePrompt(topic, contextText, digestContextText),
@@ -1040,7 +1059,7 @@ export async function generateLesson(
           chat({
             adapter: lessonModel.adapter,
             messages: [
-              { role: 'system', content: SECTION_SYSTEM },
+              { role: 'system', content: SECTION_SYSTEM_WITH_GUIDE },
               {
                 role: 'user',
                 content: buildSectionPrompt(outline as LessonOutline, section, contextText),
