@@ -73,7 +73,7 @@ Rotate by minting a new token and revoking the old one
 
 ## Tools
 
-28 tools across three permission tiers — 18 read, 6 write, 4 maintenance:
+29 tools across three permission tiers — 19 read, 6 write, 4 maintenance:
 
 | Tool | Tier | Purpose |
 |---|---|---|
