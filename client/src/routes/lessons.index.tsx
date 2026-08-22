@@ -10,6 +10,7 @@ import { Button } from '#/components/ui/button';
 import { listLessons } from '#/data/server-functions/lessons';
 import { generateAndSaveLesson } from '#/data/server-functions/generate-lesson';
 import type { LessonListResult, LessonSummary } from '#/lib/services/lessons';
+import type { SourceVideo } from '#/lib/services/lesson-generation';
 
 export const Route = createFileRoute('/lessons/')({
   component: LessonsIndexPage,
@@ -103,6 +104,26 @@ export function StatusBadge({ status }: { status: LessonSummary['status'] }) {
   return null;
 }
 
+// The backstop for anything the coverage check (lesson-generation.ts) might
+// still miss: a user who can see exactly which videos a lesson was built
+// from can judge it for themselves. Shown next to the success message,
+// never hidden behind a click — this is the whole point of surfacing it.
+// Exported for direct testing, same reasoning as StatusBadge above.
+export function SourcesList({ sources }: { sources: SourceVideo[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="mt-2 text-xs text-[var(--ink-muted)]">
+      <span className="font-medium">Built from:</span>{' '}
+      {sources.map((s, i) => (
+        <span key={s.documentId}>
+          {i > 0 ? ', ' : ''}
+          {s.title ?? s.youtubeVideoId}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 type GenerateState =
   | { kind: 'idle' }
   | { kind: 'running' }
@@ -112,6 +133,7 @@ type GenerateState =
       title: string;
       tier: 'frontier' | 'local';
       model: string;
+      sources: SourceVideo[];
     }
   // The relevance floor legitimately returning `{ ok: false }` isn't a
   // crash — it's information ("nothing in the library is close enough to
@@ -148,6 +170,7 @@ function GenerateLessonForm({ onGenerated }: { onGenerated: () => void }) {
         title: result.title,
         tier: result.tier,
         model: result.model,
+        sources: result.sources,
       });
       onGenerated();
     } catch (err) {
@@ -214,6 +237,8 @@ function GenerateLessonForm({ onGenerated }: { onGenerated: () => void }) {
           tier (<code>{state.model}</code>).
         </p>
       )}
+
+      {state.kind === 'success' && <SourcesList sources={state.sources} />}
 
       {state.kind === 'error' && (
         <p className="mt-3 text-xs text-[var(--ink-soft)]">{state.message}</p>

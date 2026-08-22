@@ -128,6 +128,14 @@ function makeVideo(documentId: string, score: number, overrides: Partial<StrapiV
   return { ...base, ...overrides } as StrapiVideo;
 }
 
+// The coverage step (task 5) runs its own chat() call before the outline
+// call. Every scenario below that reaches the outline/section calls needs
+// this queued first, or the coverage call would consume the outline's
+// mocked response instead. Dedicated coverage-check behavior (refusal,
+// digest never called, thrown-call handling) is exercised in its own
+// describe block further down.
+const COVERED = { covered: true, actualTopic: null, reason: null };
+
 const OUTLINE = {
   title: 'Blues turnarounds for guitar',
   summary: 'Learn the essential blues turnaround shapes and when to use them.',
@@ -182,6 +190,7 @@ beforeEach(() => {
 describe('generateLesson — happy path', () => {
   it('assembles blocks from the outline + per-section calls, injecting headings deterministically, and returns ranked sources', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce(OUTLINE)
       .mockResolvedValueOnce({
         blocks: [
@@ -234,6 +243,7 @@ describe('generateLesson — happy path', () => {
 describe('generateLesson — model tier', () => {
   function outlineAndOneSectionMocks() {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -318,6 +328,65 @@ describe('generateLesson — relevance floor', () => {
   });
 });
 
+describe('generateLesson — coverage check', () => {
+  it('refuses when covered: false, naming both the requested topic and what the sources actually cover, and never calls the digest', async () => {
+    mockedChat.mockResolvedValueOnce({
+      covered: false,
+      actualTopic: 'triads and harmonic movement',
+      reason: 'The sources never mention barre chords specifically.',
+    });
+
+    const result = await generateLesson({ topic: 'barre chords' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('barre chords');
+    expect(result.error).toContain('triads and harmonic movement');
+    expect(findDigestByVideoSetKeyMock).not.toHaveBeenCalled();
+    expect(synthesizeDigestMock).not.toHaveBeenCalled();
+    // Only the coverage call ran — the pipeline never reached outline/sections.
+    expect(mockedChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses rather than proceeding when the coverage call itself throws, and never calls the digest', async () => {
+    mockedChat.mockRejectedValueOnce(new Error('model returned invalid json'));
+
+    const result = await generateLesson({ topic: 'barre chords' });
+
+    expect(result.ok).toBe(false);
+    expect(findDigestByVideoSetKeyMock).not.toHaveBeenCalled();
+    expect(synthesizeDigestMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses rather than proceeding when the coverage call returns an unusable shape (missing `covered`)', async () => {
+    mockedChat.mockResolvedValueOnce({ actualTopic: 'something' });
+
+    const result = await generateLesson({ topic: 'barre chords' });
+
+    expect(result.ok).toBe(false);
+    expect(findDigestByVideoSetKeyMock).not.toHaveBeenCalled();
+    expect(synthesizeDigestMock).not.toHaveBeenCalled();
+  });
+
+  it('proceeds to the existing pipeline unchanged when covered: true', async () => {
+    mockedChat
+      .mockResolvedValueOnce(COVERED)
+      .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
+      .mockResolvedValueOnce({
+        blocks: [{ type: 'prose', body: 'Content for a covered topic.', sourceVideoId: null }],
+      });
+
+    const result = await generateLesson({ topic: 'blues turnarounds' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.map((b) => b.__component)).toEqual([
+      'lesson.heading',
+      'lesson.prose',
+    ]);
+  });
+});
+
 describe('generateLesson — digest reuse', () => {
   it('reuses a cached digest instead of re-synthesizing', async () => {
     findDigestByVideoSetKeyMock.mockResolvedValue({
@@ -342,6 +411,7 @@ describe('generateLesson — digest reuse', () => {
       },
     });
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [{ type: 'prose', body: 'Content grounded in the cached digest.', sourceVideoId: null }],
@@ -356,6 +426,7 @@ describe('generateLesson — digest reuse', () => {
 
   it('synthesizes via the digest service on a cache miss', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [{ type: 'prose', body: 'Freshly synthesized content.', sourceVideoId: null }],
@@ -386,6 +457,7 @@ describe('generateLesson — contradictions', () => {
       },
     });
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [{ type: 'prose', body: 'Baseline content.', sourceVideoId: null }],
@@ -410,6 +482,7 @@ describe('generateLesson — contradictions', () => {
 
   it('adds no contradiction blocks when the digest has none', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [{ type: 'prose', body: 'Baseline content.', sourceVideoId: null }],
@@ -426,6 +499,7 @@ describe('generateLesson — contradictions', () => {
 describe('generateLesson — citation grounding', () => {
   it('grounds a valid sourceVideoId to a real BM25 timecode from that video only', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -449,6 +523,7 @@ describe('generateLesson — citation grounding', () => {
 
   it('drops a citation naming a video outside the source set', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -470,6 +545,7 @@ describe('generateLesson — citation grounding', () => {
 
   it('never trusts a model-supplied timeSec — grounding decides it', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -496,6 +572,7 @@ describe('generateLesson — citation grounding', () => {
 
   it('yields videoId only, no timeSec, when grounding is weak', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -521,6 +598,7 @@ describe('generateLesson — citation grounding', () => {
 describe('generateLesson — assembly fixes', () => {
   it('renumbers steps sequentially across sections instead of restarting per section', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce(OUTLINE)
       .mockResolvedValueOnce({
         blocks: [
@@ -545,6 +623,7 @@ describe('generateLesson — assembly fixes', () => {
 
   it('strips a trailing colon and whitespace from step titles', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -569,6 +648,7 @@ describe('generateLesson — assembly fixes', () => {
 
   it('drops a model-emitted heading inside a section, keeping only the injected one', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -591,6 +671,7 @@ describe('generateLesson — assembly fixes', () => {
 describe('generateLesson — block validation', () => {
   it('drops a malformed block but keeps the rest of the section', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -612,6 +693,7 @@ describe('generateLesson — block validation', () => {
 
   it('drops a block of a disallowed type (e.g. diagram)', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -633,6 +715,7 @@ describe('generateLesson — block validation', () => {
   it('truncates an over-long table caption to 255 chars instead of failing', async () => {
     const longCaption = 'x'.repeat(300);
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -657,6 +740,7 @@ describe('generateLesson — block validation', () => {
 
   it('coerces non-string headers/rows/degrees with String()', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce({ ...OUTLINE, sections: [OUTLINE.sections[0]] })
       .mockResolvedValueOnce({
         blocks: [
@@ -682,6 +766,7 @@ describe('generateLesson — block validation', () => {
 describe('generateLesson — model failure handling', () => {
   it('skips a section whose chat() call fails and still returns a lesson from the rest', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce(OUTLINE)
       .mockRejectedValueOnce(new Error('model returned invalid json'))
       .mockResolvedValueOnce({
@@ -699,7 +784,9 @@ describe('generateLesson — model failure handling', () => {
   });
 
   it('returns { ok: false } with a friendly message when the outline call fails', async () => {
-    mockedChat.mockRejectedValueOnce(new Error("model 'gemma4-kb:latest' not found"));
+    mockedChat
+      .mockResolvedValueOnce(COVERED)
+      .mockRejectedValueOnce(new Error("model 'gemma4-kb:latest' not found"));
 
     const result = await generateLesson({ topic: 'blues turnarounds' });
 
@@ -711,6 +798,7 @@ describe('generateLesson — model failure handling', () => {
 
   it('returns { ok: false } when every section fails', async () => {
     mockedChat
+      .mockResolvedValueOnce(COVERED)
       .mockResolvedValueOnce(OUTLINE)
       .mockRejectedValueOnce(new Error('bad json'))
       .mockRejectedValueOnce(new Error('bad json'));
@@ -726,7 +814,9 @@ describe('generateLesson — model failure handling', () => {
     // Worst-case shape: even if a raw provider error message somehow
     // embedded the key (it doesn't, in practice — see anthropic-errors.ts
     // for why — but never trust that), the mapped message must not.
-    mockedChat.mockRejectedValueOnce(
+    mockedChat
+      .mockResolvedValueOnce(COVERED)
+      .mockRejectedValueOnce(
       new Error(
         `Structured output generation failed: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key ${FAKE_KEY}"}}`,
       ),

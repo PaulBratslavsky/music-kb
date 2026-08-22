@@ -9,6 +9,10 @@
 //
 //   1. retrieve — embed the topic, cosine over stored video embeddings,
 //                 apply a relevance floor, cap to the digest's video range
+//   1.5. coverage — ONE chat() call: do the retrieved sources actually
+//                 teach the topic, or just sit near it in embedding space?
+//                 Runs before the (expensive) digest step and refuses on
+//                 anything but a clear "yes" — see the step's own comment.
 //   2. digest   — reuse a cached cross-video digest for this exact video
 //                 set, or synthesize one via the existing digest service
 //   3. context  — title + summary + musicExtraction per source video, plus
@@ -216,6 +220,96 @@ async function rankVideosByTopic(topic: string): Promise<RankedVideo[]> {
       score: cosineSimilarity(queryVec, video.summaryEmbedding as number[]),
     }))
     .sort((a, b) => b.score - a.score);
+}
+
+// -----------------------------------------------------------------------------
+// Step 1.5: coverage — does the retrieved set actually cover the topic?
+// -----------------------------------------------------------------------------
+//
+// The relevance floor above measures embedding SIMILARITY, not topical
+// COVERAGE. A real run asked for "barre chords"; the library has no
+// barre-chord material, but "barre chords" sits genuinely close to
+// guitar-chord content in embedding space, so retrieval passed the floor
+// and the model wrote 23 confident blocks about triads and harmonic
+// movement that never once said "barre". That failure is worse than an
+// error — it looks like success. This step exists to catch it: one small
+// model call, run BEFORE the (expensive) digest step, asking whether the
+// retrieved sources actually teach the topic — using only each candidate's
+// title + summary, never full transcripts, consistent with every other
+// call in this pipeline staying small.
+//
+// Biased toward refusing: a false "covered" ships a confidently wrong
+// lesson; a false "not covered" only costs the user a rephrase. Those
+// costs are not symmetric, so (a) the system prompt instructs the model
+// that partial/tangential coverage does NOT count, (b) an unusable/failed
+// verdict refuses rather than proceeding (see the catch block and the
+// `!coverage` check in generateLesson — model failure is never treated as
+// permission to continue), and (c) on refusal the message names both the
+// requested topic and what the library actually has, so the user knows
+// what to search for or add.
+const CoverageVerdictSchema = z.object({
+  covered: z
+    .boolean()
+    .describe(
+      'true ONLY if the sources substantively teach the requested topic itself. Partial, adjacent, or tangential coverage is NOT coverage — answer false for that.',
+    ),
+  actualTopic: z
+    .string()
+    .nullable()
+    .describe(
+      'When covered is false: a short phrase naming what the sources DO actually cover, so the user knows what to search for instead. Null when covered is true.',
+    ),
+  reason: z
+    .string()
+    .nullable()
+    .describe('One short sentence explaining the verdict, or null.'),
+});
+
+/** What the sources DO cover, when they don't cover the topic. */
+export type CoverageVerdict = {
+  covered: boolean;
+  actualTopic?: string;
+  reason?: string;
+};
+
+const COVERAGE_SYSTEM = [
+  'You judge whether a set of source videos actually covers a requested lesson topic — not merely whether they are topically adjacent or related.',
+  'Partial or tangential coverage is NOT coverage. If the sources share vocabulary or a broad subject with the topic but do not substantively teach the topic itself, answer covered: false.',
+  'Example: sources about triads and harmonic movement do NOT cover "barre chords", even though both are guitar-chord topics — a learner asking for barre chords would find nothing about barre chords in that material.',
+  'When in doubt, or when coverage is only partial, answer covered: false — a false "not covered" only costs the user a rephrase; a false "covered" ships a confidently wrong lesson.',
+  'When covered is false, set `actualTopic` to a short phrase naming what the sources DO actually cover, so the user knows what to search for instead.',
+].join('\n');
+
+function buildCoverageCandidateText(v: StrapiVideo): string {
+  const title = v.summaryTitle ?? v.videoTitle ?? 'Untitled video';
+  const desc = v.summaryDescription ?? v.summaryOverview ?? '';
+  const lines = [`- "${title}"`];
+  if (desc.trim()) lines.push(`  ${truncate(desc.trim(), CONTEXT_SNIPPET_MAX_CHARS)}`);
+  return lines.join('\n');
+}
+
+function buildCoveragePrompt(topic: string, candidatesText: string): string {
+  return [
+    `Requested lesson topic: ${topic}`,
+    '',
+    'Candidate source videos (title + summary only):',
+    candidatesText,
+  ].join('\n');
+}
+
+// Defensive, same stance as sanitizeOutline: `raw` is untrusted content, not
+// just an untrusted shape. `covered` missing/non-boolean is treated as an
+// unusable verdict (caller refuses) rather than defaulted either way — a
+// coin-flip default here would silently reintroduce the exact bug this step
+// exists to close.
+function sanitizeCoverageVerdict(raw: unknown): CoverageVerdict | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.covered !== 'boolean') return null;
+  const actualTopic =
+    typeof r.actualTopic === 'string' && r.actualTopic.trim() ? r.actualTopic.trim() : undefined;
+  const reason = typeof r.reason === 'string' && r.reason.trim() ? r.reason.trim() : undefined;
+  return { covered: r.covered, actualTopic, reason };
 }
 
 // -----------------------------------------------------------------------------
@@ -782,6 +876,67 @@ export async function generateLesson(
     videos: sources.length,
     top: sources[0]?.title ?? null,
   });
+
+  // --- 1.5: coverage — refuse before paying for the digest ----------------
+  const candidatesText = ranked.map((r) => buildCoverageCandidateText(r.video)).join('\n');
+  let coverage: CoverageVerdict | null;
+  try {
+    const raw = await withRetry(
+      () =>
+        chat({
+          adapter: lessonModel.adapter,
+          messages: [
+            { role: 'system', content: COVERAGE_SYSTEM },
+            { role: 'user', content: buildCoveragePrompt(topic, candidatesText) },
+          ] as never,
+          outputSchema: CoverageVerdictSchema,
+          modelOptions: buildModelOptions(lessonModel, 0.1),
+        }),
+      {
+        attempts: 2,
+        onRetry: (err, attempt, delayMs) => {
+          logPhase(topic, `coverage ↻ retry ${attempt}/1 in ${delayMs}ms`, {
+            cause: redactAnthropicKey(err instanceof Error ? err.message : 'unknown'),
+          });
+        },
+      },
+    );
+    coverage = sanitizeCoverageVerdict(raw);
+  } catch (err) {
+    const message = redactAnthropicKey(
+      err instanceof Error ? err.message : 'Coverage check failed',
+    );
+    logPhase(topic, 'coverage ✗ call failed — refusing rather than proceeding', {
+      error: message,
+    });
+    return { ok: false, error: friendlyModelError(lessonModel.tier, message) };
+  }
+
+  if (!coverage) {
+    // Model failure (unusable shape) is never permission to continue — see
+    // the header comment above this step.
+    logPhase(topic, 'coverage ✗ unusable verdict shape — refusing rather than proceeding');
+    return {
+      ok: false,
+      error: `Could not verify whether the library actually covers "${topic}" — refusing rather than risk generating a lesson from the wrong material. Try again, or rephrase the topic.`,
+    };
+  }
+
+  if (!coverage.covered) {
+    const closest = coverage.actualTopic
+      ? ` The closest material the library has is about ${coverage.actualTopic}.`
+      : '';
+    const reasonSuffix = coverage.reason ? ` (${coverage.reason})` : '';
+    logPhase(topic, 'coverage ✗ not covered — refusing before digest', {
+      actualTopic: coverage.actualTopic ?? null,
+      reason: coverage.reason ?? null,
+    });
+    return {
+      ok: false,
+      error: `The library doesn't actually cover "${topic}".${closest}${reasonSuffix} Try a topic closer to what the library has, or add videos on "${topic}".`,
+    };
+  }
+  logPhase(topic, 'coverage ✓ sources cover the topic');
 
   // --- 2: digest — cached reuse, or synthesize (never persist) ----------
   const youtubeVideoIds = ranked.map((r) => r.video.youtubeVideoId);

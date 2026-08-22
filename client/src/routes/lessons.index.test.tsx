@@ -8,7 +8,8 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
-import { StatusBadge } from './lessons.index';
+import { StatusBadge, SourcesList } from './lessons.index';
+import type { SourceVideo } from '#/lib/services/lesson-generation';
 
 // RTL auto-cleanup only registers itself when vitest runs with `globals:
 // true`; this config does not, so without an explicit afterEach every
@@ -29,6 +30,29 @@ describe('StatusBadge', () => {
 
   it('renders nothing for status "published"', () => {
     const { container } = render(<StatusBadge status="published" />);
+    expect(container.textContent).toBe('');
+  });
+});
+
+describe('SourcesList', () => {
+  const sources: SourceVideo[] = [
+    { documentId: 'a', youtubeVideoId: 'yt-a', title: 'Blues Turnarounds 101', score: 0.71 },
+    { documentId: 'b', youtubeVideoId: 'yt-b', title: 'Advanced Turnarounds', score: 0.63 },
+  ];
+
+  it('lists every source video title, so a user can judge the lesson for themselves', () => {
+    render(<SourcesList sources={sources} />);
+    expect(screen.getByText(/Blues Turnarounds 101/)).toBeTruthy();
+    expect(screen.getByText(/Advanced Turnarounds/)).toBeTruthy();
+  });
+
+  it('falls back to the youtubeVideoId when a source has no title', () => {
+    render(<SourcesList sources={[{ documentId: 'c', youtubeVideoId: 'yt-c', title: null, score: 0.5 }]} />);
+    expect(screen.getByText(/yt-c/)).toBeTruthy();
+  });
+
+  it('renders nothing for an empty source list', () => {
+    const { container } = render(<SourcesList sources={[]} />);
     expect(container.textContent).toBe('');
   });
 });
