@@ -75,7 +75,7 @@ import {
   buildMusicExtractionText,
   fetchVideoByDocumentIdService,
   fetchVideoByVideoIdService,
-  listAllVideosForEmbeddingService,
+  listAllVideosForEmbeddingWithStatusService,
   type StrapiVideo,
 } from '#/lib/services/videos';
 import type { LessonBlock } from '#/lib/services/lessons';
@@ -208,9 +208,20 @@ type RankedVideo = { video: StrapiVideo; score: number };
 // Ranks every video with a stored embedding against the topic. Does NOT
 // apply the relevance floor or cap — callers do that, so the full ranked
 // list is available for logging while tuning the floor.
+/** Thrown when Strapi itself is unreachable, so the caller can say so. */
+class BackendUnreachableError extends Error {}
+
 async function rankVideosByTopic(topic: string): Promise<RankedVideo[]> {
   const queryVec = await embedText(topic, 'query');
-  const all = await listAllVideosForEmbeddingService();
+  const listed = await listAllVideosForEmbeddingWithStatusService();
+  if (!listed.ok) {
+    throw new BackendUnreachableError(
+      listed.status === 0
+        ? 'Cannot reach Strapi — is the backend running?'
+        : `Strapi returned ${listed.status} while listing videos: ${listed.error}`,
+    );
+  }
+  const all = listed.videos;
   const withEmbeddings = all.filter(
     (v) => Array.isArray(v.summaryEmbedding) && v.summaryEmbedding.length > 0,
   );
@@ -227,12 +238,15 @@ async function rankVideosByTopic(topic: string): Promise<RankedVideo[]> {
 // -----------------------------------------------------------------------------
 //
 // The relevance floor above measures embedding SIMILARITY, not topical
-// COVERAGE. A real run asked for "barre chords"; the library has no
-// barre-chord material, but "barre chords" sits genuinely close to
-// guitar-chord content in embedding space, so retrieval passed the floor
-// and the model wrote 23 confident blocks about triads and harmonic
-// movement that never once said "barre". That failure is worse than an
-// error — it looks like success. This step exists to catch it: one small
+// COVERAGE, and the two come apart. A real run asked for "barre chords" and
+// got 23 confident blocks about triads and harmonic movement that never once
+// said "barre" — a failure worse than an error, because it looks like
+// success. (That particular run turned out to be a generation fluke rather
+// than missing source material; the library does cover barre chords. But the
+// gap it exposed is real: similarity is not coverage, and a topic the library
+// genuinely lacks can still sit close enough in embedding space to clear the
+// floor.) Verified against the real model: "jazz reharmonization and tritone
+// substitution" is correctly refused here in ~14s. This step is one small
 // model call, run BEFORE the (expensive) digest step, asking whether the
 // retrieved sources actually teach the topic — using only each candidate's
 // title + summary, never full transcripts, consistent with every other
@@ -826,6 +840,10 @@ export async function generateLesson(
   } catch (err) {
     const message = redactAnthropicKey(err instanceof Error ? err.message : 'Retrieval failed');
     logPhase(topic, 'retrieve ✗ failed', { error: message });
+    // A dead backend is not an Ollama problem, and must not be reported as an
+    // empty library — that sends the user off to regenerate summaries they
+    // already have.
+    if (err instanceof BackendUnreachableError) return { ok: false, error: message };
     return { ok: false, error: friendlyOllamaError(message) };
   }
 

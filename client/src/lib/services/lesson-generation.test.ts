@@ -67,6 +67,13 @@ vi.mock('./videos', async (importOriginal) => {
   return {
     ...actual,
     listAllVideosForEmbeddingService: () => listAllVideosMock(),
+    // The generator uses the status-aware sibling so it can tell a dead
+    // backend apart from an empty library; keep the existing mock as the
+    // source of truth and wrap it in the success shape.
+    listAllVideosForEmbeddingWithStatusService: async () => ({
+      ok: true as const,
+      videos: await listAllVideosMock(),
+    }),
     fetchVideoByVideoIdService: (id: string) => fetchVideoByVideoIdMock(id),
     fetchVideoByDocumentIdService: (id: string) => fetchVideoByDocumentIdMock(id),
   };

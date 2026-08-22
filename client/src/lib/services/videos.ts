@@ -439,7 +439,25 @@ const detailQuery: StrapiQuery = {
 // relatedVideos, semantic search). Pulls the fields needed to rebuild the
 // embedding text + the existing vector for comparison — nothing else.
 // Paginates internally so one call returns every eligible row.
-export async function listAllVideosForEmbeddingService(): Promise<StrapiVideo[]> {
+export type VideoEmbeddingListResult =
+  | { ok: true; videos: StrapiVideo[] }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Status-aware sibling of `listAllVideosForEmbeddingService`.
+ *
+ * The plain version breaks out of its pagination loop on a failed fetch and
+ * returns whatever it has, so "Strapi is unreachable" and "the library is
+ * empty" are indistinguishable to the caller. That bit lesson generation,
+ * which reported a dead backend to the user as "No videos in the library have
+ * embeddings yet — generate summaries first" and sent them off to fix a
+ * problem they didn't have. Callers that need to tell those apart use this.
+ *
+ * A failure on page 1 is fatal; a failure partway through pagination returns
+ * what was collected, because a partial library still ranks usefully and the
+ * caller has no better option than proceeding.
+ */
+export async function listAllVideosForEmbeddingWithStatusService(): Promise<VideoEmbeddingListResult> {
   const pageSize = 100;
   const all: StrapiVideo[] = [];
   for (let page = 1; page <= 50; page += 1) {
@@ -451,7 +469,10 @@ export async function listAllVideosForEmbeddingService(): Promise<StrapiVideo[]>
         pagination: { page, pageSize, withCount: true },
       },
     });
-    if (!result.ok) break;
+    if (!result.ok) {
+      if (page === 1) return { ok: false, status: result.status, error: result.error };
+      break;
+    }
     for (const v of result.data ?? []) {
       const cleaned = stripVideoForClient(v);
       if (cleaned) all.push(cleaned);
@@ -459,7 +480,12 @@ export async function listAllVideosForEmbeddingService(): Promise<StrapiVideo[]>
     const pageCount = result.meta?.pagination?.pageCount ?? 1;
     if (page >= pageCount) break;
   }
-  return all;
+  return { ok: true, videos: all };
+}
+
+export async function listAllVideosForEmbeddingService(): Promise<StrapiVideo[]> {
+  const result = await listAllVideosForEmbeddingWithStatusService();
+  return result.ok ? result.videos : [];
 }
 
 // NOTE: these two fetchers return the FULL video row including
