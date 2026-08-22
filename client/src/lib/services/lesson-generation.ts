@@ -95,7 +95,15 @@ function friendlyModelError(tier: ModelTier, message: string): string {
 // (model is bound at adapter-construction time either way — this is purely
 // about satisfying each adapter's declared provider-options shape).
 function buildModelOptions(lessonModel: ReturnType<typeof resolveLessonModel>, temperature: number) {
-  if (lessonModel.tier === 'frontier') return { temperature };
+  // Frontier: send NO sampling knobs. Newer Anthropic models reject
+  // `temperature` outright — claude-sonnet-5 answers a request carrying it
+  // with `400 invalid_request_error: \`temperature\` is deprecated for this
+  // model.`, which fails the whole generation. The local path still needs it
+  // (temperature 1.0 is what made gemma4-kb's tool calling unreliable), so
+  // the knob stays tier-specific rather than being dropped everywhere.
+  // `temperature` is accepted here and deliberately unused on this branch.
+  void temperature;
+  if (lessonModel.tier === 'frontier') return {};
   return samplingOptions(lessonModel.model, temperature);
 }
 

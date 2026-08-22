@@ -39,6 +39,32 @@ const TIMEOUT_PATTERNS = [
   /econnrefused/i,
 ];
 
+/**
+ * Pull just the human-readable `message` out of an Anthropic error payload.
+ *
+ * Returns undefined rather than guessing when the shape is unfamiliar — the
+ * caller then falls back to the generic text. Deliberately narrow: we lift one
+ * short string, never the whole untrusted payload, and cap its length so a
+ * hostile or enormous body cannot become the UI.
+ */
+function extractProviderMessage(raw: string): string | undefined {
+  const start = raw.indexOf('{');
+  if (start === -1) return undefined;
+  try {
+    const parsed = JSON.parse(raw.slice(start)) as {
+      error?: { message?: unknown };
+      message?: unknown;
+    };
+    const msg = parsed.error?.message ?? parsed.message;
+    if (typeof msg !== 'string') return undefined;
+    const clean = msg.trim();
+    if (!clean) return undefined;
+    return clean.length > 200 ? `${clean.slice(0, 200)}…` : clean;
+  } catch {
+    return undefined;
+  }
+}
+
 export function friendlyAnthropicError(rawError: string): string {
   const trimmed = rawError.trim();
   if (!trimmed) return 'Frontier AI request failed.';
@@ -53,8 +79,15 @@ export function friendlyAnthropicError(rawError: string): string {
     return 'Frontier AI request timed out. Try again, or leave ANTHROPIC_API_KEY unset to use the local model instead.';
   }
 
-  // Unknown shape — do NOT echo it; it's an untrusted cloud-provider
-  // payload. Server logs (via chat()'s own error-category logging and this
-  // module's callers) carry the raw detail for debugging.
+  // Unknown shape. Surface the provider's own `message` when we can parse one
+  // out, because "check server logs" is useless to anyone not already tailing
+  // them — a real 400 (`temperature` is deprecated for this model) cost a
+  // round trip precisely because this branch hid it. Only the `message` field
+  // is lifted, never the whole payload, and it goes through the key redactor
+  // on the way out.
+  const detail = extractProviderMessage(trimmed);
+  if (detail) {
+    return `Frontier AI request failed: ${detail} (or leave ANTHROPIC_API_KEY unset to use the local model instead.)`;
+  }
   return 'Frontier AI request failed. Check server logs for detail, or leave ANTHROPIC_API_KEY unset to use the local model instead.';
 }
