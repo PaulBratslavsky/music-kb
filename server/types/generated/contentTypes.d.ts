@@ -570,7 +570,6 @@ export interface ApiLessonLesson extends Struct.CollectionTypeSchema {
         'lesson.keyboard-diagram',
         'lesson.degree-chips',
         'lesson.table',
-        'lesson.interactive',
         'lesson.param-picker',
         'lesson.video-ref',
       ]

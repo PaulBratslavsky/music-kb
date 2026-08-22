@@ -282,22 +282,6 @@ export interface LessonHeading extends Struct.ComponentSchema {
   };
 }
 
-export interface LessonInteractive extends Struct.ComponentSchema {
-  collectionName: 'components_lesson_interactives';
-  info: {
-    description: 'Configuration for a stateful widget. The React component owns its own state; this block only configures it.';
-    displayName: 'Interactive';
-  };
-  attributes: {
-    caption: Schema.Attribute.String;
-    config: Schema.Attribute.JSON;
-    kind: Schema.Attribute.Enumeration<
-      ['triad-explorer', 'neck-pattern-picker', 'guitar-view']
-    > &
-      Schema.Attribute.Required;
-  };
-}
-
 export interface LessonKeyMark extends Struct.ComponentSchema {
   collectionName: 'components_lesson_key_marks';
   info: {
@@ -518,7 +502,6 @@ declare module '@strapi/strapi' {
       'lesson.degree-chips': LessonDegreeChips;
       'lesson.diagram': LessonDiagram;
       'lesson.heading': LessonHeading;
-      'lesson.interactive': LessonInteractive;
       'lesson.key-mark': LessonKeyMark;
       'lesson.keyboard-diagram': LessonKeyboardDiagram;
       'lesson.neck-dot': LessonNeckDot;

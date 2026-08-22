@@ -35,20 +35,6 @@ const TRIAD_QUALITIES = ['major', 'minor', 'augmented', 'diminished'] as const;
 // detects exactly that mistake and names the fix.
 const STRING_SETS = ['e–B–G', 'B–G–D', 'G–D–A', 'D–A–E'] as const;
 
-export const LESSON_BLOCK_COMPONENTS = [
-  'lesson.prose',
-  'lesson.heading',
-  'lesson.callout',
-  'lesson.step',
-  'lesson.diagram',
-  'lesson.keyboard-diagram',
-  'lesson.degree-chips',
-  'lesson.table',
-  'lesson.interactive',
-  'lesson.param-picker',
-  'lesson.video-ref',
-] as const;
-
 const pitchClass = () =>
   z.enum(PITCH_CLASSES).describe('A pitch class: C, C#, D, D#, E, F, F#, G, G#, A, A#, B (sharps only — no flats).');
 
@@ -337,21 +323,6 @@ const tableBlock = z
     });
   });
 
-const interactiveBlock = z
-  .object({
-    __component: z.literal('lesson.interactive'),
-    kind: z.enum(['triad-explorer', 'neck-pattern-picker', 'guitar-view']),
-    config: z.record(z.string(), z.unknown()).optional().describe('Widget-specific configuration, freeform JSON.'),
-    caption: captionSchema,
-  })
-  .strict()
-  .describe(
-    'WARNING: as of this writing, lesson.interactive has no renderer wired up in LessonBody.tsx — it always ' +
-      'renders as nothing (a silent gap), regardless of `kind`/`config`. It is schema-legal (a phase-2 seam) but ' +
-      'produces no visible output today. Prefer lesson.diagram / lesson.keyboard-diagram / lesson.degree-chips / ' +
-      'lesson.table for content the reader must actually see.',
-  );
-
 const paramPickerBlock = z
   .object({
     __component: z.literal('lesson.param-picker'),
@@ -378,10 +349,21 @@ export const lessonBlockSchema = z.discriminatedUnion('__component', [
   keyboardDiagramBlock,
   degreeChipsBlock,
   tableBlock,
-  interactiveBlock,
   paramPickerBlock,
   videoRefBlock,
 ]);
+
+// Derived from lessonBlockSchema itself — NOT a second hand-typed list.
+// lesson.interactive used to be schema-legal here but had no renderer in
+// LessonBody.tsx (a silent-gap block); it was removed from both this union
+// and the Strapi dynamic zone (server/src/api/lesson/content-types/lesson/
+// schema.json). Hand-typing this list a second time is exactly the drift
+// that caused that: deriving it from the union's own `__component` literals
+// means the advertised vocabulary can never say more than the validator
+// actually accepts.
+export const LESSON_BLOCK_COMPONENTS = lessonBlockSchema.options.map(
+  (option) => option.shape.__component.value,
+) as readonly string[];
 
 export const lessonBodySchema = z
   .array(lessonBlockSchema)
