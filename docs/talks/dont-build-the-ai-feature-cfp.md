@@ -14,8 +14,9 @@ Don't Build the AI Feature, Build the Interface: React, TanStack AI, and MCP
 
 
 **The experiment.** Music KB is a React app that turns YouTube music tutorials
-into a library I can search and ask questions of. Summaries, embeddings, chat
-and lesson generation all run locally.
+into a library I can search and ask questions of. Summaries, embeddings and
+chat all run locally. Generating a lesson from the library is the one job that
+reaches for a bigger model.
 
 **What I found.** It got further than I expected. TanStack AI handles
 streaming, server-side tools, structured output and provider swapping, so

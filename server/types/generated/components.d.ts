@@ -243,15 +243,7 @@ export interface LessonDiagram extends Struct.ComponentSchema {
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'theory'>;
     quality: Schema.Attribute.Enumeration<
-      [
-        'major',
-        'minor',
-        'augmented',
-        'diminished',
-        'dominant7',
-        'major7',
-        'minor7',
-      ]
+      ['major', 'minor', 'augmented', 'diminished']
     >;
     root: Schema.Attribute.Enumeration<
       ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -347,15 +339,7 @@ export interface LessonKeyboardDiagram extends Struct.ComponentSchema {
         number
       >;
     quality: Schema.Attribute.Enumeration<
-      [
-        'major',
-        'minor',
-        'augmented',
-        'diminished',
-        'dominant7',
-        'major7',
-        'minor7',
-      ]
+      ['major', 'minor', 'augmented', 'diminished']
     >;
     root: Schema.Attribute.Enumeration<
       ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -390,6 +374,7 @@ export interface LessonNeckDot extends Struct.ComponentSchema {
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<
         {
+          max: 5;
           min: 0;
         },
         number
@@ -415,7 +400,10 @@ export interface LessonParameter extends Struct.ComponentSchema {
     displayName: 'Lesson parameter';
   };
   attributes: {
-    default: Schema.Attribute.String & Schema.Attribute.DefaultTo<'C'>;
+    default: Schema.Attribute.Enumeration<
+      ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    > &
+      Schema.Attribute.DefaultTo<'C'>;
     label: Schema.Attribute.String & Schema.Attribute.DefaultTo<'Key'>;
     name: Schema.Attribute.Enumeration<['key']> &
       Schema.Attribute.Required &
