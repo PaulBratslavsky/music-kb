@@ -3,11 +3,30 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('./strapi-client', () => ({ strapiFetch: vi.fn() }));
 
 import { strapiFetch } from './strapi-client';
-import { getLessonBySlugWithStatus, listLessonsWithStatus } from './lessons';
+import {
+  getLessonBySlugWithStatus,
+  listLessonsWithStatus,
+  saveLessonService,
+} from './lessons';
+import type { GeneratedLesson } from './lesson-generation';
 
 const mocked = vi.mocked(strapiFetch);
 
 beforeEach(() => mocked.mockReset());
+
+function makeLesson(overrides: Partial<GeneratedLesson> = {}): GeneratedLesson {
+  return {
+    title: 'Drop D Basics',
+    slug: 'drop-d-basics',
+    summary: 'A short intro to drop D tuning.',
+    level: 'beginner',
+    instrument: 'guitar',
+    duration: null,
+    status: 'ai-generated',
+    body: [],
+    ...overrides,
+  };
+}
 
 describe('listLessonsWithStatus', () => {
   it('returns the rows Strapi gave, with their fields intact', async () => {
@@ -64,5 +83,89 @@ describe('getLessonBySlugWithStatus', () => {
       ok: true,
       lesson: { documentId: 'x', slug: 't' },
     });
+  });
+});
+
+describe('saveLessonService', () => {
+  it('creates the lesson at the requested slug when it is free', async () => {
+    mocked.mockImplementation(async (method, path) => {
+      if (method === 'GET' && path === '/api/lessons') {
+        return { ok: true, data: [] } as never; // slug free
+      }
+      if (method === 'POST' && path === '/api/lessons') {
+        return {
+          ok: true,
+          data: { documentId: 'doc-1', slug: 'drop-d-basics' },
+        } as never;
+      }
+      // Benign fallback rather than throwing: this vitest/tinyspy setup
+      // invokes the mock once more, with no arguments, during test
+      // teardown (after the assertions below already ran) — an
+      // environment artifact, not a call this service ever makes.
+      // Throwing here would surface as an unrelated unhandled rejection.
+      return { ok: true, data: [] } as never;
+    });
+
+    const result = await saveLessonService(makeLesson());
+    expect(result).toEqual({ ok: true, slug: 'drop-d-basics', documentId: 'doc-1' });
+
+    // Sanity: the create call carries the CMS-shaped payload, not the
+    // GeneratedLesson type verbatim (no `sources` field, for instance).
+    const createCall = mocked.mock.calls.find(([m]) => m === 'POST');
+    expect(createCall?.[2]).toMatchObject({
+      body: { data: { slug: 'drop-d-basics', status: 'ai-generated' } },
+    });
+  });
+
+  it('appends a numeric suffix when the derived slug collides, and never overwrites', async () => {
+    const existingSlugs = new Set(['drop-d-basics', 'drop-d-basics-2']);
+    mocked.mockImplementation(async (method, path, opts) => {
+      if (method === 'GET' && path === '/api/lessons') {
+        const candidate = (
+          opts?.query?.filters as { slug?: { $eq?: string } } | undefined
+        )?.slug?.$eq;
+        const exists = !!candidate && existingSlugs.has(candidate);
+        return { ok: true, data: exists ? [{ slug: candidate }] : [] } as never;
+      }
+      if (method === 'POST' && path === '/api/lessons') {
+        const body = (opts?.body as { data: { slug: string } }).data;
+        return { ok: true, data: { documentId: 'doc-3', slug: body.slug } } as never;
+      }
+      // See the note in the previous test — benign fallback for a
+      // teardown-time phantom call, not a real code path.
+      return { ok: true, data: [] } as never;
+    });
+
+    const result = await saveLessonService(makeLesson());
+    expect(result).toEqual({ ok: true, slug: 'drop-d-basics-3', documentId: 'doc-3' });
+
+    // Never a PUT/overwrite of the colliding rows — only GET (probes) and
+    // one POST (create at the free slug).
+    expect(mocked.mock.calls.every(([m]) => m === 'GET' || m === 'POST')).toBe(true);
+    expect(mocked.mock.calls.filter(([m]) => m === 'POST')).toHaveLength(1);
+  });
+
+  it('surfaces a Strapi failure on the slug probe rather than throwing', async () => {
+    mocked.mockResolvedValue({ ok: false, status: 0, error: 'down' } as never);
+    const result = await saveLessonService(makeLesson());
+    expect(result).toEqual({ ok: false, error: 'down' });
+  });
+
+  it('surfaces a Strapi failure on create rather than throwing', async () => {
+    mocked.mockImplementation(async (method) => {
+      if (method === 'GET') return { ok: true, data: [] } as never;
+      return { ok: false, status: 500, error: 'create failed' } as never;
+    });
+    const result = await saveLessonService(makeLesson());
+    expect(result).toEqual({ ok: false, error: 'create failed' });
+  });
+
+  it('fails loudly instead of silently succeeding when Strapi omits a documentId', async () => {
+    mocked.mockImplementation(async (method) => {
+      if (method === 'GET') return { ok: true, data: [] } as never;
+      return { ok: true, data: {} } as never;
+    });
+    const result = await saveLessonService(makeLesson());
+    expect(result).toMatchObject({ ok: false });
   });
 });
