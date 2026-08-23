@@ -27,12 +27,11 @@
 // This mirrors the map-reduce shape in learning.ts (many small model calls,
 // one deterministic assembly step) and the structured-extraction shape in
 // music-extraction.ts (schema-validated but content-untrusted, sanitized
-// after the fact). Persistence is NOT this module's job — the caller (an
-// in-app server function or an MCP tool, both built later) saves the result.
-// That includes the digest: on a cache miss this module synthesizes one via
-// `synthesizeDigest` but never calls `createDigestService` — persisting it
-// is the /digest page's job (an explicit user Save), not an implicit side
-// effect of generating a lesson.
+// after the fact). Persistence is NOT this module's job — the caller (the
+// `/api/lesson-write` route) saves the result. That includes the digest: on
+// a cache miss this module synthesizes one via `synthesizeDigest` but never
+// calls `createDigestService` — persisting it is the /digest page's job (an
+// explicit user Save), not an implicit side effect of generating a lesson.
 //
 // WHICH model runs steps 4/5 is decided exactly once, by
 // `resolveLessonModel()` (lesson-model.ts) — a frontier Anthropic model
@@ -42,6 +41,31 @@
 // tiers run this exact same staged pipeline — see lesson-model.ts for why
 // (comparability between a local and a frontier lesson matters more than
 // letting a frontier model collapse the staging into one call).
+//
+// -----------------------------------------------------------------------------
+// Two phases, one pipeline (streamed progress + outline approval)
+// -----------------------------------------------------------------------------
+//
+// The pipeline above is split into two entry points so the caller (the
+// `/api/lesson-plan` and `/api/lesson-write` SSE routes) can pause for user
+// approval of the outline between "plan" and "write" — a single SSE stream
+// can't easily take input mid-flight, and this stateless two-call split is
+// simpler than bidirectional streaming.
+//
+//   planLesson()  — steps 1 through 4 (resolve tier → retrieve → coverage →
+//                   digest → outline). Returns the outline + everything
+//                   phase 2 needs to resume: sources, digest, tier, model.
+//   writeLesson() — steps 5 and 6 (per-section generation → grounding →
+//                   assembly). Takes phase 1's output back — POSSIBLY
+//                   user-edited (headings/title) — and re-validates it
+//                   rather than trusting it, since it has been through the
+//                   browser.
+//
+// No server-side job store sits between them: the digest is a few KB of
+// JSON and round-trips fine as part of the phase-2 request body. Both
+// functions accept an optional `onProgress` callback that fires the exact
+// same moments `logPhase` already logs, as structured `LessonProgressEvent`s
+// — the SSE routes forward those as frames; nothing here talks HTTP.
 
 import { chat } from '@tanstack/ai';
 import { z } from 'zod';
@@ -53,6 +77,7 @@ import {
 import {
   DIGEST_MAX_VIDEOS,
   DIGEST_MIN_VIDEOS,
+  DigestSchema,
   synthesizeDigest,
   type Digest,
 } from '#/lib/services/digest';
@@ -119,10 +144,89 @@ function logPhase(topic: string, phase: string, extra?: Record<string, unknown>)
 }
 
 // -----------------------------------------------------------------------------
+// Progress events — the observability layer over the pipeline above.
+// -----------------------------------------------------------------------------
+//
+// Emitted from the exact same call sites `logPhase` already marks — this is
+// not a second source of truth, it's the same moments given a structured
+// shape a UI/SSE frame can carry instead of a log line. `onProgress` is
+// optional everywhere (tests, and any future non-streaming caller, can omit
+// it) and MUST NOT throw — a progress subscriber's bug should never take
+// down generation; see `emit()` below.
+//
+// `retry` is the one event type not named 1:1 after a pipeline step: every
+// retry this module performs — the coverage call's transient-network retry,
+// the outline retry (on a thrown call, an unusable shape, OR a thin
+// result), and the per-section retry (thrown call or zero usable blocks) —
+// reports through this single shape so "a retry happened" is never only a
+// log line. See the brief's "Silence" concern: a retry that happens
+// invisibly is worse than a loud failure.
+export type LessonProgressEvent =
+  | { type: 'tier'; tier: ModelTier; model: string }
+  | {
+      type: 'retrieve';
+      /** How many videos had a stored embedding at all (before the floor). */
+      considered: number;
+      /** RELEVANCE_FLOOR at the time of this run. */
+      floor: number;
+      /** The videos actually selected — titles + cosine scores. */
+      videos: SourceVideo[];
+    }
+  | {
+      type: 'coverage';
+      covered: boolean;
+      actualTopic: string | null;
+      reason: string | null;
+    }
+  | { type: 'digest'; cacheHit: boolean; ms: number }
+  | { type: 'outline'; title: string; level: LessonOutline['level']; sections: string[] }
+  | {
+      type: 'section';
+      index: number;
+      total: number;
+      heading: string;
+      blocks: number;
+    }
+  | { type: 'grounding'; grounded: number; total: number }
+  | {
+      type: 'retry';
+      step: 'coverage' | 'outline' | 'section';
+      attempt: number;
+      reason: string;
+      /** Section heading, when step === 'section'. */
+      label?: string;
+    }
+  | {
+      type: 'saved';
+      slug: string;
+      title: string;
+      blockCount: number;
+      tier: ModelTier;
+      model: string;
+    }
+  | { type: 'error'; step: string; message: string };
+
+type ProgressFn = (event: LessonProgressEvent) => void;
+
+// Never lets a bad onProgress subscriber (a UI bug, an SSE encoder throwing
+// on a circular payload that can't actually occur here, etc.) abort
+// generation — the pipeline's own correctness must not depend on the
+// observability layer being bug-free.
+function emit(onProgress: ProgressFn | undefined, event: LessonProgressEvent) {
+  if (!onProgress) return;
+  try {
+    onProgress(event);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[lesson-gen] onProgress subscriber threw — ignoring', err);
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Public types
 // -----------------------------------------------------------------------------
 
-export type GenerateLessonInput = { topic: string; maxVideos?: number };
+export type PlanLessonInput = { topic: string; maxVideos?: number };
 
 export type SourceVideo = {
   documentId: string;
@@ -133,6 +237,18 @@ export type SourceVideo = {
    * embeddings.ts for why raw cosine isn't shown to users directly. */
   score: number;
 };
+
+export type PlanLessonResult =
+  | {
+      ok: true;
+      topic: string;
+      outline: LessonOutline;
+      sources: SourceVideo[];
+      digest: Digest;
+      tier: ModelTier;
+      model: string;
+    }
+  | { ok: false; error: string };
 
 /** Mirrors the Strapi `lesson` content type shape (schema.json) closely
  * enough that a caller can hand this straight to a create call, modulo
@@ -269,10 +385,16 @@ async function rankVideosByTopic(topic: string): Promise<RankedVideo[]> {
 // costs are not symmetric, so (a) the system prompt instructs the model
 // that partial/tangential coverage does NOT count, (b) an unusable/failed
 // verdict refuses rather than proceeding (see the catch block and the
-// `!coverage` check in generateLesson — model failure is never treated as
+// `!coverage` check in planLesson — model failure is never treated as
 // permission to continue), and (c) on refusal the message names both the
 // requested topic and what the library actually has, so the user knows
 // what to search for or add.
+//
+// A refusal here is NEVER retried — see `planLesson`'s coverage step below.
+// Only the underlying chat() call transiently retries (network-level
+// failure), same as before; a `covered: false` verdict is a correct answer,
+// not an error, and re-asking the same question against the same sources
+// won't change it.
 // Exported (along with LessonOutlineSchema and SectionBlocksSchema below)
 // so lesson-generation.test.ts can walk every schema actually passed to
 // `outputSchema` and assert none of them carries an array `.min(n)` with
@@ -375,7 +497,7 @@ async function resolveFullVideos(
 }
 
 type DigestResolution =
-  | { ok: true; digest: Digest; fullVideos: StrapiVideo[] }
+  | { ok: true; digest: Digest; fullVideos: StrapiVideo[]; cacheHit: boolean }
   | { ok: false; error: string };
 
 // `listAllVideosForEmbeddingService` (used for retrieval) strips
@@ -400,7 +522,7 @@ async function getOrCreateDigest(
   const cached = await findDigestByVideoSetKeyService(videoSetKey);
   if (cached.success && cached.data) {
     logPhase(topic, 'digest ✓ cache hit', { videoSetKey });
-    return { ok: true, digest: strapiRowToDigest(cached.data), fullVideos };
+    return { ok: true, digest: strapiRowToDigest(cached.data), fullVideos, cacheHit: true };
   }
 
   logPhase(topic, 'digest ▶ cache miss, synthesizing', { videoSetKey });
@@ -409,7 +531,7 @@ async function getOrCreateDigest(
     logPhase(topic, 'digest ✗ synthesis failed', { error: synthesized.error });
     return { ok: false, error: synthesized.error };
   }
-  return { ok: true, digest: synthesized.data, fullVideos };
+  return { ok: true, digest: synthesized.data, fullVideos, cacheHit: false };
 }
 
 // Compact prose rendering of the digest's cross-video synthesis, fed into
@@ -433,7 +555,7 @@ function buildDigestContextText(digest: Digest): string {
   }
   if (digest.uniqueInsights.length > 0) {
     lines.push('');
-    lines.push('What each source uniquely contributes:');
+    lines.push("What each source uniquely contributes:");
     for (const u of digest.uniqueInsights) {
       lines.push(`- ${u.videoTitle}: ${truncate(u.insight, 300)}`);
     }
@@ -482,28 +604,37 @@ export const LessonOutlineSchema = z.object({
           ),
       }),
     )
-    // NOT .min(2) here — Anthropic's structured-output schema support
-    // rejects `minItems` values other than 0 or 1 on an array
+    // NOT .min(2) AND NOT .max(6) here — Anthropic's structured-output
+    // schema support rejects BOTH: `minItems` values other than 0 or 1
     // (`output_config.format.schema: For 'array' type, 'minItems' values
-    // other than 0 or 1 are not supported`), so a `.min(2)` here 400s
-    // every frontier call at the outline step. The local Ollama tier
-    // accepts it fine, which is exactly why this shipped unnoticed — mocked
-    // tests and local runs never exercise Anthropic's schema validator.
-    // The "at least MIN_OUTLINE_SECTIONS sections" intent still holds; see
-    // that constant, sanitizeOutline, and the 'outline ⚠ thin' log below.
-    .max(6)
+    // other than 0 or 1 are not supported`) AND `maxItems` at all
+    // (`output_config.format.schema: For 'array' type, property 'maxItems'
+    // is not supported`) — the latter was caught by a real run against the
+    // live frontier tier, not by any mocked/local test, exactly like the
+    // minItems bug before it. The local Ollama tier accepts both fine,
+    // which is exactly why array bounds keep shipping unnoticed here.
+    // The "2 to 6 sections" intent still holds: the retry loop in
+    // `planLesson` enforces the minimum (see MIN_OUTLINE_SECTIONS), and
+    // `sanitizeOutline` below enforces the maximum by truncating.
     .describe('2 to 6 teaching beats, in the order the lesson should cover them.'),
 });
 
 // The target minimum section count — see LessonOutlineSchema's comment
-// above for why it isn't a schema `.min()`. Below this, sanitizeOutline
-// still accepts the outline (a single-beat topic is real, and failing the
-// whole generation over a quantity target would throw away real content),
-// but it's logged as thin — see the 'outline ⚠ thin' log in
-// generateLesson — rather than silently treated as if nothing were short.
+// above for why it isn't a schema `.min()`. Below this, the outline retry
+// loop in `planLesson` retries the call once; if the retry is STILL thin,
+// it is accepted anyway (a single-beat topic can be real, and failing the
+// whole generation over a quantity target would throw away real content) —
+// but it's logged and reported as a `retry` progress event either way, so a
+// thin outline is always visible, never silently accepted on the first try.
 const MIN_OUTLINE_SECTIONS = 2;
+// The target maximum — see the schema comment above for why this can't be
+// a schema `.max()` for the frontier tier either. Enforced by truncation in
+// `sanitizeOutline` below instead of a hard failure: a model that names 8
+// sections when asked for "2 to 6" is still giving usable content, just
+// more of it than intended.
+const MAX_OUTLINE_SECTIONS = 6;
 
-type LessonOutline = {
+export type LessonOutline = {
   title: string;
   summary: string;
   level: 'beginner' | 'intermediate' | 'advanced';
@@ -582,19 +713,17 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
       if (!heading) return null;
       return { heading, goal };
     })
-    .filter((s): s is { heading: string; goal: string } => s !== null);
-  // Only the empty case is treated as unusable (same bar as before this
-  // sanitizer existed). 2 is the real target minimum — see
-  // LessonOutlineSchema's comment above for why it can't live in the
-  // schema's `.min()` for the frontier tier — but this pipeline already
-  // tolerates a shorter-than-intended lesson (a single successful section
-  // still assembles into a real, if thin, lesson body) and a personal-KB
-  // topic genuinely can be one teaching beat. Failing the WHOLE generation
-  // over a thin-but-usable outline would throw away real content for a
-  // quantity target, not a correctness one. The shortfall is logged
-  // instead (see the 'outline ✓' log below) — visible, not silent, which
-  // is what actually mattered here; see `MIN_SECTION_BLOCKS` above for the
-  // matching per-section call.
+    .filter((s): s is { heading: string; goal: string } => s !== null)
+    // Enforces MAX_OUTLINE_SECTIONS in code since the schema can't (see its
+    // comment) — a model that names more than intended still gets used,
+    // just capped rather than rejected.
+    .slice(0, MAX_OUTLINE_SECTIONS);
+  // Only the empty case is treated as unusable here — the caller's retry
+  // loop is what enforces MIN_OUTLINE_SECTIONS as a *soft* target (retry
+  // once, then accept). A personal-KB topic genuinely can be one teaching
+  // beat, and failing the WHOLE generation over a thin-but-usable outline
+  // would throw away real content for a quantity target, not a correctness
+  // one.
   if (sections.length === 0) return null;
 
   return { title, summary, level, instrument, duration, sections };
@@ -604,85 +733,139 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
 // Step 5: sections — one small structured call PER section
 // -----------------------------------------------------------------------------
 
-// `heading` stays in the allowed output union defensively (a local model
+// `heading` stays in the allowed `type` enum defensively (a local model
 // can ignore instructions) but the pipeline never trusts a model-emitted
-// heading — see the section loop below, which drops any `type: 'heading'`
-// block a section call returns and injects the outline's heading instead.
-const LessonBlockOutputSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('heading'),
-    text: z.string().describe('Heading text. MAX 150 characters.'),
-    level: z
-      .enum(['h2', 'h3'])
-      .describe('h2 for the section heading, h3 for a sub-heading within it.'),
-  }),
-  z.object({
-    type: z.literal('prose'),
-    body: z
-      .string()
-      .describe('Markdown paragraph(s) teaching this part of the section. MAX 2000 characters.'),
-    sourceVideoId: z
-      .string()
-      .nullable()
-      .describe(
-        'The youtubeVideoId (copied exactly from the [bracketed] id in the source list) that THIS content is drawn from, or null if it synthesizes multiple sources evenly. Never invent an id — only use one from the list.',
-      ),
-  }),
-  z.object({
-    type: z.literal('callout'),
-    tone: z.enum(['note', 'tip', 'warning']),
-    body: z.string().describe('One short aside. MAX 500 characters.'),
-    sourceVideoId: z
-      .string()
-      .nullable()
-      .describe('Same rule as prose.sourceVideoId — an id from the list, or null.'),
-  }),
-  z.object({
-    type: z.literal('step'),
-    number: z.number().int().min(1),
-    title: z.string().describe('Verb-led short step title. MAX 120 characters.'),
-    lede: z.string().nullable().describe('One-sentence lede, or null.'),
-    body: z.string().nullable().describe('Step detail (markdown), or null.'),
-    sourceVideoId: z
-      .string()
-      .nullable()
-      .describe('Same rule as prose.sourceVideoId — an id from the list, or null.'),
-  }),
-  z.object({
-    type: z.literal('table'),
-    headers: z.array(z.string()).min(1).max(6),
-    rows: z.array(z.array(z.string())).min(1).max(12),
-    caption: z.string().nullable().describe('MAX 255 characters, or null.'),
-  }),
-  z.object({
-    type: z.literal('degree-chips'),
-    degrees: z
-      .array(z.string())
-      .min(1)
-      .max(12)
-      .describe('Scale degrees like "I", "ii", "IV", "V7".'),
-    size: z.enum(['sm', 'md']).nullable(),
-  }),
-]);
+// heading — see `buildSectionBlocks` below, which drops any `type:
+// 'heading'` block a section call returns and injects the outline's
+// heading instead.
+//
+// NOT a z.discriminatedUnion here, even though the six block shapes really
+// are one — Anthropic's structured-output schema support rejects the
+// `oneOf` a discriminated union compiles to: a real run against the live
+// frontier tier 400'd every single section call with
+// `output_config.format.schema: Schema type 'oneOf' is not supported`,
+// caught only by exercising this against Anthropic for real (Ollama, the
+// local tier, accepts a discriminated union fine — another instance of the
+// pattern documented on LessonOutlineSchema's `sections` field above).
+// Flattened instead: one object with every field from every block type,
+// each nullable and `.describe()`d with which type(s) it belongs to.
+// `toLessonBlock` below already treats the model's response as fully
+// untrusted content — it reads fields off a `Record<string, unknown>` by
+// name per `type`, never assuming the schema's shape — so flattening this
+// costs nothing on the sanitization side; only the schema declaration
+// changes.
+const LessonBlockOutputSchema = z.object({
+  type: z.enum(['heading', 'prose', 'callout', 'step', 'table', 'degree-chips']),
+  // heading
+  text: z
+    .string()
+    .nullable()
+    .describe('heading only: the heading text. MAX 150 characters. Null for every other type.'),
+  level: z
+    .enum(['h2', 'h3'])
+    .nullable()
+    .describe(
+      'heading only: h2 for the section heading, h3 for a sub-heading within it. Null for every other type.',
+    ),
+  // prose / callout / step (shared)
+  body: z
+    .string()
+    .nullable()
+    .describe(
+      'prose/callout/step: prose is markdown paragraph(s) (MAX 2000 chars), callout is one short aside (MAX 500 chars), step is optional detail markdown. Null for heading/table/degree-chips.',
+    ),
+  sourceVideoId: z
+    .string()
+    .nullable()
+    .describe(
+      'prose/callout/step only: the youtubeVideoId (copied exactly from the [bracketed] id in the source list) that THIS content is drawn from, or null if it synthesizes multiple sources evenly. Never invent an id — only use one from the list. Null for heading/table/degree-chips.',
+    ),
+  // callout
+  tone: z
+    .enum(['note', 'tip', 'warning'])
+    .nullable()
+    .describe('callout only: the aside tone. Null for every other type.'),
+  // step. Plain z.number(), NOT .int() — zod compiles `.int()` to a JSON
+  // schema `{"type":"integer","minimum":...,"maximum":...}` with implicit
+  // safe-integer bounds (caught in a real run: Anthropic 400s with
+  // "output_config.format.schema: For 'integer' type, properties maximum,
+  // minimum are not supported" — the SAME "Anthropic rejects bounds on
+  // primitive schema types" pattern as the array minItems/maxItems bugs
+  // above, just on numbers instead of arrays). `toLessonBlock` below
+  // already coerces this to an integer >= 1 defensively regardless of what
+  // the schema declares, so dropping `.int()` here costs nothing at
+  // runtime.
+  number: z
+    .number()
+    .nullable()
+    .describe('step only: the step number, starting at 1. Null for every other type.'),
+  title: z
+    .string()
+    .nullable()
+    .describe('step only: verb-led short step title. MAX 120 characters. Null for every other type.'),
+  lede: z
+    .string()
+    .nullable()
+    .describe('step only: one-sentence lede, or null. Null for every other type.'),
+  // table
+  headers: z
+    .array(z.string())
+    .nullable()
+    .describe('table only: column headers. Null for every other type.'),
+  // NOT .max() on headers/rows/degrees below — Anthropic rejects `maxItems`
+  // on any array at all (see LessonOutlineSchema's `sections` comment for
+  // the exact error and where THAT was caught). TABLE_HEADERS_MAX /
+  // TABLE_ROWS_MAX / DEGREE_CHIPS_MAX enforce the caps in code instead, in
+  // toLessonBlock below.
+  rows: z
+    .array(z.array(z.string()))
+    .nullable()
+    .describe('table only: rows, each an array of cell strings. Null for every other type.'),
+  caption: z
+    .string()
+    .nullable()
+    .describe('table only: MAX 255 characters, or null. Null for every other type.'),
+  // degree-chips
+  degrees: z
+    .array(z.string())
+    .nullable()
+    .describe('degree-chips only: scale degrees like "I", "ii", "IV", "V7". Null for every other type.'),
+  size: z
+    .enum(['sm', 'md'])
+    .nullable()
+    .describe('degree-chips only: chip size, or null. Null for every other type.'),
+});
+
+// Code-enforced maxima for the array fields Anthropic won't let the schema
+// cap (see the `table`/`degree-chips` schema comments above). Matches the
+// bounds the system prompt still asks for — these are backstops against a
+// model that ignores the prompt, not the primary control.
+const TABLE_HEADERS_MAX = 6;
+const TABLE_ROWS_MAX = 12;
+const DEGREE_CHIPS_MAX = 12;
 
 export const SectionBlocksSchema = z.object({
-  // NOT .min(2) here — same Anthropic `minItems` restriction as the
-  // outline's `sections` array above (only 0 or 1 are accepted); a
-  // `.min(2)` 400s every frontier section call. "A section with one block
-  // is thin" is real intent, so it's tracked in code below via
-  // MIN_SECTION_BLOCKS — logged when a section falls short, not silently
-  // accepted as if nothing were missing. See that constant's own comment
-  // for why a shortfall is logged rather than dropped.
-  blocks: z.array(LessonBlockOutputSchema).max(4),
+  // NOT .min(2) AND NOT .max(4) here — same two Anthropic array-schema
+  // restrictions as LessonOutlineSchema's `sections` above (minItems other
+  // than 0/1 rejected; maxItems rejected outright). "A section with one
+  // block is thin" is tracked in code below via MIN_SECTION_BLOCKS
+  // (logged, reported via a `section` progress event); the "2 to 4 blocks"
+  // upper bound is enforced by `buildSectionBlocks` slicing to
+  // MAX_SECTION_BLOCKS.
+  blocks: z.array(LessonBlockOutputSchema),
 });
+
+// See the schema comment above — enforced in code (buildSectionBlocks)
+// instead of a schema `.max()`.
+const MAX_SECTION_BLOCKS = 4;
 
 // The target "2 to 4 blocks" a section should contain — see the schema
 // comment above for why this can't live in the schema itself for the
-// frontier tier. Below this, a section is "thin" (logged) rather than
-// dropped: `sectionBlocks.length > 0` (below) still assembles it into the
-// lesson body, because a thin-but-grounded section is real content, and
-// failing the whole section over a 1-vs-2 block count would throw away
-// content for a quantity target, not a correctness one. Checked against
+// frontier tier. A section with 0 usable blocks is retried once (see the
+// section loop in `writeLesson`); a section with 1..MIN_SECTION_BLOCKS-1
+// usable blocks stays accept-and-log — a thin-but-grounded section is real
+// content, and failing/retrying it over a 1-vs-2 block count would cost an
+// extra call for a quantity target, not a correctness one. Checked against
 // the SANITIZED block count (after toLessonBlock has dropped anything
 // invalid), not the raw model output count, so a section that named 3
 // blocks but had 2 rejected is correctly flagged thin.
@@ -695,6 +878,7 @@ const SECTION_SYSTEM = [
   'Use `step` for sequenced instructions, `table` for comparisons, `degree-chips` for scale-degree sequences, `callout` for a short aside, `prose` for everything else.',
   'Ground content in the provided source videos. Do not invent chords, keys, techniques, or songs the sources do not mention.',
   'On every prose/callout/step block, set `sourceVideoId` to the exact id shown in [brackets] next to the source video this content is drawn from, or null if the content blends several sources evenly. Copy the id exactly — never invent or guess one.',
+  'Every block shares one field set (each field belongs to only some block types — see each field\'s own description for which). Set every field that does not apply to this block\'s `type` to null; only fill in the fields that belong to the chosen type.',
 ].join('\n');
 
 // Loaded once at module scope — see OUTLINE_GUIDE_EXCERPT's comment above.
@@ -709,7 +893,7 @@ function getSectionSystemWithGuide(): string {
 }
 
 function buildSectionPrompt(
-  outline: LessonOutline,
+  outline: { title: string; summary: string },
   section: { heading: string; goal: string },
   contextText: string,
 ): string {
@@ -824,8 +1008,13 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
     }
 
     case 'table': {
-      const headers = Array.isArray(r.headers) ? r.headers.map((h) => String(h)) : [];
-      const rowsRaw = Array.isArray(r.rows) ? r.rows : [];
+      // .slice() caps below enforce TABLE_HEADERS_MAX/TABLE_ROWS_MAX in
+      // code — see SectionBlocksSchema's `table` field comment for why the
+      // schema itself can't (Anthropic rejects array `maxItems`).
+      const headers = Array.isArray(r.headers)
+        ? r.headers.slice(0, TABLE_HEADERS_MAX).map((h) => String(h))
+        : [];
+      const rowsRaw = Array.isArray(r.rows) ? r.rows.slice(0, TABLE_ROWS_MAX) : [];
       const rows = rowsRaw
         .filter((row): row is unknown[] => Array.isArray(row))
         .map((row) => row.map((cell) => String(cell)));
@@ -838,7 +1027,10 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
     }
 
     case 'degree-chips': {
-      const degrees = Array.isArray(r.degrees) ? r.degrees.map((d) => String(d)) : [];
+      // DEGREE_CHIPS_MAX enforced by .slice() — see the schema comment above.
+      const degrees = Array.isArray(r.degrees)
+        ? r.degrees.slice(0, DEGREE_CHIPS_MAX).map((d) => String(d))
+        : [];
       if (degrees.length === 0) return null;
       const block: LessonBlock = { __component: 'lesson.degree-chips', id, degrees };
       if (r.size === 'sm' || r.size === 'md') block.size = r.size;
@@ -854,6 +1046,32 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
 
 function isModelHeadingBlock(raw: unknown): boolean {
   return !!raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'heading';
+}
+
+// Builds a section's content blocks from the model's raw `blocks` array,
+// WITHOUT committing them anywhere — the caller decides what to do with an
+// empty result (retry) vs a non-empty one (accept, possibly thin-and-logged).
+function buildSectionBlocks(
+  rawBlocks: unknown[],
+  startId: number,
+  ground: GroundingContext,
+): LessonBlock[] {
+  const blocks: LessonBlock[] = [];
+  let nextId = startId;
+  for (const rawBlock of rawBlocks) {
+    // MAX_SECTION_BLOCKS enforced here in code, not the schema — see
+    // SectionBlocksSchema's comment for why (Anthropic rejects array
+    // `maxItems`).
+    if (blocks.length >= MAX_SECTION_BLOCKS) break;
+    // The model is instructed not to emit a heading; if it does anyway,
+    // drop it — the outline's heading is injected separately, never this one.
+    if (isModelHeadingBlock(rawBlock)) continue;
+    const block = toLessonBlock(rawBlock, nextId, ground);
+    if (!block) continue;
+    blocks.push(block);
+    nextId += 1;
+  }
+  return blocks;
 }
 
 // -----------------------------------------------------------------------------
@@ -904,14 +1122,21 @@ function buildContradictionCallouts(digest: Digest, startId: number): LessonBloc
   return blocks;
 }
 
+// -----------------------------------------------------------------------------
+// Phase 1: planLesson — resolve tier → retrieve → coverage → digest → outline
+// -----------------------------------------------------------------------------
+
 /**
- * Generates a lesson body from the video library. Does NOT persist —
- * callers (an in-app server function, an MCP tool) own saving the result
- * and deduping `slug` against existing lessons.
+ * Runs the first half of lesson generation: picks the model tier, retrieves
+ * and coverage-checks candidate source videos, resolves (or synthesizes) a
+ * cross-video digest, and drafts an outline. Does NOT write section content
+ * or persist anything — that's `writeLesson`'s job, given this function's
+ * `ok: true` output (possibly user-edited) back.
  */
-export async function generateLesson(
-  input: GenerateLessonInput,
-): Promise<GenerateLessonResult> {
+export async function planLesson(
+  input: PlanLessonInput,
+  onProgress?: ProgressFn,
+): Promise<PlanLessonResult> {
   const topic = input.topic.trim();
   if (!topic) return { ok: false, error: 'Topic is required.' };
   const requestedMax =
@@ -923,10 +1148,12 @@ export async function generateLesson(
   const maxVideos = Math.min(requestedMax, DIGEST_MAX_VIDEOS);
 
   // Decided ONCE, up front — the only place tier/model choice happens (see
-  // lesson-model.ts). Every chat() call below uses this same adapter, so a
-  // lesson never mixes tiers mid-generation.
+  // lesson-model.ts). Every chat() call below (in both phases) uses this
+  // same adapter (writeLesson re-resolves it independently, but from the
+  // same env, so it never mixes tiers within one generation).
   const lessonModel = resolveLessonModel();
   logPhase(topic, `model ✓ ${lessonModel.tier}`, { model: lessonModel.model });
+  emit(onProgress, { type: 'tier', tier: lessonModel.tier, model: lessonModel.model });
 
   // --- 1: retrieve + relevance floor ------------------------------------
   let allRanked: RankedVideo[];
@@ -938,17 +1165,17 @@ export async function generateLesson(
     // A dead backend is not an Ollama problem, and must not be reported as an
     // empty library — that sends the user off to regenerate summaries they
     // already have.
-    if (err instanceof BackendUnreachableError) return { ok: false, error: message };
-    return { ok: false, error: friendlyOllamaError(message) };
+    const friendly = err instanceof BackendUnreachableError ? message : friendlyOllamaError(message);
+    emit(onProgress, { type: 'error', step: 'retrieve', message: friendly });
+    return { ok: false, error: friendly };
   }
 
   if (allRanked.length === 0) {
     logPhase(topic, 'retrieve ✗ no videos with embeddings');
-    return {
-      ok: false,
-      error:
-        'No videos in the library have embeddings yet — generate summaries first, then retry.',
-    };
+    const message =
+      'No videos in the library have embeddings yet — generate summaries first, then retry.';
+    emit(onProgress, { type: 'error', step: 'retrieve', message });
+    return { ok: false, error: message };
   }
 
   logPhase(topic, 'retrieve · scored', {
@@ -973,10 +1200,9 @@ export async function generateLesson(
       aboveFloorCount: aboveFloor.length,
       needed: DIGEST_MIN_VIDEOS,
     });
-    return {
-      ok: false,
-      error: `The library doesn't have enough videos closely related to "${topic}" to build a lesson — nothing scored above the relevance floor. Try a broader topic, or add more videos on this subject.`,
-    };
+    const message = `The library doesn't have enough videos closely related to "${topic}" to build a lesson — nothing scored above the relevance floor. Try a broader topic, or add more videos on this subject.`;
+    emit(onProgress, { type: 'error', step: 'retrieve', message });
+    return { ok: false, error: message };
   }
 
   const sources: SourceVideo[] = ranked.map((r) => ({
@@ -988,6 +1214,12 @@ export async function generateLesson(
   logPhase(topic, 'retrieve ✓', {
     videos: sources.length,
     top: sources[0]?.title ?? null,
+  });
+  emit(onProgress, {
+    type: 'retrieve',
+    considered: allRanked.length,
+    floor: RELEVANCE_FLOOR,
+    videos: sources,
   });
 
   // --- 1.5: coverage — refuse before paying for the digest ----------------
@@ -1008,9 +1240,9 @@ export async function generateLesson(
       {
         attempts: 2,
         onRetry: (err, attempt, delayMs) => {
-          logPhase(topic, `coverage ↻ retry ${attempt}/1 in ${delayMs}ms`, {
-            cause: redactAnthropicKey(err instanceof Error ? err.message : 'unknown'),
-          });
+          const cause = redactAnthropicKey(err instanceof Error ? err.message : 'unknown');
+          logPhase(topic, `coverage ↻ retry ${attempt}/1 in ${delayMs}ms`, { cause });
+          emit(onProgress, { type: 'retry', step: 'coverage', attempt, reason: cause });
         },
       },
     );
@@ -1022,17 +1254,19 @@ export async function generateLesson(
     logPhase(topic, 'coverage ✗ call failed — refusing rather than proceeding', {
       error: message,
     });
-    return { ok: false, error: friendlyModelError(lessonModel.tier, message) };
+    const friendly = friendlyModelError(lessonModel.tier, message);
+    emit(onProgress, { type: 'error', step: 'coverage', message: friendly });
+    return { ok: false, error: friendly };
   }
 
   if (!coverage) {
     // Model failure (unusable shape) is never permission to continue — see
-    // the header comment above this step.
+    // the header comment above this step. Not retried — see this step's
+    // header comment for why a refusal-shaped failure isn't re-asked.
     logPhase(topic, 'coverage ✗ unusable verdict shape — refusing rather than proceeding');
-    return {
-      ok: false,
-      error: `Could not verify whether the library actually covers "${topic}" — refusing rather than risk generating a lesson from the wrong material. Try again, or rephrase the topic.`,
-    };
+    const message = `Could not verify whether the library actually covers "${topic}" — refusing rather than risk generating a lesson from the wrong material. Try again, or rephrase the topic.`;
+    emit(onProgress, { type: 'error', step: 'coverage', message });
+    return { ok: false, error: message };
   }
 
   if (!coverage.covered) {
@@ -1044,25 +1278,235 @@ export async function generateLesson(
       actualTopic: coverage.actualTopic ?? null,
       reason: coverage.reason ?? null,
     });
+    // A coverage refusal is information, not an error — the `coverage`
+    // event itself (covered: false + what the library does cover) IS the
+    // terminal frame for this run; no separate `error` event follows.
+    emit(onProgress, {
+      type: 'coverage',
+      covered: false,
+      actualTopic: coverage.actualTopic ?? null,
+      reason: coverage.reason ?? null,
+    });
     return {
       ok: false,
       error: `The library doesn't actually cover "${topic}".${closest}${reasonSuffix} Try a topic closer to what the library has, or add videos on "${topic}".`,
     };
   }
   logPhase(topic, 'coverage ✓ sources cover the topic');
+  emit(onProgress, { type: 'coverage', covered: true, actualTopic: null, reason: null });
 
   // --- 2: digest — cached reuse, or synthesize (never persist) ----------
   const youtubeVideoIds = ranked.map((r) => r.video.youtubeVideoId);
+  const digestStart = performance.now();
   const digestResolution = await getOrCreateDigest(topic, youtubeVideoIds);
+  const digestMs = Math.round(performance.now() - digestStart);
   if (!digestResolution.ok) {
-    return { ok: false, error: friendlyOllamaError(digestResolution.error) };
+    const friendly = friendlyOllamaError(digestResolution.error);
+    emit(onProgress, { type: 'error', step: 'digest', message: friendly });
+    return { ok: false, error: friendly };
   }
-  const { digest, fullVideos } = digestResolution;
+  const { digest, fullVideos, cacheHit } = digestResolution;
+  emit(onProgress, { type: 'digest', cacheHit, ms: digestMs });
 
   // --- 3: context ---------------------------------------------------------
   const contextText = fullVideos.map((v) => buildVideoContextText(v)).join('\n');
   const digestContextText = buildDigestContextText(digest);
 
+  // --- 4: outline, with a single retry on failure/unusable-shape/thin ----
+  type OutlineAttemptOutcome =
+    | { kind: 'ok'; outline: LessonOutline }
+    | { kind: 'invalid' }
+    | { kind: 'error'; message: string };
+
+  async function attemptOutline(): Promise<OutlineAttemptOutcome> {
+    try {
+      const raw = await chat({
+        adapter: lessonModel.adapter,
+        messages: [
+          { role: 'system', content: getOutlineSystemWithGuide() },
+          {
+            role: 'user',
+            content: buildOutlinePrompt(topic, contextText, digestContextText),
+          },
+        ] as never,
+        outputSchema: LessonOutlineSchema,
+        modelOptions: buildModelOptions(lessonModel, 0.3),
+      });
+      const sanitized = sanitizeOutline(raw);
+      return sanitized ? { kind: 'ok', outline: sanitized } : { kind: 'invalid' };
+    } catch (err) {
+      return {
+        kind: 'error',
+        message: redactAnthropicKey(
+          err instanceof Error ? err.message : 'Lesson outline generation failed',
+        ),
+      };
+    }
+  }
+
+  let outline: LessonOutline | null = null;
+  let outlineFailureMessage: string | null = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const outcome = await attemptOutline();
+    const isLastAttempt = attempt === 2;
+
+    if (outcome.kind === 'ok') {
+      const thin = outcome.outline.sections.length < MIN_OUTLINE_SECTIONS;
+      if (!thin || isLastAttempt) {
+        // Accept: either it's not thin, or this was the retry — a thin
+        // retry result is accepted rather than retried again (single retry
+        // budget, per the brief).
+        outline = outcome.outline;
+        if (thin) {
+          logPhase(
+            topic,
+            `outline ⚠ still thin after retry (${outcome.outline.sections.length} section(s), target ≥${MIN_OUTLINE_SECTIONS})`,
+            { title: outcome.outline.title },
+          );
+        }
+        break;
+      }
+      logPhase(
+        topic,
+        `outline ⚠ thin (${outcome.outline.sections.length} section(s), target ≥${MIN_OUTLINE_SECTIONS}) — retrying once`,
+        { title: outcome.outline.title },
+      );
+      emit(onProgress, { type: 'retry', step: 'outline', attempt, reason: 'thin outline' });
+      continue;
+    }
+
+    if (outcome.kind === 'invalid') {
+      if (isLastAttempt) {
+        outlineFailureMessage = 'The model returned an unusable lesson outline.';
+        break;
+      }
+      logPhase(topic, `outline ✗ unusable shape (attempt ${attempt}) — retrying once`);
+      emit(onProgress, { type: 'retry', step: 'outline', attempt, reason: 'unusable shape' });
+      continue;
+    }
+
+    // outcome.kind === 'error'
+    if (isLastAttempt) {
+      outlineFailureMessage = friendlyModelError(lessonModel.tier, outcome.message);
+      break;
+    }
+    logPhase(topic, `outline ✗ failed (attempt ${attempt}) — retrying once`, {
+      error: outcome.message,
+    });
+    emit(onProgress, { type: 'retry', step: 'outline', attempt, reason: outcome.message });
+  }
+
+  if (!outline) {
+    const message = outlineFailureMessage ?? 'The model returned an unusable lesson outline.';
+    logPhase(topic, 'outline ✗ failed after retry', { error: message });
+    emit(onProgress, { type: 'error', step: 'outline', message });
+    return { ok: false, error: message };
+  }
+
+  logPhase(topic, 'outline ✓', {
+    title: outline.title,
+    sections: outline.sections.length,
+  });
+  emit(onProgress, {
+    type: 'outline',
+    title: outline.title,
+    level: outline.level,
+    sections: outline.sections.map((s) => s.heading),
+  });
+
+  return { ok: true, topic, outline, sources, digest, tier: lessonModel.tier, model: lessonModel.model };
+}
+
+// -----------------------------------------------------------------------------
+// Phase 2: writeLesson — per-section generation → grounding → assembly
+// -----------------------------------------------------------------------------
+
+// The trust boundary for phase 2: `outline` has round-tripped through the
+// browser and may have been edited by the user (headings/title), so it is
+// validated here rather than trusted — deliberately NOT the same schema as
+// LessonOutlineSchema above (that one is shaped by Anthropic's `.max(6)` /
+// no-`.min()` structured-output constraints, which are about what the MODEL
+// is allowed to emit, not what OUR OWN client is allowed to send back).
+const LessonOutlineInputSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  summary: z.string().trim().max(500),
+  level: z.enum(['beginner', 'intermediate', 'advanced']),
+  instrument: z.enum(['guitar', 'piano', 'push', 'any']),
+  duration: z.string().trim().max(40).nullable(),
+  sections: z
+    .array(
+      z.object({
+        heading: z.string().trim().min(1).max(200),
+        goal: z.string().trim().max(500),
+      }),
+    )
+    .min(1)
+    .max(12),
+});
+
+const SourceVideoInputSchema = z.object({
+  documentId: z.string().min(1),
+  youtubeVideoId: z.string().min(1),
+  title: z.string().nullable(),
+  score: z.number(),
+});
+
+const WriteLessonRequestSchema = z.object({
+  topic: z.string().trim().min(1).max(200),
+  outline: LessonOutlineInputSchema,
+  sources: z.array(SourceVideoInputSchema).min(1),
+  digest: DigestSchema,
+});
+
+export type WriteLessonInput = z.input<typeof WriteLessonRequestSchema>;
+
+function formatZodIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('; ');
+}
+
+/**
+ * Runs the second half of lesson generation: takes phase 1's output back
+ * (possibly user-edited) and writes per-section content, grounds citations
+ * against the real transcript, and assembles the final lesson body. Does
+ * NOT persist — the caller (the `/api/lesson-write` route) saves the
+ * result and reports the slug.
+ */
+export async function writeLesson(
+  rawInput: WriteLessonInput,
+  onProgress?: ProgressFn,
+): Promise<GenerateLessonResult> {
+  const parsed = WriteLessonRequestSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    const message = `The lesson plan sent back for writing is malformed: ${formatZodIssues(parsed.error)}`;
+    emit(onProgress, { type: 'error', step: 'validate', message });
+    return { ok: false, error: message };
+  }
+  const { topic, outline, sources, digest } = parsed.data;
+
+  const lessonModel = resolveLessonModel();
+  logPhase(topic, `model ✓ ${lessonModel.tier}`, { model: lessonModel.model });
+  emit(onProgress, { type: 'tier', tier: lessonModel.tier, model: lessonModel.model });
+
+  // Re-fetch full videos (with transcriptSegments) for context + grounding —
+  // phase 1 only sent back the lightweight SourceVideo shape over the wire.
+  const { videos: fullVideos, missing } = await resolveFullVideos(
+    sources.map((s) => s.youtubeVideoId),
+  );
+  if (fullVideos.length === 0) {
+    const message = 'Could not reload the selected source videos to write the lesson.';
+    logPhase(topic, 'context ✗ no source videos resolved', { missing });
+    emit(onProgress, { type: 'error', step: 'context', message });
+    return { ok: false, error: message };
+  }
+  if (missing.length > 0) {
+    logPhase(topic, 'context ⚠ some source videos no longer resolve — continuing with the rest', {
+      missing,
+    });
+  }
+
+  const contextText = fullVideos.map((v) => buildVideoContextText(v)).join('\n');
   const validVideoIds = new Set(fullVideos.map((v) => v.youtubeVideoId));
   const bm25ByVideoId = new Map<string, BM25Index>();
   for (const v of fullVideos) {
@@ -1071,157 +1515,120 @@ export async function generateLesson(
   }
   const ground: GroundingContext = { validVideoIds, bm25ByVideoId };
 
-  // --- 4: outline -------------------------------------------------------------
-  let outline: LessonOutline | null;
-  try {
-    const raw = await withRetry(
-      () =>
-        chat({
-          adapter: lessonModel.adapter,
-          messages: [
-            { role: 'system', content: getOutlineSystemWithGuide() },
-            {
-              role: 'user',
-              content: buildOutlinePrompt(topic, contextText, digestContextText),
-            },
-          ] as never,
-          outputSchema: LessonOutlineSchema,
-          modelOptions: buildModelOptions(lessonModel, 0.3),
-        }),
-      {
-        attempts: 2,
-        onRetry: (err, attempt, delayMs) => {
-          logPhase(topic, `outline ↻ retry ${attempt}/1 in ${delayMs}ms`, {
-            cause: redactAnthropicKey(err instanceof Error ? err.message : 'unknown'),
-          });
-        },
-      },
-    );
-    outline = sanitizeOutline(raw);
-  } catch (err) {
-    const message = redactAnthropicKey(
-      err instanceof Error ? err.message : 'Lesson outline generation failed',
-    );
-    logPhase(topic, 'outline ✗ failed', { error: message });
-    return { ok: false, error: friendlyModelError(lessonModel.tier, message) };
-  }
-
-  if (!outline) {
-    logPhase(topic, 'outline ✗ unusable shape');
-    return { ok: false, error: 'The model returned an unusable lesson outline.' };
-  }
-  // See MIN_OUTLINE_SECTIONS's own comment for why this isn't a hard
-  // failure — a 1-section outline still generates, but it's worth knowing
-  // it happened, not discovering it by reading a suspiciously short lesson
-  // later.
-  if (outline.sections.length < MIN_OUTLINE_SECTIONS) {
-    logPhase(topic, `outline ⚠ thin (${outline.sections.length} section(s), target ≥${MIN_OUTLINE_SECTIONS})`, {
-      title: outline.title,
-    });
-  }
-  logPhase(topic, 'outline ✓', {
-    title: outline.title,
-    sections: outline.sections.length,
-  });
-
-  // --- 5: sections --------------------------------------------------------
+  // --- 5: sections, with a single retry on a failed call or zero usable
+  //        blocks. A THIN (but non-empty) result is accepted without retry
+  //        — see MIN_SECTION_BLOCKS's comment. ------------------------------
   let blockId = 1;
   const body: LessonBlock[] = [];
   let succeededSections = 0;
+  const totalSections = outline.sections.length;
 
-  for (const section of outline.sections) {
-    try {
-      const raw = await withRetry(
-        () =>
-          chat({
-            adapter: lessonModel.adapter,
-            messages: [
-              { role: 'system', content: getSectionSystemWithGuide() },
-              {
-                role: 'user',
-                content: buildSectionPrompt(outline as LessonOutline, section, contextText),
-              },
-            ] as never,
-            outputSchema: SectionBlocksSchema,
-            modelOptions: buildModelOptions(lessonModel, 0.4),
-          }),
-        {
-          attempts: 2,
-          onRetry: (err, attempt, delayMs) => {
-            logPhase(topic, `section "${section.heading}" ↻ retry ${attempt}/1 in ${delayMs}ms`, {
-              cause: redactAnthropicKey(err instanceof Error ? err.message : 'unknown'),
-            });
-          },
-        },
-      );
+  for (let index = 0; index < totalSections; index++) {
+    const section = outline.sections[index];
+    let sectionBlocks: LessonBlock[] = [];
 
-      const rawBlocks = Array.isArray((raw as { blocks?: unknown })?.blocks)
-        ? (raw as { blocks: unknown[] }).blocks
-        : [];
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const isLastAttempt = attempt === 2;
+      try {
+        const raw = await chat({
+          adapter: lessonModel.adapter,
+          messages: [
+            { role: 'system', content: getSectionSystemWithGuide() },
+            {
+              role: 'user',
+              content: buildSectionPrompt(outline, section, contextText),
+            },
+          ] as never,
+          outputSchema: SectionBlocksSchema,
+          modelOptions: buildModelOptions(lessonModel, 0.4),
+        });
 
-      // Build the section's content blocks WITHOUT committing them to
-      // `body` yet — the heading is only injected once we know the section
-      // actually produced usable content, so a failed section never leaves
-      // an orphan heading with nothing under it.
-      const sectionBlocks: LessonBlock[] = [];
-      let nextId = blockId + 1; // id 0 (blockId) reserved for the heading
-      for (const rawBlock of rawBlocks) {
-        // The model is instructed not to emit a heading; if it does anyway,
-        // drop it — the outline's heading is injected below, never this one.
-        if (isModelHeadingBlock(rawBlock)) continue;
-        const block = toLessonBlock(rawBlock, nextId, ground);
-        if (!block) continue;
-        sectionBlocks.push(block);
-        nextId += 1;
-      }
+        const rawBlocks = Array.isArray((raw as { blocks?: unknown })?.blocks)
+          ? (raw as { blocks: unknown[] }).blocks
+          : [];
+        // id 0 (blockId) is reserved for the heading — content blocks start
+        // at blockId + 1.
+        const built = buildSectionBlocks(rawBlocks, blockId + 1, ground);
 
-      // Only "zero usable blocks" fails the section outright (same bar as
-      // before this comment existed) — a single-block section is thin
-      // relative to MIN_SECTION_BLOCKS (see SectionBlocksSchema's comment
-      // for why that target can't be a schema `.min()` on the frontier
-      // tier), but it's still real, grounded content; dropping a whole
-      // section over a 1-vs-2 block count would throw away content for a
-      // quantity target, not a correctness one — the same call made for
-      // sanitizeOutline's section count above. Logged as thin instead, so
-      // it's visible rather than silently accepted.
-      if (sectionBlocks.length > 0 && sectionBlocks.length < MIN_SECTION_BLOCKS) {
-        logPhase(topic, `section "${section.heading}" ⚠ thin (${sectionBlocks.length} block, target ≥${MIN_SECTION_BLOCKS})`);
-      }
-      if (sectionBlocks.length > 0) {
-        body.push(
-          {
-            __component: 'lesson.heading',
-            id: blockId,
-            text: truncate(section.heading, 150),
-            level: 'h2',
-          },
-          ...sectionBlocks,
-        );
-        blockId = nextId;
-        succeededSections += 1;
-        logPhase(topic, `section "${section.heading}" ✓`, { blocks: sectionBlocks.length });
-      } else {
-        logPhase(topic, `section "${section.heading}" ⚠ too few usable blocks, dropping`, {
+        if (built.length > 0) {
+          sectionBlocks = built;
+          break;
+        }
+        // Zero usable blocks is treated the same as a failed call: retry
+        // once before giving up on the section.
+        if (isLastAttempt) {
+          logPhase(topic, `section "${section.heading}" ⚠ too few usable blocks after retry, dropping`, {
+            rawCount: rawBlocks.length,
+          });
+          break;
+        }
+        logPhase(topic, `section "${section.heading}" ⚠ zero usable blocks (attempt ${attempt}) — retrying once`, {
           rawCount: rawBlocks.length,
-          usableCount: sectionBlocks.length,
-          minRequired: MIN_SECTION_BLOCKS,
+        });
+        emit(onProgress, {
+          type: 'retry',
+          step: 'section',
+          attempt,
+          reason: 'zero usable blocks',
+          label: section.heading,
+        });
+      } catch (err) {
+        const message = redactAnthropicKey(err instanceof Error ? err.message : 'unknown');
+        if (isLastAttempt) {
+          logPhase(topic, `section "${section.heading}" ✗ failed after retry, dropping`, {
+            error: message,
+          });
+          break;
+        }
+        logPhase(topic, `section "${section.heading}" ✗ failed (attempt ${attempt}) — retrying once`, {
+          error: message,
+        });
+        emit(onProgress, {
+          type: 'retry',
+          step: 'section',
+          attempt,
+          reason: message,
+          label: section.heading,
         });
       }
-    } catch (err) {
-      // Single-section failure is non-fatal: drop it and keep going. Only
-      // "every section failed" (checked below) fails the whole run.
-      logPhase(topic, `section "${section.heading}" ✗ failed, dropping`, {
-        error: redactAnthropicKey(err instanceof Error ? err.message : 'unknown'),
+    }
+
+    if (sectionBlocks.length > 0) {
+      if (sectionBlocks.length < MIN_SECTION_BLOCKS) {
+        logPhase(
+          topic,
+          `section "${section.heading}" ⚠ thin (${sectionBlocks.length} block, target ≥${MIN_SECTION_BLOCKS})`,
+        );
+      }
+      body.push(
+        {
+          __component: 'lesson.heading',
+          id: blockId,
+          text: truncate(section.heading, 150),
+          level: 'h2',
+        },
+        ...sectionBlocks,
+      );
+      blockId = blockId + 1 + sectionBlocks.length;
+      succeededSections += 1;
+      logPhase(topic, `section "${section.heading}" ✓`, { blocks: sectionBlocks.length });
+      emit(onProgress, {
+        type: 'section',
+        index,
+        total: totalSections,
+        heading: section.heading,
+        blocks: sectionBlocks.length,
       });
     }
+    // else: single-section failure is non-fatal — drop it and keep going.
+    // Only "every section failed" (checked below) fails the whole run.
   }
 
   if (succeededSections === 0 || body.length === 0) {
     logPhase(topic, '✗ every section failed — no usable body');
-    return {
-      ok: false,
-      error: friendlyModelError(lessonModel.tier, 'Every lesson section failed to generate.'),
-    };
+    const message = friendlyModelError(lessonModel.tier, 'Every lesson section failed to generate.');
+    emit(onProgress, { type: 'error', step: 'section', message });
+    return { ok: false, error: message };
   }
 
   // --- 6: assemble ----------------------------------------------------------
@@ -1235,6 +1642,18 @@ export async function generateLesson(
       block.number = stepCounter;
     }
   }
+
+  // Grounding stats: how many blocks got a citation at all, and how many of
+  // those a real BM25 timecode (vs. video-only, no timestamp).
+  let citedBlocks = 0;
+  let groundedBlocks = 0;
+  for (const block of body) {
+    const source = block.source;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+    citedBlocks += 1;
+    if (typeof (source as Record<string, unknown>).timeSec === 'number') groundedBlocks += 1;
+  }
+  emit(onProgress, { type: 'grounding', grounded: groundedBlocks, total: citedBlocks });
 
   // The highest-value thing the digest offers: genuine cross-video
   // disagreements. Appended deterministically, after we know the body is
@@ -1259,7 +1678,7 @@ export async function generateLesson(
   };
 
   logPhase(topic, '✓ generation complete', {
-    sections: `${succeededSections}/${outline.sections.length}`,
+    sections: `${succeededSections}/${totalSections}`,
     blocks: body.length,
     tier: lessonModel.tier,
     model: lessonModel.model,

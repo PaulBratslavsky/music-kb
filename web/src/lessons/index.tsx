@@ -89,7 +89,7 @@ export default function LessonsIndexPage() {
           Lessons
         </p>
         <h1 className="mt-1 text-3xl font-bold text-[var(--ink)] sm:text-4xl">
-          Guitar lessons
+          Music lessons
         </h1>
         <p className="mt-3 text-sm text-[var(--ink-soft)]">
           Self-contained walk-throughs that pair theory with practice. Each

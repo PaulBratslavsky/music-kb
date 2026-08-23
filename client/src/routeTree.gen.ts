@@ -23,6 +23,8 @@ import { Route as TheoryRouteImport } from './routes/theory'
 import { Route as ApiAskRouteImport } from './routes/api.ask'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
 import { Route as ApiDigestChatRouteImport } from './routes/api.digest-chat'
+import { Route as ApiLessonPlanRouteImport } from './routes/api.lesson-plan'
+import { Route as ApiLessonWriteRouteImport } from './routes/api.lesson-write'
 import { Route as LearnVideoIdRouteImport } from './routes/learn.$videoId'
 import { Route as LessonsIndexRouteImport } from './routes/lessons.index'
 import { Route as LessonsSlugRouteImport } from './routes/lessons.$slug'
@@ -99,6 +101,16 @@ const ApiDigestChatRoute = ApiDigestChatRouteImport.update({
   path: '/api/digest-chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLessonPlanRoute = ApiLessonPlanRouteImport.update({
+  id: '/api/lesson-plan',
+  path: '/api/lesson-plan',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiLessonWriteRoute = ApiLessonWriteRouteImport.update({
+  id: '/api/lesson-write',
+  path: '/api/lesson-write',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LearnVideoIdRoute = LearnVideoIdRouteImport.update({
   id: '/learn/$videoId',
   path: '/learn/$videoId',
@@ -140,6 +152,8 @@ export interface FileRoutesByFullPath {
   '/api/ask': typeof ApiAskRoute
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
+  '/api/lesson-plan': typeof ApiLessonPlanRoute
+  '/api/lesson-write': typeof ApiLessonWriteRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
@@ -161,6 +175,8 @@ export interface FileRoutesByTo {
   '/api/ask': typeof ApiAskRoute
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
+  '/api/lesson-plan': typeof ApiLessonPlanRoute
+  '/api/lesson-write': typeof ApiLessonWriteRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
@@ -183,6 +199,8 @@ export interface FileRoutesById {
   '/api/ask': typeof ApiAskRoute
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
+  '/api/lesson-plan': typeof ApiLessonPlanRoute
+  '/api/lesson-write': typeof ApiLessonWriteRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
   '/video/$documentId': typeof VideoDocumentIdRoute
@@ -206,6 +224,8 @@ export interface FileRouteTypes {
     | '/api/ask'
     | '/api/chat'
     | '/api/digest-chat'
+    | '/api/lesson-plan'
+    | '/api/lesson-write'
     | '/learn/$videoId'
     | '/lessons/$slug'
     | '/video/$documentId'
@@ -227,6 +247,8 @@ export interface FileRouteTypes {
     | '/api/ask'
     | '/api/chat'
     | '/api/digest-chat'
+    | '/api/lesson-plan'
+    | '/api/lesson-write'
     | '/learn/$videoId'
     | '/lessons/$slug'
     | '/video/$documentId'
@@ -248,6 +270,8 @@ export interface FileRouteTypes {
     | '/api/ask'
     | '/api/chat'
     | '/api/digest-chat'
+    | '/api/lesson-plan'
+    | '/api/lesson-write'
     | '/learn/$videoId'
     | '/lessons/$slug'
     | '/video/$documentId'
@@ -270,6 +294,8 @@ export interface RootRouteChildren {
   ApiAskRoute: typeof ApiAskRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiDigestChatRoute: typeof ApiDigestChatRoute
+  ApiLessonPlanRoute: typeof ApiLessonPlanRoute
+  ApiLessonWriteRoute: typeof ApiLessonWriteRoute
   LearnVideoIdRoute: typeof LearnVideoIdRoute
   LessonsSlugRoute: typeof LessonsSlugRoute
   VideoDocumentIdRoute: typeof VideoDocumentIdRoute
@@ -377,6 +403,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDigestChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/lesson-plan': {
+      id: '/api/lesson-plan'
+      path: '/api/lesson-plan'
+      fullPath: '/api/lesson-plan'
+      preLoaderRoute: typeof ApiLessonPlanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/lesson-write': {
+      id: '/api/lesson-write'
+      path: '/api/lesson-write'
+      fullPath: '/api/lesson-write'
+      preLoaderRoute: typeof ApiLessonWriteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/learn/$videoId': {
       id: '/learn/$videoId'
       path: '/learn/$videoId'
@@ -430,6 +470,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAskRoute: ApiAskRoute,
   ApiChatRoute: ApiChatRoute,
   ApiDigestChatRoute: ApiDigestChatRoute,
+  ApiLessonPlanRoute: ApiLessonPlanRoute,
+  ApiLessonWriteRoute: ApiLessonWriteRoute,
   LearnVideoIdRoute: LearnVideoIdRoute,
   LessonsSlugRoute: LessonsSlugRoute,
   VideoDocumentIdRoute: VideoDocumentIdRoute,
