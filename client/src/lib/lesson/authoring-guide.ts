@@ -70,16 +70,34 @@ function extractSection(markdown: string, heading: string): string {
 
 // The block types the in-app section-generation step (SECTION_SYSTEM in
 // lesson-generation.ts) is allowed to emit. Deliberately a SUBSET of the
-// ten dynamic-zone components — no diagram/keyboard-diagram (enabling
-// those is a separate task), no heading (injected deterministically from
-// the outline, never model-emitted), no param-picker/video-ref (not part
-// of this pipeline's output today).
+// ten dynamic-zone components — no heading (injected deterministically
+// from the outline, never model-emitted), no param-picker/video-ref (not
+// part of this pipeline's output today). diagram/keyboard-diagram were
+// excluded until every generated one could be resolve-checked against the
+// real renderer (see diagram-params.ts) before reaching the lesson body —
+// that gate now exists in lesson-generation.ts, so both are included here.
 const SECTION_BLOCK_TYPES = [
   'lesson.prose',
   'lesson.callout',
   'lesson.step',
   'lesson.table',
   'lesson.degree-chips',
+  'lesson.diagram',
+  'lesson.keyboard-diagram',
+] as const;
+
+// lesson.neck-dot / lesson.key-mark are sub-components (used inside
+// lesson.diagram.dots / lesson.keyboard-diagram.marks for explicit-mode
+// dots), not top-level dynamic-zone blocks, so they aren't in
+// SECTION_BLOCK_TYPES above — but a model composing an explicit-mode
+// diagram needs their field rules (string-index convention, fret, label
+// length) just as much as the parent block's. Their headings carry a
+// parenthetical suffix in the guide, so they can't reuse the
+// `### \`${component}\`` template extractSection's SECTION_BLOCK_TYPES
+// loop uses; extracted by literal heading text instead.
+const SUB_COMPONENT_HEADINGS = [
+  '### `lesson.neck-dot` (used inside `lesson.diagram.dots`)',
+  '### `lesson.key-mark` (used inside `lesson.keyboard-diagram.marks`)',
 ] as const;
 
 /**
@@ -112,10 +130,14 @@ export function getSectionBlockGuideExcerpt(): string {
     // "### `lesson.prose`" — match that exactly.
     extractSection(guide, `### \`${component}\``),
   );
+  const subComponentReference = SUB_COMPONENT_HEADINGS.map((heading) =>
+    extractSection(guide, heading),
+  );
   const judgment = [
     extractSection(guide, '#### Callouts: carry a fact, not a mood'),
     extractSection(guide, '#### Prose: name the note, not the shape'),
     extractSection(guide, '### Citing sources'),
+    extractSection(guide, '### When a diagram earns its place versus when prose is clearer'),
   ];
-  return [...blockReference, ...judgment].join('\n\n');
+  return [...blockReference, ...subComponentReference, ...judgment].join('\n\n');
 }

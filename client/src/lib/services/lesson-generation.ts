@@ -75,6 +75,16 @@ import {
   getSectionBlockGuideExcerpt,
 } from '#/lib/lesson/authoring-guide';
 import {
+  resolveDiagramDots,
+  resolveDiagramMarks,
+  type DiagramBlock,
+  type KeyboardDiagramBlock,
+  type NeckDotInput,
+  type KeyMarkInput,
+} from '#/lib/lesson/diagram-params';
+import { STRING_SETS } from '@music-kb/music/theory/triad-shapes';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
+import {
   DIGEST_MAX_VIDEOS,
   DIGEST_MIN_VIDEOS,
   DigestSchema,
@@ -107,7 +117,7 @@ import {
   listAllVideosForEmbeddingWithStatusService,
   type StrapiVideo,
 } from '#/lib/services/videos';
-import type { LessonBlock } from '#/lib/services/lessons';
+import type { JsonValue, LessonBlock } from '#/lib/services/lessons';
 
 // Translates a caught error's message through the tier-appropriate friendly
 // mapper. Frontier errors get the non-echoing Anthropic mapper (never
@@ -419,7 +429,7 @@ export const CoverageVerdictSchema = z.object({
     .string()
     .nullable()
     .describe('One short sentence explaining the verdict, or null.'),
-});
+}).strict();
 
 /** What the sources DO cover, when they don't cover the topic. */
 export type CoverageVerdict = {
@@ -602,7 +612,7 @@ export const LessonOutlineSchema = z.object({
           .describe(
             'ONE sentence: what this section should teach. Used to prompt the next generation step — never shown to the learner.',
           ),
-      }),
+      }).strict(),
     )
     // NOT .min(2) AND NOT .max(6) here — Anthropic's structured-output
     // schema support rejects BOTH: `minItems` values other than 0 or 1
@@ -617,7 +627,7 @@ export const LessonOutlineSchema = z.object({
     // `planLesson` enforces the minimum (see MIN_OUTLINE_SECTIONS), and
     // `sanitizeOutline` below enforces the maximum by truncating.
     .describe('2 to 6 teaching beats, in the order the lesson should cover them.'),
-});
+}).strict();
 
 // The target minimum section count — see LessonOutlineSchema's comment
 // above for why it isn't a schema `.min()`. Below this, the outline retry
@@ -754,20 +764,34 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
 // name per `type`, never assuming the schema's shape — so flattening this
 // costs nothing on the sanitization side; only the schema declaration
 // changes.
+// Reused, not re-typed: the theory layer (`@music-kb/music`) is the single
+// source of truth for the 12 sharps-only pitch classes and the 4 guitar
+// string-set names (with their EN DASH separators) — see
+// docs/lesson-authoring.md's "The 12 pitch classes" and the `stringSet`
+// field of `lesson.diagram` for why byte-identical fidelity here matters:
+// a hyphenated string-set lookalike is a different (and empty-rendering)
+// value. Cast to a non-empty tuple only because zod's `.enum()` wants that
+// shape at the type level — the runtime values come straight from the
+// theory package, never hand-copied.
+const PITCH_CLASS_ENUM = PITCH_CLASSES as [PitchClass, ...PitchClass[]];
+const STRING_SET_ENUM = STRING_SETS.map((s) => s.name) as [string, ...string[]];
+// Triads only — the theory layer only voices triads, so a seventh-chord
+// quality can never be rendered. See docs/lesson-authoring.md's
+// `lesson.diagram.quality` row for why this specific four-value list is
+// the whole set, not an example of it.
+const TRIAD_QUALITY_ENUM = ['major', 'minor', 'augmented', 'diminished'] as const;
+
 const LessonBlockOutputSchema = z.object({
-  type: z.enum(['heading', 'prose', 'callout', 'step', 'table', 'degree-chips']),
+  type: z.enum([
+    'prose',
+    'callout',
+    'step',
+    'table',
+    'degree-chips',
+    'diagram',
+    'keyboard-diagram',
+  ]),
   // heading
-  text: z
-    .string()
-    .nullable()
-    .describe('heading only: the heading text. MAX 150 characters. Null for every other type.'),
-  level: z
-    .enum(['h2', 'h3'])
-    .nullable()
-    .describe(
-      'heading only: h2 for the section heading, h3 for a sub-heading within it. Null for every other type.',
-    ),
-  // prose / callout / step (shared)
   body: z
     .string()
     .nullable()
@@ -778,7 +802,7 @@ const LessonBlockOutputSchema = z.object({
     .string()
     .nullable()
     .describe(
-      'prose/callout/step only: the youtubeVideoId (copied exactly from the [bracketed] id in the source list) that THIS content is drawn from, or null if it synthesizes multiple sources evenly. Never invent an id — only use one from the list. Null for heading/table/degree-chips.',
+      'prose/callout/step/diagram/keyboard-diagram only: the youtubeVideoId (copied exactly from the [bracketed] id in the source list) that THIS content is drawn from, or null if it synthesizes multiple sources evenly. Never invent an id — only use one from the list. Copy this id into THIS field only, never into the block\'s own text (body/caption) — a reader-facing sentence must never contain a raw video id; refer to a source by its title or a natural phrase instead. Null for heading/table/degree-chips.',
     ),
   // callout
   tone: z
@@ -824,17 +848,51 @@ const LessonBlockOutputSchema = z.object({
   caption: z
     .string()
     .nullable()
-    .describe('table only: MAX 255 characters, or null. Null for every other type.'),
+    .describe(
+      'table/diagram/keyboard-diagram only: MAX 255 characters, or null. On diagram/keyboard-diagram, a caption that adds information beyond "here is a diagram" — e.g. why the third\'s dot sits where it does, not just that it\'s a triad. Never a raw video id — refer to a source by title/natural phrase, the id belongs in sourceVideoId. Null for every other type.',
+    ),
   // degree-chips
   degrees: z
     .array(z.string())
     .nullable()
     .describe('degree-chips only: scale degrees like "I", "ii", "IV", "V7". Null for every other type.'),
-  size: z
-    .enum(['sm', 'md'])
+  instrument: z
+    .enum(['guitar', 'bass'])
     .nullable()
-    .describe('degree-chips only: chip size, or null. Null for every other type.'),
-});
+    .describe('diagram only: which fretboard this depicts. Null for every other type, including keyboard-diagram (a keyboard has no strings).'),
+  // Generation is theory-mode ONLY. Explicit mode needs hand-placed
+  // dots/marks, and those fields are gone from this schema: Anthropic caps a
+  // request at 16 union-typed parameters and the nested dot/mark arrays were
+  // the most expensive fields in it. Offering 'explicit' here anyway just
+  // invited the model to pick it and emit a diagram with no positions — a
+  // first live run produced three, all caught by the resolve check and
+  // dropped. toLessonBlock still HANDLES explicit mode, for hand-authored
+  // seed lessons and for lessons Claude writes over MCP; the in-app
+  // generator simply never emits it.
+  mode: z
+    .literal('theory')
+    .nullable()
+    .describe(
+      'diagram/keyboard-diagram only, and always exactly "theory": the shape is computed from root+quality(+stringSet on diagram), which cannot be musically wrong. Null for every other type.',
+    ),
+  root: z
+    .enum(PITCH_CLASS_ENUM)
+    .nullable()
+    .describe(
+      'diagram/keyboard-diagram mode="theory" only: the chord root, one of the 12 sharps-only pitch classes (no flats). REQUIRED together with quality (and stringSet, on diagram) in theory mode — missing any one silently renders an empty diagram. Null otherwise.',
+    ),
+  quality: z
+    .enum(TRIAD_QUALITY_ENUM)
+    .nullable()
+    .describe(
+      'diagram/keyboard-diagram mode="theory" only: TRIADS ONLY (major/minor/augmented/diminished) — never a seventh-chord quality; the theory layer only voices triads and cannot render one. REQUIRED together with root (and stringSet, on diagram) in theory mode. Null otherwise.',
+    ),
+  stringSet: z
+    .enum(STRING_SET_ENUM)
+    .nullable()
+    .describe(
+      'diagram mode="theory" only: one of these four EXACT strings, using an EN DASH (–, U+2013) between letters, NOT a hyphen (-, U+002D) — a hyphenated lookalike is a different value and silently renders an empty diagram. REQUIRED together with root+quality in theory mode. Null otherwise, including on keyboard-diagram (pitch-class addressed — no strings).',
+    ),}).strict();
 
 // Code-enforced maxima for the array fields Anthropic won't let the schema
 // cap (see the `table`/`degree-chips` schema comments above). Matches the
@@ -843,6 +901,22 @@ const LessonBlockOutputSchema = z.object({
 const TABLE_HEADERS_MAX = 6;
 const TABLE_ROWS_MAX = 12;
 const DEGREE_CHIPS_MAX = 12;
+// A triad has 3 notes; 6 gives room for a doubled note or two without
+// letting an explicit-mode diagram/keyboard-diagram sprawl.
+const MAX_DIAGRAM_DOTS = 6;
+const MAX_KEYBOARD_MARKS = 6;
+
+// "Don't overdo it" — a lesson that is mostly diagrams is as bad as one
+// with none (see docs/lesson-authoring.md's "Don't overdo it" note under
+// "When a diagram earns its place..."). Enforced here in code, not left to
+// the prompt alone: at most one diagram/keyboard-diagram per section, at
+// most 4 across the whole lesson — matching the ratio in the hand-authored
+// one-fret-one-half-step.json (4 diagram-type blocks across 18). A block
+// dropped for hitting one of these caps is NOT counted as a resolve
+// failure in the generated/kept stat below — it's a distinct reason,
+// logged with its own message.
+const MAX_DIAGRAMS_PER_SECTION = 1;
+const MAX_DIAGRAMS_PER_LESSON = 4;
 
 export const SectionBlocksSchema = z.object({
   // NOT .min(2) AND NOT .max(4) here — same two Anthropic array-schema
@@ -853,7 +927,7 @@ export const SectionBlocksSchema = z.object({
   // upper bound is enforced by `buildSectionBlocks` slicing to
   // MAX_SECTION_BLOCKS.
   blocks: z.array(LessonBlockOutputSchema),
-});
+}).strict();
 
 // See the schema comment above — enforced in code (buildSectionBlocks)
 // instead of a schema `.max()`.
@@ -873,11 +947,15 @@ const MIN_SECTION_BLOCKS = 2;
 
 const SECTION_SYSTEM = [
   'You write ONE section of a music lesson as 2 to 4 short structured content blocks.',
-  'Allowed block types: prose, callout, step, table, degree-chips. Never use any other type — a diagram/keyboard-diagram block is NOT available in this pipeline.',
+  'Allowed block types: prose, callout, step, table, degree-chips, diagram, keyboard-diagram. Never use any other type.',
   'Do NOT emit a `heading` block. The section heading is added automatically from the outline — start straight in with content.',
-  'Use `step` for sequenced instructions, `table` for comparisons, `degree-chips` for scale-degree sequences, `callout` for a short aside, `prose` for everything else.',
+  'Use `step` for sequenced instructions, `table` for comparisons, `degree-chips` for scale-degree sequences, `callout` for a short aside, `diagram`/`keyboard-diagram` for a shape the reader needs to SEE (not just read about), `prose` for everything else.',
+  'A diagram earns its place when the reader needs to see WHERE on the instrument, not just what — a specific shape, or a comparison between two voicings. Do not add one to every section out of habit; a diagram with nothing new to show past the previous one is decoration, not teaching. Use AT MOST ONE diagram/keyboard-diagram block in this section.',
+  'For diagram/keyboard-diagram, PREFER mode="theory" (root+quality, and stringSet on diagram) over mode="explicit" (hand-placed dots/marks) — theory mode cannot be musically wrong the way hand-placed positions can. Only use explicit mode when theory mode genuinely cannot express the shape you need to show.',
+  'quality is TRIADS ONLY: major, minor, augmented, or diminished — never a seventh-chord quality. stringSet on a theory-mode diagram MUST use an EN DASH (–) between letters, e.g. "e–B–G", never a hyphen — a hyphenated lookalike silently renders an empty diagram.',
   'Ground content in the provided source videos. Do not invent chords, keys, techniques, or songs the sources do not mention.',
-  'On every prose/callout/step block, set `sourceVideoId` to the exact id shown in [brackets] next to the source video this content is drawn from, or null if the content blends several sources evenly. Copy the id exactly — never invent or guess one.',
+  'On every prose/callout/step/diagram/keyboard-diagram block, set `sourceVideoId` to the exact id shown in [brackets] next to the source video this content is drawn from, or null if the content blends several sources evenly. Copy the id exactly — never invent or guess one.',
+  'NEVER write a bare video id into a block\'s own text (body/caption) — that id is for `sourceVideoId` only. Refer to a source in text by its title or a natural phrase ("one video recommends..."), never by the [bracketed] id itself.',
   'Every block shares one field set (each field belongs to only some block types — see each field\'s own description for which). Set every field that does not apply to this block\'s `type` to null; only fill in the fields that belong to the chosen type.',
 ].join('\n');
 
@@ -924,7 +1002,44 @@ const CAPTION_MAX = 255;
 type GroundingContext = {
   validVideoIds: Set<string>;
   bm25ByVideoId: Map<string, BM25Index>;
+  /** youtubeVideoId -> display title, for stripLeakedVideoIds below. */
+  titleByVideoId: Map<string, string>;
+  /**
+   * Called when a block is discarded. Dropping silently is the failure this
+   * whole pipeline keeps guarding against, so every drop is announced with
+   * the field values that caused it.
+   */
+  warn: (reason: string, meta?: Record<string, unknown>) => void;
 };
+
+// Reader-facing text must never contain a raw video id. The context text
+// every section call sees lists each source as `[videoId] "Title"` so the
+// model can copy the id into `sourceVideoId` — but the bracketed id is for
+// the model, not the reader, and nothing stops it from typing the id into
+// prose instead of the field. A real generation run did exactly this:
+// "One fix from PS54GhZoojo is octave displacement." Only checked against
+// ids ACTUALLY in this lesson's source set (never a general "11
+// base64-ish characters" pattern), so an ordinary word is never mangled by
+// coincidence. Replaces the id with the video's title when known (so the
+// sentence still reads naturally), or a generic phrase otherwise.
+function stripLeakedVideoIds(text: string, ground: GroundingContext): string {
+  let result = text;
+  for (const videoId of ground.validVideoIds) {
+    if (!result.includes(videoId)) continue;
+    const title = ground.titleByVideoId.get(videoId);
+    const replacement = title ? `"${title}"` : 'one of the source videos';
+    result = result.split(videoId).join(replacement);
+  }
+  return result;
+}
+
+// Every reader-facing free-text field (prose/callout/step body+lede+title,
+// diagram/keyboard-diagram/table caption) is read through this, not a bare
+// `.trim()` — see stripLeakedVideoIds above for why.
+function sanitizeReaderText(raw: unknown, ground: GroundingContext): string {
+  if (typeof raw !== 'string') return '';
+  return stripLeakedVideoIds(raw.trim(), ground).trim();
+}
 
 function resolveBlockSource(
   rawSourceVideoId: unknown,
@@ -957,6 +1072,38 @@ function resolveBlockSource(
 // Never reads a model-supplied `timeSec` — there isn't one in the schema,
 // and even if a model emits an unrequested extra field, this function only
 // ever pulls known fields off `r`, so it's ignored by construction.
+/**
+ * Explicit-mode dots/marks come straight from the model, so every field is
+ * re-derived rather than trusted. Returns null for anything unusable — the
+ * resolve check downstream then drops the whole diagram if too little
+ * survives.
+ */
+function normalizeNeckDot(raw: unknown): NeckDotInput | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const d = raw as Record<string, unknown>;
+  const string = Number(d.string);
+  const fret = Number(d.fret);
+  if (!Number.isFinite(string) || string < 0 || string > 5) return null;
+  if (!Number.isFinite(fret) || fret < 0) return null;
+  const out: NeckDotInput = { string: Math.floor(string), fret: Math.floor(fret) };
+  if (typeof d.label === 'string' && d.label.trim()) out.label = d.label.trim();
+  if (d.root === true) out.root = true;
+  if (d.dim === true) out.dim = true;
+  return out;
+}
+
+function normalizeKeyMark(raw: unknown): KeyMarkInput | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const m = raw as Record<string, unknown>;
+  const pc = typeof m.pc === 'string' ? m.pc.trim() : '';
+  if (!pc) return null;
+  const out: KeyMarkInput = { pc: pc as KeyMarkInput['pc'] };
+  if (typeof m.label === 'string' && m.label.trim()) out.label = m.label.trim();
+  if (m.root === true) out.root = true;
+  if (m.flag === true) out.flag = true;
+  return out;
+}
+
 function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): LessonBlock | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
@@ -971,7 +1118,7 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
     }
 
     case 'prose': {
-      const body = typeof r.body === 'string' ? r.body.trim() : '';
+      const body = sanitizeReaderText(r.body, ground);
       if (!body) return null;
       const block: LessonBlock = { __component: 'lesson.prose', id, body };
       const source = resolveBlockSource(r.sourceVideoId, body, ground);
@@ -980,7 +1127,7 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
     }
 
     case 'callout': {
-      const body = typeof r.body === 'string' ? r.body.trim() : '';
+      const body = sanitizeReaderText(r.body, ground);
       if (!body) return null;
       const tone = r.tone === 'tip' || r.tone === 'warning' ? r.tone : 'note';
       const block: LessonBlock = { __component: 'lesson.callout', id, tone, body };
@@ -992,14 +1139,14 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
     case 'step': {
       // Trailing colons are a common model tic ("Identify the Root:") —
       // strip trailing `:`/whitespace so titles read as titles, not labels.
-      const title = (typeof r.title === 'string' ? r.title.trim() : '').replace(/[\s:]+$/, '');
+      const title = sanitizeReaderText(r.title, ground).replace(/[\s:]+$/, '');
       if (!title) return null;
       const numberRaw = Number(r.number);
       const number = Number.isFinite(numberRaw) && numberRaw >= 1 ? Math.floor(numberRaw) : 1;
       const block: LessonBlock = { __component: 'lesson.step', id, number, title };
-      const lede = typeof r.lede === 'string' ? r.lede.trim() : '';
+      const lede = sanitizeReaderText(r.lede, ground);
       if (lede) block.lede = lede;
-      const body = typeof r.body === 'string' ? r.body.trim() : '';
+      const body = sanitizeReaderText(r.body, ground);
       if (body) block.body = body;
       const groundingText = [title, lede, body].filter(Boolean).join('. ');
       const source = resolveBlockSource(r.sourceVideoId, groundingText, ground);
@@ -1020,9 +1167,8 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
         .map((row) => row.map((cell) => String(cell)));
       if (headers.length === 0 || rows.length === 0) return null;
       const block: LessonBlock = { __component: 'lesson.table', id, headers, rows };
-      if (typeof r.caption === 'string' && r.caption.trim()) {
-        block.caption = truncate(r.caption.trim(), CAPTION_MAX);
-      }
+      const caption = sanitizeReaderText(r.caption, ground);
+      if (caption) block.caption = truncate(caption, CAPTION_MAX);
       return block;
     }
 
@@ -1037,8 +1183,81 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
       return block;
     }
 
-    // Covers unknown/missing `type`, and any block outside the six this
-    // pipeline is allowed to emit (e.g. a stray "diagram").
+    case 'diagram': {
+      const mode = r.mode === 'explicit' ? 'explicit' : 'theory';
+      const block: LessonBlock = {
+        __component: 'lesson.diagram',
+        id,
+        instrument: r.instrument === 'bass' ? 'bass' : 'guitar',
+        mode,
+      };
+      for (const key of ['root', 'quality', 'stringSet'] as const) {
+        const v = r[key];
+        if (typeof v === 'string' && v.trim()) block[key] = v.trim();
+      }
+      const inv = Number(r.inversion);
+      if (Number.isFinite(inv) && inv >= 0) block.inversion = Math.floor(inv);
+      if (mode === 'explicit' && Array.isArray(r.dots)) {
+        const dots = r.dots
+          .slice(0, MAX_DIAGRAM_DOTS)
+          .map((d) => normalizeNeckDot(d))
+          .filter((d): d is NeckDotInput => d !== null);
+        if (dots.length) block.dots = dots as unknown as JsonValue;
+      }
+      const caption = sanitizeReaderText(r.caption, ground);
+      if (caption) block.caption = truncate(caption, CAPTION_MAX);
+
+      // THE check. Run the renderer's own resolver: a diagram that draws
+      // nothing is worse than no diagram, because it renders as an
+      // invisible gap with no error anywhere. Schema-valid is not the bar.
+      if (resolveDiagramDots(block as unknown as DiagramBlock).length === 0) {
+        ground.warn('diagram resolves to zero dots', {
+          mode,
+          root: block.root,
+          quality: block.quality,
+          stringSet: block.stringSet,
+        });
+        return null;
+      }
+      const source = resolveBlockSource(r.sourceVideoId, caption, ground);
+      if (source) block.source = source;
+      return block;
+    }
+
+    case 'keyboard-diagram': {
+      const mode = r.mode === 'explicit' ? 'explicit' : 'theory';
+      const block: LessonBlock = { __component: 'lesson.keyboard-diagram', id, mode };
+      for (const key of ['root', 'quality'] as const) {
+        const v = r[key];
+        if (typeof v === 'string' && v.trim()) block[key] = v.trim();
+      }
+      const oct = Number(r.octaves);
+      if (Number.isFinite(oct) && oct >= 1) block.octaves = Math.floor(oct);
+      if (mode === 'explicit' && Array.isArray(r.marks)) {
+        const marks = r.marks
+          .slice(0, MAX_KEYBOARD_MARKS)
+          .map((m) => normalizeKeyMark(m))
+          .filter((m): m is KeyMarkInput => m !== null);
+        if (marks.length) block.marks = marks as unknown as JsonValue;
+      }
+      const caption = sanitizeReaderText(r.caption, ground);
+      if (caption) block.caption = truncate(caption, CAPTION_MAX);
+
+      if (resolveDiagramMarks(block as unknown as KeyboardDiagramBlock).length === 0) {
+        ground.warn('keyboard-diagram resolves to zero marks', {
+          mode,
+          root: block.root,
+          quality: block.quality,
+        });
+        return null;
+      }
+      const source = resolveBlockSource(r.sourceVideoId, caption, ground);
+      if (source) block.source = source;
+      return block;
+    }
+
+    // Covers unknown/missing `type`, and any block outside the eight this
+    // pipeline is allowed to emit.
     default:
       return null;
   }
@@ -1055,9 +1274,11 @@ function buildSectionBlocks(
   rawBlocks: unknown[],
   startId: number,
   ground: GroundingContext,
+  budget: { remaining: number },
 ): LessonBlock[] {
   const blocks: LessonBlock[] = [];
   let nextId = startId;
+  let diagramsThisSection = 0;
   for (const rawBlock of rawBlocks) {
     // MAX_SECTION_BLOCKS enforced here in code, not the schema — see
     // SectionBlocksSchema's comment for why (Anthropic rejects array
@@ -1068,10 +1289,33 @@ function buildSectionBlocks(
     if (isModelHeadingBlock(rawBlock)) continue;
     const block = toLessonBlock(rawBlock, nextId, ground);
     if (!block) continue;
+
+    // Diagram budget. A lesson that is mostly diagrams reads as badly as one
+    // with none, and the model will happily illustrate every paragraph if
+    // left alone. Counted separately from a resolve failure: this block was
+    // fine, there was just no room for it.
+    if (isDiagramBlock(block)) {
+      if (diagramsThisSection >= MAX_DIAGRAMS_PER_SECTION || budget.remaining <= 0) {
+        ground.warn('diagram over budget', {
+          perSection: MAX_DIAGRAMS_PER_SECTION,
+          lessonRemaining: budget.remaining,
+        });
+        continue;
+      }
+      diagramsThisSection += 1;
+      budget.remaining -= 1;
+    }
+
     blocks.push(block);
     nextId += 1;
   }
   return blocks;
+}
+
+const DIAGRAM_COMPONENTS = new Set(['lesson.diagram', 'lesson.keyboard-diagram']);
+
+function isDiagramBlock(block: LessonBlock): boolean {
+  return DIAGRAM_COMPONENTS.has(block.__component);
 }
 
 // -----------------------------------------------------------------------------
@@ -1513,12 +1757,25 @@ export async function writeLesson(
     const stored = loadStoredIndex(v.transcriptSegments);
     if (stored) bm25ByVideoId.set(v.youtubeVideoId, stored.bm25);
   }
-  const ground: GroundingContext = { validVideoIds, bm25ByVideoId };
+  const titleByVideoId = new Map<string, string>(
+    fullVideos
+      .map((v) => [v.youtubeVideoId, v.videoTitle ?? ''] as const)
+      .filter(([, title]) => title.length > 0),
+  );
+  const ground: GroundingContext = {
+    validVideoIds,
+    bm25ByVideoId,
+    titleByVideoId,
+    warn: (reason, meta) => logPhase(topic, `block ✗ dropped — ${reason}`, meta),
+  };
 
   // --- 5: sections, with a single retry on a failed call or zero usable
   //        blocks. A THIN (but non-empty) result is accepted without retry
   //        — see MIN_SECTION_BLOCKS's comment. ------------------------------
   let blockId = 1;
+  // Lesson-wide diagram allowance, shared across every section so section 1
+  // can't spend the whole budget. Mutated by buildSectionBlocks.
+  const diagramBudget = { remaining: MAX_DIAGRAMS_PER_LESSON };
   const body: LessonBlock[] = [];
   let succeededSections = 0;
   const totalSections = outline.sections.length;
@@ -1548,7 +1805,7 @@ export async function writeLesson(
           : [];
         // id 0 (blockId) is reserved for the heading — content blocks start
         // at blockId + 1.
-        const built = buildSectionBlocks(rawBlocks, blockId + 1, ground);
+        const built = buildSectionBlocks(rawBlocks, blockId + 1, ground, diagramBudget);
 
         if (built.length > 0) {
           sectionBlocks = built;

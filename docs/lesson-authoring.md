@@ -350,14 +350,32 @@ reach for a diagram just because the topic is "visual" (music generally
 is) — a diagram with nothing new to show past the previous one in the
 lesson is decoration, not teaching.
 
-(Out of scope right now: neither authoring path in this codebase currently
-generates `lesson.diagram` or `lesson.keyboard-diagram` content — the
-in-app pipeline's section step is restricted to `prose`, `callout`,
-`step`, `table`, `degree-chips` on purpose, and enabling diagram
-generation is explicitly a separate, later task. This guidance is written
-for the MCP path, where a model composes the full block vocabulary by
-hand, and for whenever diagram generation is turned on for the in-app
-path.)
+**Don't overdo it.** A lesson that is mostly diagrams is as bad as one
+with none — a diagram earning its place (per the test above) is different
+from a diagram appearing on every section out of habit. The hand-authored
+`one-fret-one-half-step.json` (18 blocks across ~5 teaching beats) uses
+4 diagram-type blocks total, never more than one in the same section —
+that ratio, not "diagram on every beat," is the shape to imitate. The
+in-app pipeline enforces this as a hard cap (at most one diagram or
+keyboard-diagram block per section, at most 4 across the whole lesson) on
+top of the judgment above; when composing by hand via MCP, use the same
+restraint even though nothing enforces it there.
+
+**Diagrams are schema-valid without being renderable, and nothing catches
+that except actually resolving them.** `root`/`quality`/`stringSet`
+missing or wrong in `mode: "theory"`, or an empty/malformed `dots`/`marks`
+in `mode: "explicit"`, all render as a blank gap with no error (see the
+conditional-required trap under `lesson.diagram` above) — Half A's field
+constraints tell you what's *accepted*, not what actually *draws
+something*. The in-app pipeline resolve-checks every generated diagram
+against the exact renderer function (`resolveDiagramDots`/
+`resolveDiagramMarks` in `client/src/lib/lesson/diagram-params.ts`) and
+drops anything that resolves to zero dots/marks before it reaches the
+lesson body. When composing by hand via MCP, there is no equivalent
+safety net — double-check `root`+`quality`+`stringSet` (theory mode) or a
+non-empty `dots`/`marks` array (explicit mode) against Half A before
+shipping a diagram block, since a validation pass is not the same
+guarantee as a render.
 
 ### Sequencing blocks — the combinations that read well
 
@@ -401,6 +419,15 @@ though there's no BM25 pass enforcing it: if you don't know precisely
 where in the video a claim was made, omit `timeSec` and cite only
 `videoId`. Never estimate one because the block "feels like" it's from
 around the middle of the video.
+
+**Never write a bare video ID in reader-facing text.** The context you're
+given lists each source as `[videoId] "Title"` so you can copy the id
+exactly into `sourceVideoId` — that bracketed id is for *you*, not for the
+reader. A sentence like "one fix from PS54GhZoojo is octave displacement"
+ships an opaque YouTube id straight into prose a learner reads. Refer to a
+source in text by its title ("as *Blues Turnaround Shapes* shows...") or a
+natural phrase ("one video recommends..."); the id belongs only in the
+`source`/`sourceVideoId` field, never typed into the body text itself.
 
 **A lesson that can't point at where a claim came from is generic theory
 the model already knew — which defeats the point of building on this
