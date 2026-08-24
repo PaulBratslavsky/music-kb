@@ -98,18 +98,22 @@ at render.
 
 ### Tier 2 — changes the output shape
 
-3. **Two-pass illustration.** Done, uncommitted — 12 diagrams where v1 managed
-   zero.
-4. **Remove the caps from code AND guide.** In flight. The guide half matters
-   as much as the code half.
+3. **Two-pass illustration.** Done (`cdfbb0a`). Two live lessons, same day:
+   shape-oriented 57 blocks / 12 diagrams (per-section 1,2,1,6,2), conceptual
+   67 blocks / 23 diagrams (3,1,7,10,2). The per-section counts track content —
+   7 diagrams for the 7 diatonic triads, 6 for the 5 pentatonic boxes — which is
+   what the caps were preventing. Prose fell to 21% of the shape-oriented
+   lesson. Note the conceptual lesson drew MORE diagrams than the shape one,
+   inverting the naive expectation and correct on inspection.
+4. **Remove the caps from code AND guide.** Done, same commit.
 5. **Widen the vocabulary.** Missing block types, plus `diagram` exposing what
    `MiniNeck` actually does. *Briefed: `.superpowers/sdd/lesson-vocab/`.*
 
 ### Tier 3 — quality
 
-6. **Recalibrate coverage.** Ask "can a useful lesson be built from these?"
-   rather than "do these cover every aspect?". Better still: report what the
-   sources *can* support and narrow the lesson, instead of refusing. In flight.
+6. **Recalibrate coverage.** Done, same commit, with regression tests. Still
+   open: report what the sources *can* support and narrow the lesson, rather
+   than refusing outright.
 7. **Kill the title formula.** Every pipeline lesson is "From X to Y: Mastering
    Z". Guide work.
 8. **Callouts must carry a checkable fact**, not encouragement. Guide work.
