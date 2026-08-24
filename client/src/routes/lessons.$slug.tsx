@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { BackendErrorPanel } from '#/components/BackendErrorPanel';
 import { LessonBody } from '#/components/lesson/LessonBody';
+import { LessonSources } from '#/components/lesson/LessonSources';
 import { getLessonBySlug } from '#/data/server-functions/lessons';
 import type { LessonResult } from '#/lib/services/lessons';
 
@@ -40,8 +41,8 @@ function LessonPage() {
 
   const { lesson } = data;
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-8 sm:py-12">
-      <header className="mb-8">
+    <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-8 sm:py-16">
+      <header className="mb-12">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
           Lesson · {lesson.level}
         </p>
@@ -52,7 +53,12 @@ function LessonPage() {
           <p className="mt-3 text-sm text-[var(--ink-soft)]">{lesson.summary}</p>
         ) : null}
       </header>
-      <LessonBody blocks={lesson.body} parameter={lesson.parameter} />
+      <LessonBody
+        blocks={lesson.body}
+        parameter={lesson.parameter}
+        sourceVideos={lesson.videos}
+      />
+      <LessonSources videos={lesson.videos} />
     </main>
   );
 }

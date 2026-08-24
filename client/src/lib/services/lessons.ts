@@ -9,7 +9,7 @@ import { strapiFetch } from './strapi-client';
 // Type-only — erased at compile time (verbatimModuleSyntax), so this does
 // not create a runtime circular import even though lesson-generation.ts
 // imports `LessonBlock` from this file below.
-import type { GeneratedLesson } from './lesson-generation';
+import type { GeneratedLesson, SourceVideo } from './lesson-generation';
 
 // Recursive JSON type for a dynamic-zone component's extra, component-
 // specific fields. `unknown` would be semantically accurate too, but
@@ -37,6 +37,18 @@ export type LessonParameter = {
   default: string;
 };
 
+// The video a lesson (or a citation inside it) draws on — deliberately
+// thin. `stripVideoForClient` exists because full video rows (transcript,
+// scores, etc.) are heavy; this type never grows those fields, it only
+// ever carries what "Built from" / inline citations need to render a link
+// with a real title and thumbnail instead of a raw video id.
+export type LessonSourceVideo = {
+  documentId: string;
+  youtubeVideoId: string;
+  videoTitle: string | null;
+  videoThumbnailUrl: string | null;
+};
+
 export type Lesson = {
   documentId: string;
   title: string;
@@ -49,9 +61,15 @@ export type Lesson = {
   status: string;
   parameter: LessonParameter | null;
   body: LessonBlock[];
+  /** Resolved by `getLessonBySlugWithStatus`: the populated `videos`
+   * relation when present, otherwise derived from the distinct
+   * `source.videoId` values on `body` (older lessons predate the
+   * relation being populated on save). Empty for hand-written lessons,
+   * which have neither. */
+  videos: LessonSourceVideo[];
 };
 
-export type LessonSummary = Omit<Lesson, 'body' | 'parameter'>;
+export type LessonSummary = Omit<Lesson, 'body' | 'parameter' | 'videos'>;
 
 export type LessonResult =
   | { ok: true; lesson: Lesson }
@@ -81,6 +99,62 @@ export async function listLessonsWithStatus(): Promise<LessonListResult> {
   return { ok: true, lessons: res.data ?? [] };
 }
 
+// Fields kept small on purpose — see LessonSourceVideo. Applied both to the
+// `videos` relation populate below and to the fallback video lookup.
+const SOURCE_VIDEO_FIELDS = ['youtubeVideoId', 'videoTitle', 'videoThumbnailUrl'];
+
+function dedupeSourceVideos(videos: LessonSourceVideo[]): LessonSourceVideo[] {
+  const seen = new Set<string>();
+  const out: LessonSourceVideo[] = [];
+  for (const v of videos) {
+    if (seen.has(v.documentId)) continue;
+    seen.add(v.documentId);
+    out.push(v);
+  }
+  return out;
+}
+
+// Older lessons (saved before the `videos` relation was threaded through
+// on save, or hand-migrated) have an empty relation but still carry
+// `source.videoId` on individual blocks. Walk the body once, in order, and
+// return the distinct video ids referenced — this is what lets those
+// lessons still show a "Built from" section instead of an empty one.
+function deriveSourceVideoIds(body: LessonBlock[]): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const block of body) {
+    const source = block.source;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+    const videoId = (source as Record<string, JsonValue>).videoId;
+    if (typeof videoId !== 'string' || videoId.length === 0) continue;
+    if (seen.has(videoId)) continue;
+    seen.add(videoId);
+    ids.push(videoId);
+  }
+  return ids;
+}
+
+async function fetchLessonSourceVideos(
+  videoIds: string[],
+): Promise<LessonSourceVideo[]> {
+  if (videoIds.length === 0) return [];
+  const res = await strapiFetch<LessonSourceVideo[]>('GET', '/api/videos', {
+    query: {
+      filters: { youtubeVideoId: { $in: videoIds } },
+      fields: SOURCE_VIDEO_FIELDS,
+      pagination: { pageSize: videoIds.length },
+    },
+  });
+  if (!res.ok) return [];
+  const byId = new Map((res.data ?? []).map((v) => [v.youtubeVideoId, v]));
+  // Preserve first-appearance order from the body; silently drop any id
+  // Strapi couldn't resolve (deleted video) rather than rendering a broken
+  // link for it.
+  return videoIds
+    .map((id) => byId.get(id))
+    .filter((v): v is LessonSourceVideo => v !== undefined);
+}
+
 /**
  * Detail fetch that distinguishes "no such lesson" (404) from "Strapi is
  * unreachable" (status 0), so the route can render the right thing.
@@ -95,6 +169,7 @@ export async function getLessonBySlugWithStatus(
       populate: {
         parameter: true,
         body: { populate: '*' },
+        videos: { fields: SOURCE_VIDEO_FIELDS },
       },
     },
   });
@@ -106,7 +181,13 @@ export async function getLessonBySlugWithStatus(
   if (!lesson) {
     return { ok: false, status: 404, error: `No lesson with slug "${slug}"` };
   }
-  return { ok: true, lesson };
+
+  let videos = dedupeSourceVideos(lesson.videos ?? []);
+  if (videos.length === 0) {
+    videos = await fetchLessonSourceVideos(deriveSourceVideoIds(lesson.body ?? []));
+  }
+
+  return { ok: true, lesson: { ...lesson, videos } };
 }
 
 // -----------------------------------------------------------------------------
@@ -166,9 +247,16 @@ async function resolveFreeSlug(
  * lesson (see `resolveFreeSlug`) and never upgrades `status` past
  * `ai-generated` — a generated lesson stays clearly marked as such until a
  * human reviews and republishes it through the CMS.
+ *
+ * `sources` is the generator's retrieved `SourceVideo[]` (see
+ * lesson-generation.ts) — connected onto the `videos` many-to-many
+ * relation by documentId. Strapi 5 accepts a bare array of documentIds to
+ * set a relation on create, same idiom as `tags`/`videos` elsewhere in
+ * this service layer (see videos.ts createVideoService, notes.ts).
  */
 export async function saveLessonService(
   lesson: GeneratedLesson,
+  sources: SourceVideo[] = [],
 ): Promise<SaveLessonResult> {
   const resolved = await resolveFreeSlug(lesson.slug);
   if (!resolved.ok) {
@@ -189,6 +277,7 @@ export async function saveLessonService(
           duration: lesson.duration,
           status: lesson.status,
           body: lesson.body,
+          videos: sources.map((s) => s.documentId),
         },
       },
     },

@@ -83,7 +83,9 @@ describe('POST /api/lesson-write', () => {
     const saved = frames[3] as Extract<(typeof frames)[number], { type: 'saved' }>;
     expect(saved.slug).toBe('blues-turnarounds');
     expect(saved.blockCount).toBe(GENERATED_LESSON.body.length);
-    expect(saveLessonServiceMock).toHaveBeenCalledWith(GENERATED_LESSON);
+    // Threads writeLesson's `sources` through to saveLessonService so it
+    // can connect the `videos` relation — see lessons.ts.
+    expect(saveLessonServiceMock).toHaveBeenCalledWith(GENERATED_LESSON, []);
   });
 
   it('does NOT call saveLessonService when writeLesson returns ok: false — its progress stream already carries the terminal error', async () => {

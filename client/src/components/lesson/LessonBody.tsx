@@ -5,7 +5,7 @@
 // of the lesson readable, where throwing would blank the page. Same stance
 // chat-stream.ts takes toward unknown SSE events.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from '@tanstack/react-router';
@@ -19,7 +19,12 @@ import {
   type DiagramBlock,
   type KeyboardDiagramBlock,
 } from '#/lib/lesson/diagram-params';
-import type { LessonBlock, LessonParameter } from '#/lib/services/lessons';
+import type {
+  JsonValue,
+  LessonBlock,
+  LessonParameter,
+  LessonSourceVideo,
+} from '#/lib/services/lessons';
 import { PITCH_CLASSES } from '@music-kb/music/types';
 
 const PITCH_OPTIONS = PITCH_CLASSES;
@@ -51,11 +56,37 @@ const CALLOUT_TONE: Record<
 export function LessonBody({
   blocks,
   parameter,
-}: Readonly<{ blocks: LessonBlock[]; parameter: LessonParameter | null }>) {
+  sourceVideos = [],
+}: Readonly<{
+  blocks: LessonBlock[];
+  parameter: LessonParameter | null;
+  /** The lesson's resolved source videos (relation or block-derived
+   * fallback — see getLessonBySlugWithStatus). Used to turn a block's
+   * `source.videoId` into a real title + link; a citation naming a video
+   * not in this set renders nothing rather than a broken link. */
+  sourceVideos?: LessonSourceVideo[];
+}>) {
   const [paramValue, setParamValue] = useState(parameter?.default ?? 'C');
 
+  // Only videos with a known title are lookup-able — a citation for a
+  // video we can't title is treated the same as one outside the lesson's
+  // source set (render nothing), never a raw id. See SourceNote.
+  const sourceVideoMap = useMemo(
+    () =>
+      new Map(
+        sourceVideos
+          .filter((v) => v.videoTitle)
+          .map((v) => [v.youtubeVideoId, v] as const),
+      ),
+    [sourceVideos],
+  );
+
   return (
-    <div className="flex flex-col gap-6">
+    // gap-10, not the old gap-6: the block-to-block gap needs to read as
+    // clearly bigger than the gap-1 used *inside* a block (prose/diagram/
+    // table to its own caption or citation) — otherwise a citation floats
+    // ambiguously between the block above it and the block below.
+    <div className="flex flex-col gap-10">
       {blocks.map((b) => (
         <Block
           key={`${b.__component}-${b.id}`}
@@ -63,9 +94,52 @@ export function LessonBody({
           parameter={parameter}
           paramValue={paramValue}
           onParamChange={setParamValue}
+          sourceVideoMap={sourceVideoMap}
         />
       ))}
     </div>
+  );
+}
+
+// Small, muted line beneath a block — supporting evidence, not content.
+// `source` is `{ videoId, timeSec? }` (lesson.source component); timeSec
+// is optional (BM25 grounding deliberately omits it when there's no
+// confident match) and must never serialize as a literal `t=undefined`.
+//
+// `target="_blank"` deliberately, not a same-tab TanStack `Link` nav:
+// lessons are meant to be self-contained — the reader should never get
+// thrown out of the lesson mid-read to go look at a citation. A citation
+// opens alongside the lesson, never in place of it. TanStack Router's Link
+// itself honors `target` (skips its own preventDefault/client-nav when
+// target !== '_self', see node_modules/@tanstack/react-router link.js),
+// so this is just letting the browser do native new-tab navigation.
+function SourceNote({
+  source,
+  sourceVideoMap,
+}: Readonly<{
+  source: JsonValue | undefined;
+  sourceVideoMap: Map<string, LessonSourceVideo>;
+}>) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  const record = source as Record<string, JsonValue>;
+  const videoId = typeof record.videoId === 'string' ? record.videoId : '';
+  if (!videoId) return null;
+  const video = sourceVideoMap.get(videoId);
+  if (!video) return null;
+  const timeSec = typeof record.timeSec === 'number' ? record.timeSec : undefined;
+  return (
+    <p className="text-xs text-[var(--ink-muted)]">
+      <Link
+        to="/learn/$videoId"
+        params={{ videoId }}
+        search={timeSec !== undefined ? { t: timeSec } : undefined}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="hover:underline"
+      >
+        {video.videoTitle}
+      </Link>
+    </p>
   );
 }
 
@@ -74,28 +148,37 @@ function Block({
   parameter,
   paramValue,
   onParamChange,
+  sourceVideoMap,
 }: Readonly<{
   block: LessonBlock;
   parameter: LessonParameter | null;
   paramValue: string;
   onParamChange: (v: string) => void;
+  sourceVideoMap: Map<string, LessonSourceVideo>;
 }>) {
   switch (block.__component) {
     case 'lesson.prose':
       return (
-        <div className="prose-lesson max-w-none text-sm text-[var(--ink-soft)]">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {String(block.body ?? '')}
-          </ReactMarkdown>
+        <div className="flex flex-col gap-1">
+          <div className="prose-lesson max-w-none text-sm text-[var(--ink-soft)]">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {String(block.body ?? '')}
+            </ReactMarkdown>
+          </div>
+          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
         </div>
       );
 
     case 'lesson.heading': {
+      // `mt-*` on top of the flex gap, deliberately nothing added below:
+      // a heading should read as closer to the section it opens than to
+      // the block that came before it, and the parent's gap-10 already
+      // gives it that trailing space.
       const text = String(block.text ?? '');
       return block.level === 'h3' ? (
-        <h3 className="text-base font-semibold text-[var(--ink)]">{text}</h3>
+        <h3 className="mt-4 text-base font-semibold text-[var(--ink)]">{text}</h3>
       ) : (
-        <h2 className="text-lg font-semibold text-[var(--ink)]">{text}</h2>
+        <h2 className="mt-6 text-lg font-semibold text-[var(--ink)]">{text}</h2>
       );
     }
 
@@ -110,6 +193,7 @@ function Block({
             {tone.label}
           </p>
           {String(block.body ?? '')}
+          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
         </aside>
       );
     }
@@ -124,6 +208,7 @@ function Block({
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {String(block.body ?? '')}
           </ReactMarkdown>
+          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
         </Step>
       );
 
@@ -153,6 +238,7 @@ function Block({
           {caption ? (
             <p className="text-xs text-[var(--ink-muted)]">{caption}</p>
           ) : null}
+          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
         </div>
       );
     }
@@ -173,6 +259,7 @@ function Block({
           {caption ? (
             <p className="text-xs text-[var(--ink-muted)]">{caption}</p>
           ) : null}
+          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
         </div>
       );
     }
@@ -250,8 +337,12 @@ function Block({
       );
 
     case 'lesson.video-ref': {
-      // Internal route (/learn/$videoId) — a TanStack Link, not a raw <a>,
-      // so navigation stays client-side instead of a full page reload.
+      // Internal route (/learn/$videoId) via a TanStack Link so the URL
+      // build (params/search) stays type-checked, but `target="_blank"`
+      // so it opens alongside the lesson rather than navigating away from
+      // it — lessons are meant to be self-contained; this is the same
+      // reason diagrams render inline instead of linking out. See the
+      // longer comment on SourceNote above.
       const videoId = String(block.videoId ?? '');
       if (!videoId) return null;
       const t = Number(block.timeSec ?? 0);
@@ -260,6 +351,8 @@ function Block({
           to="/learn/$videoId"
           params={{ videoId }}
           search={t > 0 ? { t } : undefined}
+          target="_blank"
+          rel="noopener noreferrer"
           className="text-sm text-[var(--ink)] underline"
         >
           {String(block.label ?? 'Watch this moment')}

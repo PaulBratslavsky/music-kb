@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { LessonBody } from './LessonBody';
-import type { LessonBlock } from '#/lib/services/lessons';
+import type { LessonBlock, LessonSourceVideo } from '#/lib/services/lessons';
 
 // LessonBody's video-ref block renders a TanStack `Link`, which needs a
 // live RouterProvider to resolve `useRouter()` — overkill for a unit test
@@ -83,6 +83,10 @@ describe('LessonBody', () => {
     );
     const link = screen.getByRole('link', { name: 'See it played' });
     expect(link.getAttribute('href')).toBe('/learn/abc123?t=90');
+    // Lessons are self-contained — a citation must open alongside the
+    // lesson, never navigate away from it in the same tab.
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });
 
   it('renders nothing for an unknown block instead of throwing', () => {
@@ -250,5 +254,91 @@ describe('LessonBody', () => {
     expect(container.querySelector('table')).toBeTruthy();
     expect(container.querySelectorAll('th')).toHaveLength(0);
     expect(container.querySelectorAll('tbody tr')).toHaveLength(0);
+  });
+
+  describe('source citations', () => {
+    const knownVideo: LessonSourceVideo = {
+      documentId: 'doc-1',
+      youtubeVideoId: 'vid123',
+      videoTitle: 'Drop D Basics',
+      videoThumbnailUrl: null,
+    };
+
+    it('renders a link to the right video at the right time', () => {
+      render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.prose',
+              body: 'some claim',
+              source: { videoId: 'vid123', timeSec: 42 },
+            }),
+          ]}
+          parameter={null}
+          sourceVideos={[knownVideo]}
+        />,
+      );
+      const link = screen.getByRole('link', { name: 'Drop D Basics' });
+      expect(link.getAttribute('href')).toBe('/learn/vid123?t=42');
+      // Citations open alongside the lesson, never in place of it.
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+
+    it('renders without a timestamp and does not link to t=undefined when timeSec is absent', () => {
+      render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.callout',
+              tone: 'note',
+              body: 'some claim',
+              source: { videoId: 'vid123' },
+            }),
+          ]}
+          parameter={null}
+          sourceVideos={[knownVideo]}
+        />,
+      );
+      const link = screen.getByRole('link', { name: 'Drop D Basics' });
+      expect(link.getAttribute('href')).toBe('/learn/vid123');
+      expect(link.getAttribute('href')).not.toContain('undefined');
+    });
+
+    it('does not render a broken link for a video outside the lesson source set', () => {
+      const { container } = render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.step',
+              number: 1,
+              title: 'Step one',
+              lede: 'lede',
+              body: 'body text',
+              source: { videoId: 'not-in-lesson', timeSec: 10 },
+            }),
+          ]}
+          parameter={null}
+          sourceVideos={[knownVideo]}
+        />,
+      );
+      expect(container.querySelectorAll('a')).toHaveLength(0);
+    });
+
+    it('renders nothing when no sourceVideos are supplied at all', () => {
+      const { container } = render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.prose',
+              body: 'some claim',
+              source: { videoId: 'vid123', timeSec: 42 },
+            }),
+          ]}
+          parameter={null}
+        />,
+      );
+      expect(container.querySelectorAll('a')).toHaveLength(0);
+    });
   });
 });

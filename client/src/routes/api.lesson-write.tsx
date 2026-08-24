@@ -51,7 +51,7 @@ export async function lessonWriteHandler(request: Request): Promise<Response> {
           return;
         }
 
-        const saved = await saveLessonService(result.lesson);
+        const saved = await saveLessonService(result.lesson, result.sources);
         if (!saved.ok) {
           // A half-generated-but-unsaved lesson must surface loudly, not
           // vanish — never swallow this.

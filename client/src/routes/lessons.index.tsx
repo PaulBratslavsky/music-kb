@@ -39,8 +39,8 @@ function LessonsIndexPage() {
         </h1>
         <p className="mt-3 text-sm text-[var(--ink-soft)]">
           Self-contained walk-throughs that pair theory with practice.
-          Click any card to start; each lesson cross-links to the
-          instrument visualizer so you can dig as deep as you want.
+          Diagrams, steps and examples render inline, so you never have to
+          leave the page to follow one.
         </p>
       </header>
 

@@ -8,7 +8,7 @@ import {
   listLessonsWithStatus,
   saveLessonService,
 } from './lessons';
-import type { GeneratedLesson } from './lesson-generation';
+import type { GeneratedLesson, SourceVideo } from './lesson-generation';
 
 const mocked = vi.mocked(strapiFetch);
 
@@ -83,6 +83,130 @@ describe('getLessonBySlugWithStatus', () => {
       ok: true,
       lesson: { documentId: 'x', slug: 't' },
     });
+  });
+
+  it('uses the populated videos relation when present', async () => {
+    mocked.mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          documentId: 'x',
+          title: 'T',
+          slug: 't',
+          body: [],
+          videos: [
+            {
+              documentId: 'doc-1',
+              youtubeVideoId: 'vid1',
+              videoTitle: 'Video One',
+              videoThumbnailUrl: null,
+            },
+          ],
+        },
+      ],
+    } as never);
+    const found = await getLessonBySlugWithStatus('t');
+    expect(found).toMatchObject({
+      ok: true,
+      lesson: {
+        videos: [{ documentId: 'doc-1', youtubeVideoId: 'vid1' }],
+      },
+    });
+    // Relation was already populated — no fallback /api/videos lookup.
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
+  it('derives sources from blocks when an older lesson has an empty videos relation', async () => {
+    const body = [
+      {
+        __component: 'lesson.prose',
+        id: 1,
+        body: 'a claim',
+        source: { videoId: 'vid1', timeSec: 12 },
+      },
+      {
+        __component: 'lesson.callout',
+        id: 2,
+        tone: 'note',
+        body: 'another claim',
+        source: { videoId: 'vid2' },
+      },
+      // Same video cited twice — should still appear once in the result.
+      {
+        __component: 'lesson.step',
+        id: 3,
+        number: 1,
+        title: 'Step',
+        body: 'step body',
+        source: { videoId: 'vid1', timeSec: 30 },
+      },
+    ];
+    mocked.mockImplementation(async (method, path) => {
+      if (method === 'GET' && path === '/api/lessons') {
+        return {
+          ok: true,
+          data: [{ documentId: 'x', title: 'T', slug: 't', body, videos: [] }],
+        } as never;
+      }
+      if (method === 'GET' && path === '/api/videos') {
+        return {
+          ok: true,
+          data: [
+            {
+              documentId: 'doc-1',
+              youtubeVideoId: 'vid1',
+              videoTitle: 'Video One',
+              videoThumbnailUrl: null,
+            },
+            {
+              documentId: 'doc-2',
+              youtubeVideoId: 'vid2',
+              videoTitle: 'Video Two',
+              videoThumbnailUrl: null,
+            },
+          ],
+        } as never;
+      }
+      // Benign fallback for a teardown-time phantom call — see the note
+      // above in the saveLessonService tests, same tinyspy artifact.
+      return { ok: true, data: [] } as never;
+    });
+
+    const found = await getLessonBySlugWithStatus('t');
+    expect(found).toMatchObject({
+      ok: true,
+      lesson: {
+        videos: [
+          { documentId: 'doc-1', youtubeVideoId: 'vid1' },
+          { documentId: 'doc-2', youtubeVideoId: 'vid2' },
+        ],
+      },
+    });
+  });
+
+  it('renders no source videos for a hand-written lesson with no relation and no block sources', async () => {
+    mocked.mockImplementation(async (method, path) => {
+      if (method === 'GET' && path === '/api/lessons') {
+        return {
+          ok: true,
+          data: [
+            {
+              documentId: 'x',
+              title: 'T',
+              slug: 't',
+              body: [{ __component: 'lesson.heading', id: 1, text: 'Intro' }],
+              videos: [],
+            },
+          ],
+        } as never;
+      }
+      // Benign fallback for a teardown-time phantom call — see the note
+      // above in the saveLessonService tests, same tinyspy artifact.
+      return { ok: true, data: [] } as never;
+    });
+
+    const found = await getLessonBySlugWithStatus('t');
+    expect(found).toMatchObject({ ok: true, lesson: { videos: [] } });
   });
 });
 
@@ -167,5 +291,51 @@ describe('saveLessonService', () => {
     });
     const result = await saveLessonService(makeLesson());
     expect(result).toMatchObject({ ok: false });
+  });
+
+  it('connects the videos relation from the generator sources by documentId', async () => {
+    mocked.mockImplementation(async (method, path) => {
+      if (method === 'GET' && path === '/api/lessons') {
+        return { ok: true, data: [] } as never; // slug free
+      }
+      if (method === 'POST' && path === '/api/lessons') {
+        return {
+          ok: true,
+          data: { documentId: 'doc-1', slug: 'drop-d-basics' },
+        } as never;
+      }
+      return { ok: true, data: [] } as never;
+    });
+
+    const sources: SourceVideo[] = [
+      { documentId: 'video-doc-1', youtubeVideoId: 'vid1', title: 'Video One', score: 0.9 },
+      { documentId: 'video-doc-2', youtubeVideoId: 'vid2', title: 'Video Two', score: 0.8 },
+    ];
+    const result = await saveLessonService(makeLesson(), sources);
+    expect(result).toEqual({ ok: true, slug: 'drop-d-basics', documentId: 'doc-1' });
+
+    const createCall = mocked.mock.calls.find(([m]) => m === 'POST');
+    expect(createCall?.[2]).toMatchObject({
+      body: { data: { videos: ['video-doc-1', 'video-doc-2'] } },
+    });
+  });
+
+  it('connects no videos when saved without generator sources', async () => {
+    mocked.mockImplementation(async (method, path) => {
+      if (method === 'GET' && path === '/api/lessons') {
+        return { ok: true, data: [] } as never;
+      }
+      if (method === 'POST' && path === '/api/lessons') {
+        return {
+          ok: true,
+          data: { documentId: 'doc-1', slug: 'drop-d-basics' },
+        } as never;
+      }
+      return { ok: true, data: [] } as never;
+    });
+
+    await saveLessonService(makeLesson());
+    const createCall = mocked.mock.calls.find(([m]) => m === 'POST');
+    expect(createCall?.[2]).toMatchObject({ body: { data: { videos: [] } } });
   });
 });
