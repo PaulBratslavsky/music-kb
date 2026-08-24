@@ -321,61 +321,125 @@ re-derive that from scratch when it's handed to you.
 
 ### Lesson length and section sizing
 
-`one-fret-one-half-step.json` is 18 blocks across roughly 4–5 teaching
-beats and takes about 6 minutes to read — that is the right order of
-magnitude for one lesson. The in-app generator's own outline step is
-capped to 2–6 sections, each producing 2–4 content blocks, for the same
-reason: a local model's failure mode past a certain length isn't a
+There is no target length or target block-per-section count — a lesson
+should be as many blocks as the content actually needs, no more and no
+less, and different lessons should come out different sizes. Don't treat
+any specific lesson's block count (including the hand-authored
+`one-fret-one-half-step.json`, which has grown well past its original size
+as it's been enriched over time — see its own note below) as a size to
+imitate; imitate its shape and judgment instead, per the sections above and
+below.
+
+The one place a count is still deliberately bounded is the in-app
+pipeline's outline step, which targets roughly 2 to 6 teaching-beat
+sections — and that bound is about a DIFFERENT problem than block count
+per section: a local model's failure mode past a certain length isn't a
 clean error, it's silent drift — dropped fields, invalid enum values, a
 lesson that trails off. Smaller, independently-generated sections is what
 keeps that failure contained to one section instead of the whole lesson.
+It is not a claim that 2–6 is the right number of ideas for every lesson,
+only a reliability guard on how much one model call is asked to hold at
+once. Composing by hand via MCP, in one sitting, doesn't have this failure
+mode and isn't bound by it.
 
 A section that only produces one block is thin — that's a sign the goal
 statement was too narrow, not a sign to pad it with filler. A section
-that wants 6+ blocks is a sign it's actually two sections.
+that wants far more blocks than the rest of the lesson is a sign it's
+actually two sections, not a sign to trim it back to a target count.
+
+### Generation is two passes: write, then illustrate
+
+The in-app pipeline (`lesson-generation.ts`) splits each section into two
+independent model calls, not one: a **write** pass emits
+prose/callout/step/table/degree-chips only — no diagram type is even in
+that call's schema — and a separate **illustrate** pass, given the
+finished section text, decides what would be clearer shown than described
+and returns diagram/keyboard-diagram blocks plus where each belongs in
+the section. The two passes run per section, and every section's
+illustrate call is independent of every other section's, so the pipeline
+runs them concurrently rather than one at a time.
+
+This split exists because a combined write+illustrate call makes a
+diagram an afterthought — the model is mid-explanation when it has to
+also pick a diagram, and it shows. It also matters for schema budget: a
+combined schema carries every prose field AND every diagram field in one
+request, which is what forced earlier versions of this schema to drop
+`inversion`, `fromFret`/`toFret`, and explicit-mode `dots`/`marks`, and to
+lock generation to `mode: "theory"` only. An illustration-only call
+carries none of the prose fields, so the full diagram vocabulary is
+available to it — explicit dots and marks, inversions, fret windows,
+octaves, all of it.
+
+Composing a lesson by hand via MCP has no such split — one sitting does
+both — but the same judgment applies: write the section first, then look
+at what you actually wrote and ask what a reader would rather see than
+read, rather than reaching for a diagram while still mid-sentence.
 
 ### When a diagram earns its place versus when prose is clearer
 
-A diagram earns its place when the reader needs to see *where*, not just
-*what* — a specific shape on a specific part of the instrument. "The minor
-third sits three frets above the root" is something prose can say
-precisely; "here is what that looks like on the D–A–E string set, root
-position vs. first inversion" is something only a diagram shows without
-the reader mentally simulating a fretboard.
+Pick a block by what the content actually *is*, not out of habit or to
+fill a quota. Each component in this library exists for a specific job:
 
-Prose is clearer when the content is a relationship or a reason, not a
-position — *why* the major and minor triad differ by one half step, *why*
-a string crossing changes the fret math, *why* two sources disagree. Don't
-reach for a diagram just because the topic is "visual" (music generally
-is) — a diagram with nothing new to show past the previous one in the
-lesson is decoration, not teaching.
+- a **fretboard diagram** (`lesson.diagram`) shows a shape you are asking
+  someone to play — an actual position on an actual instrument.
+- a **keyboard diagram** (`lesson.keyboard-diagram`) shows pitch
+  relationships without fingering — which notes, not which fingers.
+- **degree chips** show a scale's structure as numbers — the shape of a
+  scale abstracted away from any one key or instrument.
+- a **table** compares things along shared dimensions — several items,
+  several properties, read across and down.
+- a **step** is an instruction performed in order — do this, then this.
+- a **callout** is an aside that would break the flow inline — one
+  specific, checkable fact worth flagging, not folded into the paragraph
+  around it.
+- **prose** is the reasoning that connects them — *why*, not just *what*
+  or *where*.
 
-**Don't overdo it.** A lesson that is mostly diagrams is as bad as one
-with none — a diagram earning its place (per the test above) is different
-from a diagram appearing on every section out of habit. The hand-authored
-`one-fret-one-half-step.json` (18 blocks across ~5 teaching beats) uses
-4 diagram-type blocks total, never more than one in the same section —
-that ratio, not "diagram on every beat," is the shape to imitate. The
-in-app pipeline enforces this as a hard cap (at most one diagram or
-keyboard-diagram block per section, at most 4 across the whole lesson) on
-top of the judgment above; when composing by hand via MCP, use the same
-restraint even though nothing enforces it there.
+Use as many or as few of these as the content actually needs, and let
+that number vary. A section teaching five pentatonic box positions wants
+five diagrams; a section explaining why a diminished chord resolves the
+way it does wants prose and maybe a table, no diagram at all. There is no
+fixed shape every lesson is supposed to follow — different lessons should
+look like genuinely different documents, not the same block sequence with
+the words swapped in.
 
-**Diagrams are schema-valid without being renderable, and nothing catches
-that except actually resolving them.** `root`/`quality`/`stringSet`
-missing or wrong in `mode: "theory"`, or an empty/malformed `dots`/`marks`
-in `mode: "explicit"`, all render as a blank gap with no error (see the
-conditional-required trap under `lesson.diagram` above) — Half A's field
-constraints tell you what's *accepted*, not what actually *draws
+The concrete test for a diagram specifically: it earns its place when the
+reader needs to see *where*, not just *what* — a specific shape on a
+specific part of the instrument. "The minor third sits three frets above
+the root" is something prose can say precisely; "here is what that looks
+like on the D–A–E string set, root position vs. first inversion" is
+something only a diagram shows without the reader mentally simulating a
+fretboard. Prose is clearer when the content is a relationship or a
+reason, not a position — *why* the major and minor triad differ by one
+half step, *why* a string crossing changes the fret math, *why* two
+sources disagree. A diagram with nothing new to show past the previous
+one in the lesson is decoration, not teaching, no matter how "visual" the
+topic is in general.
+
+**Chord progressions are a diagram opportunity, not a prose one.** If a
+section names an ordered progression — a chord sequence like G–C–D, or a
+Roman-numeral pattern like ii–V–I — show it: one diagram per chord, in
+the order named, not a sentence describing what the shapes look like. A
+progression described in prose and never shown is exactly the gap the
+write/illustrate split above exists to close.
+
+**The resolve check is not optional, and it is not a style preference.**
+Diagrams are schema-valid without being renderable, and nothing catches
+that except actually resolving them. `root`/`quality`/`stringSet` missing
+or wrong in `mode: "theory"`, or an empty/malformed `dots`/`marks` in
+`mode: "explicit"`, all render as a blank gap with no error anywhere (see
+the conditional-required trap under `lesson.diagram` above) — Half A's
+field constraints tell you what's *accepted*, not what actually *draws
 something*. The in-app pipeline resolve-checks every generated diagram
 against the exact renderer function (`resolveDiagramDots`/
 `resolveDiagramMarks` in `client/src/lib/lesson/diagram-params.ts`) and
 drops anything that resolves to zero dots/marks before it reaches the
-lesson body. When composing by hand via MCP, there is no equivalent
-safety net — double-check `root`+`quality`+`stringSet` (theory mode) or a
-non-empty `dots`/`marks` array (explicit mode) against Half A before
-shipping a diagram block, since a validation pass is not the same
-guarantee as a render.
+lesson body — a diagram that draws nothing is worse than no diagram at
+all, because it renders as an invisible gap with no error. When composing
+by hand via MCP, there is no equivalent safety net — double-check
+`root`+`quality`+`stringSet` (theory mode) or a non-empty `dots`/`marks`
+array (explicit mode) against Half A before shipping a diagram block,
+since a validation pass is not the same guarantee as a render.
 
 ### Sequencing blocks — the combinations that read well
 
@@ -545,7 +609,14 @@ name, fret number, or chord symbol the source material names and use it.
 hand-authored lesson (not AI-generated — `status: "published"`) that
 exercises 9 of the 10 dynamic-zone block types (everything except
 `lesson.video-ref`). It's worth reading end to end as a shape to imitate,
-not just a schema example:
+not just a schema example. It is a living lesson, not a frozen fixture —
+it has grown since this walkthrough was written (an MCP-authoring session
+added a string-pair comparison table, a callout, and a deliberately-wrong
+worked step to close a pedagogical gap the original didn't cover), and
+will likely grow again. Don't expect the numbered walkthrough below to
+enumerate every block in the current live lesson; it documents the six
+teaching beats it opened with, as an example of the sequencing judgment in
+"Sequencing blocks" above, not an exhaustive index of its current content:
 
 1. **`heading` → `prose` → `keyboard-diagram`** — states the general rule
    about half steps, then immediately grounds it in the one exception

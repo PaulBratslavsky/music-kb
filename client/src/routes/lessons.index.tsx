@@ -219,6 +219,15 @@ function renderProgressEvent(event: LessonProgressEvent) {
           {event.blocks === 1 ? '' : 's'}.
         </span>
       );
+    case 'illustrate':
+      return (
+        <span>
+          Illustrating {event.index + 1}/{event.total} &ldquo;{event.heading}&rdquo; —{' '}
+          {event.diagrams === 0
+            ? 'nothing needed a diagram.'
+            : `${event.diagrams} diagram${event.diagrams === 1 ? '' : 's'} added.`}
+        </span>
+      );
     case 'grounding':
       return (
         <span>

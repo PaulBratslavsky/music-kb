@@ -111,6 +111,9 @@ import {
   CoverageVerdictSchema,
   LessonOutlineSchema,
   SectionBlocksSchema,
+  IllustrationItemSchema,
+  SectionIllustrationsSchema,
+  COVERAGE_SYSTEM,
   type LessonOutline,
   type LessonProgressEvent,
   type SourceVideo,
@@ -361,6 +364,68 @@ describe('planLesson — coverage check', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.outline.title).toBe(OUTLINE.title);
+  });
+
+  // Regression test for a real over-refusal: "what a beginner guitar
+  // student needs to know" was refused even though retrieval found 5
+  // sources scoring 0.70–0.77 (self-teaching guitar, first months of
+  // practice, fretboard orientation, learning by ear) — the model demanded
+  // EXHAUSTIVE coverage of every beginner sub-topic (posture, tuning,
+  // equipment) instead of asking whether the sources had real, useful
+  // beginner material. `covered` itself is model output this suite always
+  // mocks (no live LLM call here), so this exercises the MECHANISM this
+  // fix depends on: a `covered: true` verdict over a source set that is
+  // deliberately only partially on-topic (see makeVideo's summaries below)
+  // must proceed, never be second-guessed by planLesson itself.
+  it('proceeds past coverage for a source set that is only partially, not exhaustively, on-topic (the real over-refusal case)', async () => {
+    listAllVideosMock.mockResolvedValue([
+      makeVideo('A', 0.77, {
+        summaryTitle: 'How to Teach Yourself Guitar in 2026',
+        summaryDescription: 'A self-directed practice plan for a new guitarist.',
+      }),
+      makeVideo('B', 0.72, {
+        summaryTitle: 'How I Wish The Fretboard Was Explained To Me As A Beginner',
+        summaryDescription: 'Orienting a beginner to the fretboard layout.',
+      }),
+    ]);
+    mockedChat.mockResolvedValueOnce({
+      covered: true,
+      actualTopic: null,
+      reason: 'The sources give a beginner real, substantive material even though neither covers posture, tuning, or equipment.',
+    });
+    mockedChat.mockResolvedValueOnce(OUTLINE);
+
+    const result = await planLesson({ topic: 'what a beginner guitar student needs to know' });
+
+    expect(result.ok).toBe(true);
+    expect(findDigestByVideoSetKeyMock).toHaveBeenCalled();
+  });
+});
+
+// The recalibration itself lives in the PROMPT (COVERAGE_SYSTEM) — the
+// coverage verdict is always mocked above, so nothing there can catch a
+// prompt that regresses back to demanding exhaustive coverage. This guards
+// the prompt's own content instead: the old absolute framing must not come
+// back, the "useful, not exhaustive" framing must be present, and the still-
+// valid refusal example (barre chords) must not have been lost in the
+// rewrite.
+describe('COVERAGE_SYSTEM — recalibrated toward useful, not exhaustive, coverage', () => {
+  it('does not contain the old absolute "partial coverage is NOT coverage" framing', () => {
+    expect(COVERAGE_SYSTEM).not.toMatch(/partial.{0,20}coverage.{0,10}is not coverage/i);
+  });
+
+  it('frames the question as usefulness, not exhaustiveness', () => {
+    expect(COVERAGE_SYSTEM.toLowerCase()).toContain('useful');
+    expect(COVERAGE_SYSTEM).toMatch(/exhaustive/i);
+  });
+
+  it('still refuses the case this step was built for (barre chords vs. triads/harmonic movement)', () => {
+    expect(COVERAGE_SYSTEM).toContain('barre chords');
+    expect(COVERAGE_SYSTEM).toContain('triads and harmonic movement');
+  });
+
+  it('gives a worked example of a correct acceptance for partial-but-substantive coverage', () => {
+    expect(COVERAGE_SYSTEM.toLowerCase()).toContain('beginner');
   });
 });
 
@@ -669,7 +734,7 @@ describe('writeLesson — happy path', () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(events.map((e) => e.type)).toEqual(['tier', 'section', 'grounding']);
+    expect(events.map((e) => e.type)).toEqual(['tier', 'section', 'illustrate', 'grounding']);
     expect(events.some((e) => e.type === 'saved')).toBe(false);
   });
 });
@@ -1006,7 +1071,10 @@ describe('writeLesson — section retry', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(mockedChat).toHaveBeenCalledTimes(2);
+    // 2 write attempts (fail, then succeed) + 1 illustrate call for the
+    // section that succeeded (unmocked here, so it resolves to `undefined`
+    // — no illustrations, which is a valid outcome, not a failure).
+    expect(mockedChat).toHaveBeenCalledTimes(3);
     expect(result.lesson.body.map((b) => b.__component)).toEqual(['lesson.heading', 'lesson.prose']);
     const retry = events.find((e) => e.type === 'retry');
     expect(retry).toMatchObject({ type: 'retry', step: 'section', attempt: 1, label: oneSectionOutline.sections[0].heading });
@@ -1036,7 +1104,8 @@ describe('writeLesson — section retry', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(mockedChat).toHaveBeenCalledTimes(2);
+    // 2 write attempts + 1 illustrate call for the section that succeeded.
+    expect(mockedChat).toHaveBeenCalledTimes(3);
     expect(result.lesson.body.map((b) => b.__component)).toEqual(['lesson.heading', 'lesson.prose']);
     const retry = events.find((e) => e.type === 'retry');
     expect(retry).toMatchObject({ type: 'retry', step: 'section', reason: 'zero usable blocks' });
@@ -1051,7 +1120,8 @@ describe('writeLesson — section retry', () => {
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }), onProgress);
 
     expect(result.ok).toBe(true);
-    expect(mockedChat).toHaveBeenCalledTimes(1);
+    // 1 write call + 1 illustrate call for the section that succeeded.
+    expect(mockedChat).toHaveBeenCalledTimes(2);
     expect(events.some((e) => e.type === 'retry')).toBe(false);
   });
 
@@ -1171,6 +1241,7 @@ describe('outputSchema regression guard — Anthropic-incompatible JSON Schema s
     ['CoverageVerdictSchema', CoverageVerdictSchema],
     ['LessonOutlineSchema', LessonOutlineSchema],
     ['SectionBlocksSchema', SectionBlocksSchema],
+    ['SectionIllustrationsSchema', SectionIllustrationsSchema],
   ])('%s compiles to a JSON Schema with none of the four Anthropic-incompatible shapes', (name, schema) => {
     const jsonSchema = toDraft07JsonSchema(schema);
     const violations = findAnthropicViolations(jsonSchema, name);
@@ -1215,5 +1286,72 @@ describe('outputSchema regression guard — Anthropic-incompatible JSON Schema s
       n: z.number(),
     });
     expect(findAnthropicViolations(toDraft07JsonSchema(ok), 'ok')).toEqual([]);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Regression guard #2: Anthropic also rejects a structured-output request
+// carrying more than 16 union-typed (`anyOf`) parameters — the reason
+// LessonBlockOutputSchema (the write pass's block schema, before this
+// branch's write/illustrate split) had to drop `inversion`, `fromFret`,
+// `toFret`, and explicit-mode `dots`/`marks`, and lock diagram generation
+// to `mode: "theory"` only (see that schema's own comment, and the brief
+// this branch implements: ".superpowers/sdd/lesson-shape/brief.md"). That
+// cap was never guarded by an automated test before this branch — only
+// found by hitting it live. This walks the same compiled JSON Schema the
+// schema-lint regression guard above already walks (via zod v4's own
+// `~standard.jsonSchema.input`) and counts every `anyOf`/`oneOf` node in
+// the WHOLE tree, not just the top level — a nested sub-object's nullable
+// fields (e.g. inside an array's `items`) count against the same request
+// budget as a top-level one.
+// -----------------------------------------------------------------------------
+describe('outputSchema regression guard — Anthropic 16-union-parameter cap', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function toDraft07JsonSchema(schema: any): unknown {
+    return schema['~standard'].jsonSchema.input({ target: 'draft-07' });
+  }
+
+  function countUnionParams(node: unknown): number {
+    if (!node || typeof node !== 'object') return 0;
+    let count = 0;
+    const obj = node as Record<string, unknown>;
+    if ('anyOf' in obj || 'oneOf' in obj) count += 1;
+    for (const value of Object.values(obj)) {
+      if (!value || typeof value !== 'object') continue;
+      if (Array.isArray(value)) {
+        for (const item of value) count += countUnionParams(item);
+      } else {
+        count += countUnionParams(value);
+      }
+    }
+    return count;
+  }
+
+  const ANTHROPIC_UNION_PARAM_CAP = 16;
+
+  it.each([
+    ['CoverageVerdictSchema', CoverageVerdictSchema],
+    ['LessonOutlineSchema', LessonOutlineSchema],
+    ['SectionBlocksSchema', SectionBlocksSchema],
+    ['SectionIllustrationsSchema', SectionIllustrationsSchema],
+  ])('%s stays at or under the 16 union-typed-parameter cap', (name, schema) => {
+    const count = countUnionParams(toDraft07JsonSchema(schema));
+    expect(count, `${name} has ${count} union-typed (anyOf) parameters — Anthropic rejects a structured-output request over ${ANTHROPIC_UNION_PARAM_CAP}`).toBeLessThanOrEqual(
+      ANTHROPIC_UNION_PARAM_CAP,
+    );
+  });
+
+  it('counts a known-bad schema correctly (sanity check on the walker itself)', () => {
+    const tooMany = z.object(
+      Object.fromEntries(
+        Array.from({ length: 17 }, (_, i) => [`f${i}`, z.string().nullable()]),
+      ),
+    );
+    expect(countUnionParams(toDraft07JsonSchema(tooMany))).toBe(17);
+  });
+
+  it('IllustrationItemSchema alone (the richest single schema in this pipeline) also stays under the cap', () => {
+    const count = countUnionParams(toDraft07JsonSchema(IllustrationItemSchema));
+    expect(count).toBeLessThanOrEqual(ANTHROPIC_UNION_PARAM_CAP);
   });
 });

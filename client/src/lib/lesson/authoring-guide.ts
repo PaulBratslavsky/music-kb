@@ -68,33 +68,36 @@ function extractSection(markdown: string, heading: string): string {
   return lines.slice(startIdx, endIdx).join('\n').trim();
 }
 
-// The block types the in-app section-generation step (SECTION_SYSTEM in
+// The block types the in-app WRITE pass (SECTION_SYSTEM in
 // lesson-generation.ts) is allowed to emit. Deliberately a SUBSET of the
 // ten dynamic-zone components — no heading (injected deterministically
 // from the outline, never model-emitted), no param-picker/video-ref (not
-// part of this pipeline's output today). diagram/keyboard-diagram were
-// excluded until every generated one could be resolve-checked against the
-// real renderer (see diagram-params.ts) before reaching the lesson body —
-// that gate now exists in lesson-generation.ts, so both are included here.
+// part of this pipeline's output today), and — since this branch's
+// write/illustrate split — no diagram/keyboard-diagram either. Those two
+// are emitted by the separate ILLUSTRATE pass below, given the write
+// pass's finished text, not by this one; see docs/lesson-authoring.md's
+// "Generation is two passes" note for why.
 const SECTION_BLOCK_TYPES = [
   'lesson.prose',
   'lesson.callout',
   'lesson.step',
   'lesson.table',
   'lesson.degree-chips',
-  'lesson.diagram',
-  'lesson.keyboard-diagram',
 ] as const;
+
+// The block types the in-app ILLUSTRATE pass is allowed to emit — the two
+// diagram-shaped components the write pass above deliberately excludes.
+const ILLUSTRATION_BLOCK_TYPES = ['lesson.diagram', 'lesson.keyboard-diagram'] as const;
 
 // lesson.neck-dot / lesson.key-mark are sub-components (used inside
 // lesson.diagram.dots / lesson.keyboard-diagram.marks for explicit-mode
 // dots), not top-level dynamic-zone blocks, so they aren't in
-// SECTION_BLOCK_TYPES above — but a model composing an explicit-mode
+// ILLUSTRATION_BLOCK_TYPES above — but a model composing an explicit-mode
 // diagram needs their field rules (string-index convention, fret, label
 // length) just as much as the parent block's. Their headings carry a
 // parenthetical suffix in the guide, so they can't reuse the
-// `### \`${component}\`` template extractSection's SECTION_BLOCK_TYPES
-// loop uses; extracted by literal heading text instead.
+// `### \`${component}\`` template the block-type loops use; extracted by
+// literal heading text instead.
 const SUB_COMPONENT_HEADINGS = [
   '### `lesson.neck-dot` (used inside `lesson.diagram.dots`)',
   '### `lesson.key-mark` (used inside `lesson.keyboard-diagram.marks`)',
@@ -117,11 +120,12 @@ export function getOutlineGuideExcerpt(): string {
 }
 
 /**
- * Excerpt for the per-section block-generation call: the block reference
- * entries for exactly the five block types that call is allowed to emit,
- * plus the judgment sections most directly about what those blocks should
- * contain (not the title/disagreement guidance, which don't apply to a
- * single section call).
+ * Excerpt for the per-section WRITE call: the block reference entries for
+ * exactly the five text block types that call is allowed to emit, plus the
+ * judgment sections most directly about what those blocks should contain.
+ * No diagram vocabulary and no "when a diagram earns its place" judgment
+ * here — this call never emits a diagram, see ILLUSTRATION_BLOCK_TYPES
+ * above.
  */
 export function getSectionBlockGuideExcerpt(): string {
   const guide = loadAuthoringGuide();
@@ -130,14 +134,32 @@ export function getSectionBlockGuideExcerpt(): string {
     // "### `lesson.prose`" — match that exactly.
     extractSection(guide, `### \`${component}\``),
   );
-  const subComponentReference = SUB_COMPONENT_HEADINGS.map((heading) =>
-    extractSection(guide, heading),
-  );
   const judgment = [
     extractSection(guide, '#### Callouts: carry a fact, not a mood'),
     extractSection(guide, '#### Prose: name the note, not the shape'),
     extractSection(guide, '### Citing sources'),
+  ];
+  return [...blockReference, ...judgment].join('\n\n');
+}
+
+/**
+ * Excerpt for the per-section ILLUSTRATE call: the block reference entries
+ * for diagram/keyboard-diagram (and their neck-dot/key-mark sub-components,
+ * needed for explicit-mode positions), plus the judgment on when a diagram
+ * earns its place — including the progression guidance — and the citation
+ * rule (illustrations carry `source` too, same as write-pass blocks).
+ */
+export function getIllustrationGuideExcerpt(): string {
+  const guide = loadAuthoringGuide();
+  const blockReference = ILLUSTRATION_BLOCK_TYPES.map((component) =>
+    extractSection(guide, `### \`${component}\``),
+  );
+  const subComponentReference = SUB_COMPONENT_HEADINGS.map((heading) =>
+    extractSection(guide, heading),
+  );
+  const judgment = [
     extractSection(guide, '### When a diagram earns its place versus when prose is clearer'),
+    extractSection(guide, '### Citing sources'),
   ];
   return [...blockReference, ...subComponentReference, ...judgment].join('\n\n');
 }
