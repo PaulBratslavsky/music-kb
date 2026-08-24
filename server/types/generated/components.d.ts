@@ -199,6 +199,91 @@ export interface LessonCallout extends Struct.ComponentSchema {
   };
 }
 
+export interface LessonChordDiagram extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_chord_diagrams';
+  info: {
+    description: "The songbook chord box: a 4-6 fret window with a dot per fretted string, O/x markers above the nut, and an optional barre. Distinct from lesson.diagram (a stretch of neck, for scales/shapes/where-notes-live) \u2014 this one answers 'how do I hold this chord', which is the single most expected visual in a guitar lesson. Renders through ChordDiagram in client/src/components/lesson/ChordDiagram.tsx.";
+    displayName: 'Chord diagram';
+  };
+  attributes: {
+    barreFret: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 1;
+        },
+        number
+      >;
+    barreFromString: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 5;
+          min: 0;
+        },
+        number
+      >;
+    barreToString: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 5;
+          min: 0;
+        },
+        number
+      >;
+    caption: Schema.Attribute.String;
+    fretCount: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 6;
+          min: 3;
+        },
+        number
+      > &
+      Schema.Attribute.DefaultTo<5>;
+    orientation: Schema.Attribute.Enumeration<['vertical', 'horizontal']> &
+      Schema.Attribute.DefaultTo<'vertical'>;
+    source: Schema.Attribute.Component<'lesson.source', false>;
+    startFret: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 1;
+        },
+        number
+      >;
+    strings: Schema.Attribute.Component<'lesson.chord-string', true> &
+      Schema.Attribute.Required;
+  };
+}
+
+export interface LessonChordString extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_chord_strings';
+  info: {
+    description: "One string's state inside a lesson.chord-diagram chord box. Addressed by explicit string index rather than array position, so the six entries can arrive in any order without silently transposing the shape. Mirrors StringState in client/src/components/lesson/ChordDiagram.tsx.";
+    displayName: 'Chord string';
+  };
+  attributes: {
+    fret: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 1;
+        },
+        number
+      >;
+    root: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+    state: Schema.Attribute.Enumeration<['fretted', 'open', 'muted']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'muted'>;
+    string: Schema.Attribute.Integer &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 5;
+          min: 0;
+        },
+        number
+      >;
+  };
+}
+
 export interface LessonDegreeChips extends Struct.ComponentSchema {
   collectionName: 'components_lesson_degree_chips';
   info: {
@@ -333,10 +418,22 @@ export interface LessonKeyboardDiagram extends Struct.ComponentSchema {
   };
 }
 
+export interface LessonNaturalNotes extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_natural_notes';
+  info: {
+    description: 'A fixed reference strip of the natural notes on the low E and A strings, frets 0-12, with the two half-step pairs (B-C, E-F) banded. Takes no parameters \u2014 it is the same diagram every time, which is the point: those 14 notes are the anchor for finding any root on the neck. Renders through NaturalNotesStrings in client/src/components/lesson/NaturalNotesStrings.tsx.';
+    displayName: 'Natural notes reference';
+  };
+  attributes: {
+    caption: Schema.Attribute.String;
+    source: Schema.Attribute.Component<'lesson.source', false>;
+  };
+}
+
 export interface LessonNeckDot extends Struct.ComponentSchema {
   collectionName: 'components_lesson_neck_dots';
   info: {
-    description: 'One explicit dot on a fretboard/keyboard diagram. Mirrors NeckDot in client/src/components/lesson/MiniNeck.tsx.';
+    description: "One explicit dot on a fretboard/keyboard diagram. Mirrors NeckDot in client/src/components/lesson/MiniNeck.tsx. dim/hollow/ringed/light are the four styles that let ONE diagram carry two layers of meaning (scale tones vs chord tones, where your hand is vs where else that note lives) instead of a flat set of identical dots \u2014 see MiniNeck.tsx's own doc comment on each.";
     displayName: 'Neck dot';
   };
   attributes: {
@@ -349,16 +446,49 @@ export interface LessonNeckDot extends Struct.ComponentSchema {
         },
         number
       >;
+    hollow: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     label: Schema.Attribute.String &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 8;
       }>;
+    light: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+    ringed: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     root: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     string: Schema.Attribute.Integer &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<
         {
           max: 5;
+          min: 0;
+        },
+        number
+      >;
+  };
+}
+
+export interface LessonNeckPattern extends Struct.ComponentSchema {
+  collectionName: 'components_lesson_neck_patterns';
+  info: {
+    description: 'Several fretboard patterns over ONE shared diagram, switched by pills. For a scale system that spans the neck (five pentatonic boxes, seven 3NPS shapes): stacking that many fretboards makes the page unreadable, and a shared fret window lets the reader watch the patterns climb the neck instead of each one being re-cropped. Renders through NeckPatternPicker in client/src/components/lesson/NeckPatternPicker.tsx.';
+    displayName: 'Neck pattern picker';
+  };
+  attributes: {
+    caption: Schema.Attribute.String;
+    fromFret: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
+    instrument: Schema.Attribute.Enumeration<['guitar', 'bass']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'guitar'>;
+    patterns: Schema.Attribute.JSON & Schema.Attribute.Required;
+    source: Schema.Attribute.Component<'lesson.source', false>;
+    toFret: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
           min: 0;
         },
         number
@@ -499,12 +629,16 @@ declare module '@strapi/strapi' {
       'content.section': ContentSection;
       'content.takeaway': ContentTakeaway;
       'lesson.callout': LessonCallout;
+      'lesson.chord-diagram': LessonChordDiagram;
+      'lesson.chord-string': LessonChordString;
       'lesson.degree-chips': LessonDegreeChips;
       'lesson.diagram': LessonDiagram;
       'lesson.heading': LessonHeading;
       'lesson.key-mark': LessonKeyMark;
       'lesson.keyboard-diagram': LessonKeyboardDiagram;
+      'lesson.natural-notes': LessonNaturalNotes;
       'lesson.neck-dot': LessonNeckDot;
+      'lesson.neck-pattern': LessonNeckPattern;
       'lesson.param-picker': LessonParamPicker;
       'lesson.parameter': LessonParameter;
       'lesson.prose': LessonProse;

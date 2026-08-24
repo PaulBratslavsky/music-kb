@@ -93,10 +93,84 @@ const neckDotSchema = z
       ),
     fret: z.number().int().min(0),
     label: z.string().max(8).optional().describe('Text shown on the dot, e.g. a note name or scale-degree role.'),
-    root: z.boolean().default(false).describe('True if this dot is the chord root — rendered distinctly.'),
-    dim: z.boolean().default(false).describe('True to render this dot dimmed (e.g. an optional/context note).'),
+    root: z.boolean().default(false).describe('True if this dot is the chord root — rendered distinctly (accent fill).'),
+    // The four style flags are the difference between a diagram that shows
+    // three dots and a diagram that teaches something: they let ONE picture
+    // carry two layers at once. Descriptions mirror MiniNeck.tsx's own doc
+    // comment on each — that file is the authority on what they look like.
+    dim: z
+      .boolean()
+      .default(false)
+      .describe(
+        'Fade the dot right back. Use it to show the whole scale across the neck while spotlighting one position: the ' +
+          'out-of-position notes stay visible (so the reader sees where the box sits in the larger shape) without competing ' +
+          'with the ones they are meant to play.',
+      ),
+    hollow: z
+      .boolean()
+      .default(false)
+      .describe(
+        'Draw an outlined ring instead of a filled disc — background context. The canonical use is a chord overlay: scale ' +
+          'tones NOT in the current chord go hollow so the chord tones read as the solid ones. An UNLABELLED hollow dot ' +
+          'renders small, sketching the scale shape without competing with the labelled notes — omit `label` when the dot is ' +
+          'context rather than content.',
+      ),
+    ringed: z
+      .boolean()
+      .default(false)
+      .describe(
+        'Draw an accent halo around the dot. Marks the notes actually fretted in the shape being played, as opposed to the ' +
+          'same pitch classes occurring elsewhere on the neck — "here is where your hand is" versus "here is where else that ' +
+          'note lives". Combines with any fill.',
+      ),
+    light: z
+      .boolean()
+      .default(false)
+      .describe(
+        'Draw the dot as a cut-out: light fill, dark outline, dark text. Reads brighter than a solid dot without becoming an ' +
+          'empty ring, so chord tones stand out from the surrounding scale while still looking like real notes. Use `light` ' +
+          'for the foreground layer and `hollow` for the background one.',
+      ),
   })
-  .strict();
+  .strict()
+  .describe(
+    'One dot. Beyond string/fret/label, four style flags let a single diagram carry two layers of meaning at once — see ' +
+      'each of dim/hollow/ringed/light. A diagram where every dot is plain is usually a diagram that could have taught more.',
+  );
+
+const chordStringSchema = z
+  .object({
+    string: z
+      .number()
+      .int()
+      .min(0)
+      .max(5)
+      .describe(
+        'String index: 0 = the HIGHEST-pitched string (high e), 5 = the lowest (low E). Same convention as lesson.neck-dot. ' +
+          'Each string carries its own index, so the six entries may be given in any order.',
+      ),
+    state: z
+      .enum(['fretted', 'open', 'muted'])
+      .describe('"fretted" = a finger at `fret`; "open" = played unfretted (drawn O above the nut); "muted" = not played (drawn ×).'),
+    fret: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Absolute fret. Required when state="fretted"; ignored otherwise. Never 0 — an unfretted string is state="open".'),
+    root: z.boolean().default(false).describe('True if this fretted note is the chord root — drawn in the accent colour.'),
+  })
+  .strict()
+  .superRefine((entry, ctx) => {
+    if (entry.state === 'fretted' && entry.fret === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fret'],
+        message:
+          'state="fretted" requires `fret`. Without it this string renders muted — a wrong chord, silently, not an error. For an unfretted string use state="open" instead.',
+      });
+    }
+  });
 
 const keyMarkSchema = z
   .object({
@@ -295,6 +369,175 @@ const keyboardDiagramBlock = z
     }
   });
 
+const chordDiagramBlock = z
+  .object({
+    __component: z.literal('lesson.chord-diagram'),
+    strings: z
+      .array(chordStringSchema)
+      .describe(
+        'Exactly six entries, one per string, each carrying its own `string` index 0–5. A string you leave out renders muted, ' +
+          'which is a different chord — list all six even when most are open.',
+      ),
+    barreFret: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Absolute fret of the barre. Omit for a chord with no barre. All three barre fields must be given together.'),
+    barreFromString: z.number().int().min(0).max(5).optional(),
+    barreToString: z.number().int().min(0).max(5).optional(),
+    fretCount: z.number().int().min(3).max(6).optional().describe('How many frets the box shows. Defaults to 5.'),
+    startFret: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        'Override the fret at the top of the box. Omit to derive it — chords reachable inside the window start at the nut, ' +
+          'higher shapes start at their lowest fretted note and get a "5fr"-style position label automatically.',
+      ),
+    orientation: z
+      .enum(['vertical', 'horizontal'])
+      .default('vertical')
+      .describe(
+        '"vertical" is the songbook chord box (nut across the top, strings running down) — the default and the right choice ' +
+          'almost always. "horizontal" rotates it so the neck runs left-to-right like lesson.diagram; use it only when a chord ' +
+          'box sits beside a fretboard diagram and the two must not disagree about which way the neck runs.',
+      ),
+    caption: captionSchema,
+    source: sourceSchema,
+  })
+  .strict()
+  .describe(
+    'The songbook chord box — a 4–6 fret window with a dot per fretted string, O/× above the nut, and an optional barre. ' +
+      'Answers "how do I hold this chord", where lesson.diagram answers "where do these notes live on the neck". Any lesson ' +
+      'that names a chord the reader is meant to play should show one.',
+  )
+  .superRefine((block, ctx) => {
+    const seen = new Map<number, number>();
+    block.strings.forEach((entry, i) => {
+      const first = seen.get(entry.string);
+      if (first !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['strings', i],
+          message: `strings[${i}] and strings[${first}] both set string=${entry.string}. Each of the six strings must appear exactly once.`,
+        });
+      } else {
+        seen.set(entry.string, i);
+      }
+    });
+    const missing = [0, 1, 2, 3, 4, 5].filter((s) => !seen.has(s));
+    if (missing.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['strings'],
+        message:
+          `strings is missing an entry for string index ${missing.join(', ')} (0 = high e … 5 = low E). ` +
+          'A missing string renders MUTED — a different chord, with no error — so all six must be listed explicitly, ' +
+          'including the ones that are open.',
+      });
+    }
+    const barreFields = [block.barreFret, block.barreFromString, block.barreToString];
+    const given = barreFields.filter((v) => v !== undefined).length;
+    if (given > 0 && given < 3) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['barreFret'],
+        message:
+          'A barre needs all three of barreFret, barreFromString and barreToString. A partial barre is dropped at render — no bar is drawn and no error is raised.',
+      });
+    }
+  });
+
+const naturalNotesBlock = z
+  .object({
+    __component: z.literal('lesson.natural-notes'),
+    caption: captionSchema,
+    source: sourceSchema,
+  })
+  .strict()
+  .describe(
+    'A fixed reference strip of the natural notes on the low E and A strings, frets 0–12, with the two half-step pairs (B–C, ' +
+      'E–F) banded. Takes no parameters — it is the same diagram every time, which is the point: those 14 notes are the anchor ' +
+      'for finding any root on the neck. Use it once, where the lesson first asks the reader to locate a root by name.',
+  );
+
+// The shape of one entry in lesson.neck-pattern.patterns. NOT a Strapi
+// component — that field is a json column (see the block's own note), so
+// this schema is the only thing standing between a model and a picker full
+// of empty necks.
+const neckPatternItemSchema = z
+  .object({
+    label: z.string().min(1).max(40).describe('Pill text, e.g. "Position 3". Kept short — the pills sit on one row.'),
+    sub: z
+      .string()
+      .max(160)
+      .optional()
+      .describe('Line shown under the diagram while this pattern is selected, e.g. "E minor pentatonic · frets 4–8".'),
+    dots: z.array(neckDotSchema).describe('This pattern\'s dots — same shape, same string-index convention and same four style flags as lesson.diagram.dots.'),
+  })
+  .strict()
+  .superRefine((pattern, ctx) => {
+    if (pattern.dots.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['dots'],
+        message: `Pattern "${pattern.label}" has no dots. An empty pattern renders as a pill that shows an empty neck — a silent gap, so it is rejected here.`,
+      });
+    }
+  });
+
+const neckPatternBlock = z
+  .object({
+    __component: z.literal('lesson.neck-pattern'),
+    instrument: z.enum(['guitar', 'bass']).default('guitar'),
+    patterns: z
+      .array(neckPatternItemSchema)
+      .describe(
+        'Two or more patterns, shown one at a time. Exactly one pattern is a lesson.diagram, not this block. Stored as a ' +
+          'json column rather than a nested component — Strapi populates a dynamic zone only one component deep, so nested ' +
+          'pattern dots would arrive empty at render. The shape is validated here instead; get it wrong and this tool says so.',
+      ),
+    fromFret: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        'Shared fret window for the whole set — set both fromFret and toFret, or neither. Fixing the window is most of the ' +
+          'point: it lets the reader watch the patterns climb the neck instead of each one being re-cropped to its own span.',
+      ),
+    toFret: z.number().int().min(0).optional(),
+    caption: captionSchema,
+    source: sourceSchema,
+  })
+  .strict()
+  .describe(
+    'Several fretboard patterns over ONE shared diagram, switched by pills. For a scale system that spans the neck (five ' +
+      'pentatonic boxes, seven three-note-per-string shapes): stacking that many separate fretboards makes the page unreadable.',
+  )
+  .superRefine((block, ctx) => {
+    if (block.patterns.length < 2) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['patterns'],
+        message:
+          `lesson.neck-pattern needs at least 2 patterns (got ${block.patterns.length}); a picker with one pill is a control that does nothing, and the renderer draws nothing at all. Use lesson.diagram for a single shape.`,
+      });
+    }
+    const bothOrNeither =
+      (block.fromFret === undefined) === (block.toFret === undefined);
+    if (!bothOrNeither) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [block.fromFret === undefined ? 'fromFret' : 'toFret'],
+        message:
+          'fromFret and toFret must be set together — MiniNeck only honours an explicit window when it has both, and otherwise auto-fits each pattern separately, which is exactly the re-cropping this block exists to avoid.',
+      });
+    }
+  });
+
 const degreeChipsBlock = z
   .object({
     __component: z.literal('lesson.degree-chips'),
@@ -353,6 +596,9 @@ export const lessonBlockSchema = z.discriminatedUnion('__component', [
   stepBlock,
   diagramBlock,
   keyboardDiagramBlock,
+  chordDiagramBlock,
+  neckPatternBlock,
+  naturalNotesBlock,
   degreeChipsBlock,
   tableBlock,
   paramPickerBlock,

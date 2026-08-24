@@ -15,12 +15,23 @@ import {
 } from '@music-kb/music/theory/triad-shapes';
 import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 
+// Structurally a subset of MiniNeck's own `NeckDot` — every field here
+// exists there with the same meaning, so a resolved dot can be handed
+// straight to the renderer. The four style flags (dim/hollow/ringed/light)
+// are what let ONE diagram carry two layers of meaning: scale tones under
+// chord tones, or "where your hand is" against "where else that note
+// lives". MiniNeck.tsx's doc comment on each is the authority on what they
+// look like; the lesson.neck-dot schema and docs/lesson-authoring.md
+// mirror them.
 export type NeckDotInput = {
   string: number;
   fret: number;
   label?: string;
   root?: boolean;
   dim?: boolean;
+  hollow?: boolean;
+  ringed?: boolean;
+  light?: boolean;
 };
 
 export type DiagramBlock = {

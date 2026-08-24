@@ -1,0 +1,29 @@
+{
+  "collectionName": "components_lesson_neck_patterns",
+  "info": {
+    "displayName": "Neck pattern picker",
+    "description": "Several fretboard patterns over ONE shared diagram, switched by pills. For a scale system that spans the neck (five pentatonic boxes, seven 3NPS shapes): stacking that many fretboards makes the page unreadable, and a shared fret window lets the reader watch the patterns climb the neck instead of each one being re-cropped. Renders through NeckPatternPicker in client/src/components/lesson/NeckPatternPicker.tsx."
+  },
+  "options": {},
+  "attributes": {
+    "instrument": {
+      "type": "enumeration",
+      "enum": ["guitar", "bass"],
+      "default": "guitar",
+      "required": true
+    },
+    "patterns": {
+      "type": "json",
+      "required": true,
+      "description": "Array of { label, sub?, dots[] }, two or more. A json column rather than a nested repeatable component ON PURPOSE: Strapi populates a dynamic zone exactly ONE component deep (`body: { populate: '*' }`), so a pattern's own `dots` would come back as an empty array at render — a picker of empty necks, no error anywhere. Shape is still fully validated on the MCP write path by lesson-blocks.ts. Same trade lesson.table's headers/rows already make."
+    },
+    "fromFret": {
+      "type": "integer",
+      "min": 0,
+      "description": "Shared fret window for the whole set, so every pattern draws at the same scale. Set both fromFret and toFret or neither."
+    },
+    "toFret": { "type": "integer", "min": 0 },
+    "caption": { "type": "string" },
+    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+  }
+}

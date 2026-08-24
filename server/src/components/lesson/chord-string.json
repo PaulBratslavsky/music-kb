@@ -1,0 +1,34 @@
+{
+  "collectionName": "components_lesson_chord_strings",
+  "info": {
+    "displayName": "Chord string",
+    "description": "One string's state inside a lesson.chord-diagram chord box. Addressed by explicit string index rather than array position, so the six entries can arrive in any order without silently transposing the shape. Mirrors StringState in client/src/components/lesson/ChordDiagram.tsx."
+  },
+  "options": {},
+  "attributes": {
+    "string": {
+      "type": "integer",
+      "required": true,
+      "min": 0,
+      "max": 5,
+      "description": "String index: 0 = the HIGHEST-pitched string (high e), 5 = the lowest (low E). Same convention as lesson.neck-dot.string — the opposite of most tab numbering."
+    },
+    "state": {
+      "type": "enumeration",
+      "enum": ["fretted", "open", "muted"],
+      "default": "muted",
+      "required": true,
+      "description": "fretted = a finger at `fret`; open = played unfretted (drawn as O above the nut); muted = not played (drawn as x)."
+    },
+    "fret": {
+      "type": "integer",
+      "min": 1,
+      "description": "Absolute fret number. Required when state is fretted; ignored otherwise. Never 0 — an unfretted string is state=open, not fret 0."
+    },
+    "root": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if this fretted note is the chord's root — rendered in the accent colour so the shape's anchor is obvious."
+    }
+  }
+}

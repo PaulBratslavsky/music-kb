@@ -10,9 +10,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from '@tanstack/react-router';
 import { Step } from './Step';
-import { MiniNeck } from './MiniNeck';
+import { MiniNeck, type NeckDot } from './MiniNeck';
 import { MiniKeyboard } from './MiniKeyboard';
 import { DegreeChips } from './DegreeChips';
+import { ChordDiagram, type ChordStringState } from './ChordDiagram';
+import { NaturalNotesStrings } from './NaturalNotesStrings';
+import { NeckPatternPicker, type NeckPattern } from './NeckPatternPicker';
 import {
   resolveDiagramDots,
   resolveDiagramMarks,
@@ -143,6 +146,112 @@ function SourceNote({
   );
 }
 
+// -- Block-payload coercion -------------------------------------------------
+//
+// Nested components arrive as plain JSON off a Strapi row, typed only as
+// `JsonValue` — there is no shape guarantee at the schema level and an
+// AI-authored lesson is exactly the kind of input that can arrive
+// malformed. Same stance as the table block below: coerce forgivingly, let
+// a bad entry degrade to a gap, never throw mid-render.
+
+const NUMBER = (v: JsonValue | undefined): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+
+function asRecord(value: JsonValue): Record<string, JsonValue> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, JsonValue>)
+    : null;
+}
+
+/** lesson.neck-dot[] → MiniNeck's NeckDot[]. Drops entries without a
+ *  usable string/fret pair; carries all four style flags through. */
+function toNeckDots(value: JsonValue | undefined): NeckDot[] {
+  if (!Array.isArray(value)) return [];
+  const dots: NeckDot[] = [];
+  for (const entry of value) {
+    const rec = asRecord(entry);
+    if (!rec) continue;
+    const string = NUMBER(rec.string);
+    const fret = NUMBER(rec.fret);
+    if (string === undefined || fret === undefined) continue;
+    dots.push({
+      string,
+      fret,
+      label: typeof rec.label === 'string' ? rec.label : undefined,
+      root: rec.root === true,
+      dim: rec.dim === true,
+      hollow: rec.hollow === true,
+      ringed: rec.ringed === true,
+      light: rec.light === true,
+    });
+  }
+  return dots;
+}
+
+/** lesson.chord-string[] → ChordDiagram's positional six-string array.
+ *  Entries are addressed by their own `string` index, so order in the
+ *  stored array doesn't matter and a missing string stays muted. A
+ *  `fretted` entry at fret 0 is read as open — fret 0 IS the open string,
+ *  and treating it as a silent no-op would be the more surprising reading. */
+function toChordStrings(value: JsonValue | undefined): ChordStringState[] {
+  const states: ChordStringState[] = Array.from({ length: 6 }, () => ({
+    kind: 'muted',
+  }));
+  if (!Array.isArray(value)) return states;
+  for (const entry of value) {
+    const rec = asRecord(entry);
+    if (!rec) continue;
+    const index = NUMBER(rec.string);
+    if (index === undefined || index < 0 || index > 5) continue;
+    const fret = NUMBER(rec.fret) ?? 0;
+    if (rec.state === 'fretted' && fret > 0) {
+      states[index] = { kind: 'fretted', fret, isRoot: rec.root === true };
+    } else if (rec.state === 'open' || (rec.state === 'fretted' && fret === 0)) {
+      states[index] = { kind: 'open' };
+    } else {
+      states[index] = { kind: 'muted' };
+    }
+  }
+  return states;
+}
+
+/** lesson.neck-pattern-item[] → NeckPatternPicker's patterns. A pattern
+ *  with no drawable dots is dropped rather than shown as an empty pill. */
+function toNeckPatterns(value: JsonValue | undefined): NeckPattern[] {
+  if (!Array.isArray(value)) return [];
+  const patterns: NeckPattern[] = [];
+  value.forEach((entry, i) => {
+    const rec = asRecord(entry);
+    if (!rec) return;
+    const dots = toNeckDots(rec.dots);
+    if (dots.length === 0) return;
+    patterns.push({
+      label: typeof rec.label === 'string' && rec.label ? rec.label : `Pattern ${i + 1}`,
+      sub: typeof rec.sub === 'string' ? rec.sub : undefined,
+      dots,
+    });
+  });
+  return patterns;
+}
+
+// Caption + citation, the trailing pair every visual block carries.
+function BlockFooter({
+  caption,
+  source,
+  sourceVideoMap,
+}: Readonly<{
+  caption: string;
+  source: JsonValue | undefined;
+  sourceVideoMap: Map<string, LessonSourceVideo>;
+}>) {
+  return (
+    <>
+      {caption ? <p className="text-xs text-[var(--ink-muted)]">{caption}</p> : null}
+      <SourceNote source={source} sourceVideoMap={sourceVideoMap} />
+    </>
+  );
+}
+
 function Block({
   block,
   parameter,
@@ -260,6 +369,80 @@ function Block({
             <p className="text-xs text-[var(--ink-muted)]">{caption}</p>
           ) : null}
           <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
+        </div>
+      );
+    }
+
+    case 'lesson.chord-diagram': {
+      // The songbook chord box — "how do I hold this chord" — as opposed
+      // to lesson.diagram's stretch of neck, which answers "where do these
+      // notes live". Different question, different picture, so a separate
+      // block rather than a mode of the other one.
+      const strings = toChordStrings(block.strings);
+      if (strings.every((s) => s.kind === 'muted')) return null;
+      const barreFret = NUMBER(block.barreFret);
+      const barreFrom = NUMBER(block.barreFromString);
+      const barreTo = NUMBER(block.barreToString);
+      const barre =
+        barreFret !== undefined && barreFrom !== undefined && barreTo !== undefined
+          ? { fret: barreFret, fromString: barreFrom, toString: barreTo }
+          : undefined;
+      const caption = typeof block.caption === 'string' ? block.caption : '';
+      return (
+        <div className="flex flex-col gap-1">
+          <ChordDiagram
+            strings={strings}
+            barre={barre}
+            fretCount={NUMBER(block.fretCount)}
+            startFret={NUMBER(block.startFret)}
+            orientation={block.orientation === 'horizontal' ? 'horizontal' : 'vertical'}
+            ariaLabel={caption.length > 0 ? caption : 'chord diagram'}
+          />
+          <BlockFooter
+            caption={caption}
+            source={block.source}
+            sourceVideoMap={sourceVideoMap}
+          />
+        </div>
+      );
+    }
+
+    case 'lesson.neck-pattern': {
+      // Several patterns, one shared neck. Renders nothing below two
+      // patterns: one pattern is a lesson.diagram, and a picker with a
+      // single pill is a control that does nothing.
+      const patterns = toNeckPatterns(block.patterns);
+      if (patterns.length < 2) return null;
+      const caption = typeof block.caption === 'string' ? block.caption : '';
+      return (
+        <div className="flex flex-col gap-1">
+          <NeckPatternPicker
+            patterns={patterns}
+            instrument={block.instrument === 'bass' ? 'bass' : 'guitar'}
+            fromFret={NUMBER(block.fromFret)}
+            toFret={NUMBER(block.toFret)}
+          />
+          <BlockFooter
+            caption={caption}
+            source={block.source}
+            sourceVideoMap={sourceVideoMap}
+          />
+        </div>
+      );
+    }
+
+    case 'lesson.natural-notes': {
+      // Fixed reference diagram — no parameters, by design. The block is
+      // its own presence plus an optional caption.
+      const caption = typeof block.caption === 'string' ? block.caption : '';
+      return (
+        <div className="flex flex-col gap-1">
+          <NaturalNotesStrings />
+          <BlockFooter
+            caption={caption}
+            source={block.source}
+            sourceVideoMap={sourceVideoMap}
+          />
         </div>
       );
     }

@@ -30,10 +30,18 @@ teaches nothing has still failed.
 ## Half A — block reference
 
 The lesson record has fields outside the body (title, level, status, …)
-and a `body` dynamic zone of ten typed blocks. Every block's
+and a `body` dynamic zone of thirteen typed blocks. Every block's
 `__component` value is the literal string in its heading below, e.g.
-`lesson.prose`. `lesson.interactive` is **not** one of the ten — it used
-to exist, had no renderer, and was deleted from the schema. Never emit it.
+`lesson.prose`. `lesson.interactive` is **not** one of the thirteen — it
+used to exist, had no renderer, and was deleted from the schema. Never emit
+it.
+
+Five of the thirteen draw something: `lesson.diagram` (a stretch of neck),
+`lesson.chord-diagram` (one chord box), `lesson.neck-pattern` (several
+patterns over one neck), `lesson.keyboard-diagram` (a piano), and
+`lesson.natural-notes` (a fixed reference strip). They answer different
+questions and are not interchangeable — each entry below opens with which
+question it answers.
 
 ### Lesson record fields (outside the body)
 
@@ -49,7 +57,7 @@ to exist, had no renderer, and was deleted from the schema. Never emit it.
 | `status` | enum, required, default `draft` | `draft`, `published`, `ai-generated` — generation should set `ai-generated`, never `published`; that value is a human-review signal, not a default |
 | `parameter` | component, non-repeatable | at most one per lesson — see `lesson.parameter` below |
 | `videos` | many-to-many relation | referenced videos, resolved from `youtubeVideoId` or Strapi `documentId` |
-| `body` | dynamic zone | the ten block types below |
+| `body` | dynamic zone | the thirteen block types below |
 
 **Slugs are never overwritten.** On `createLesson`, a collision appends a
 numeric suffix (`-2`, `-3`, …) rather than clobbering an existing lesson.
@@ -67,7 +75,7 @@ key. Blocks opt in with their own `useParam: true`.
 | `label` | string, default `"Key"` | control label shown to the reader |
 | `default` | enum, default `C` | one of the 12 pitch classes (sharps only — see below) |
 
-### `lesson.source` (embedded in prose, callout, step, diagram, keyboard-diagram)
+### `lesson.source` (embedded in prose, callout, step, and every diagram block)
 
 Provenance: which video and moment a block came from.
 
@@ -134,11 +142,17 @@ One numbered step in a sequence.
 
 ### `lesson.diagram`
 
-A fretboard diagram (guitar or bass). Position-addressed: dots live at a
-`(string, fret)` pair. For a piano/keyboard use `lesson.keyboard-diagram`
-instead — that one is pitch-class addressed, a structurally different
-shape (no strings, no frets), which is why it is a separate block rather
-than an `instrument: "piano"` option here.
+A stretch of fretboard (guitar or bass). Answers **"where do these notes
+live on the neck"** — a scale shape, a triad voicing, an interval, a
+position. Position-addressed: dots live at a `(string, fret)` pair.
+
+Not the block for *"how do I hold this chord"* — that is
+`lesson.chord-diagram`, the songbook chord box. Not the block for a scale
+system with five or seven shapes either — that is `lesson.neck-pattern`,
+which puts them all over one neck. And for a piano/keyboard use
+`lesson.keyboard-diagram`: it is pitch-class addressed, a structurally
+different shape (no strings, no frets), which is why it is a separate
+block rather than an `instrument: "piano"` option here.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -192,8 +206,41 @@ One hand-placed dot on a fretboard, for `mode: "explicit"`.
 | `string` | integer, required, 0–5 | **String index: `0` = the highest-pitched string (high e on guitar), increasing toward the lowest (`5` = low E).** This is the opposite of how a lot of guitar tab numbers strings — get it backwards and every dot lands on the wrong string. On a `bass` diagram there are only 4 strings (G–D–A–E), so only indices 0–3 are meaningful even though the field's schema range (0–5) doesn't itself restrict that per instrument. |
 | `fret` | integer, required, min 0 | **absolute fret number.** `0` = open string, drawn to the left of the nut, not "no dot." |
 | `label` | string | max 8 chars — text shown on the dot, typically a note name |
-| `root` | boolean, default `false` | true if this is the chord's root — see the "root" disambiguation above |
-| `dim` | boolean, default `false` | true to render the dot dimmed (an optional/context note) |
+| `root` | boolean, default `false` | true if this is the chord's root — see the "root" disambiguation above; renders in the accent colour |
+| `dim` | boolean, default `false` | fade the dot right back |
+| `hollow` | boolean, default `false` | draw an outlined ring instead of a filled disc |
+| `ringed` | boolean, default `false` | draw an accent halo around the dot |
+| `light` | boolean, default `false` | draw the dot as a cut-out: light fill, dark outline, dark text |
+
+**The four style flags are the difference between a diagram that shows
+three dots and a diagram that teaches something.** They exist so ONE
+picture can carry two layers of meaning at once instead of forcing two
+pictures the reader has to hold in their head together. What each is for,
+from `MiniNeck.tsx`'s own doc comments:
+
+- **`dim`** — show the whole scale across the neck while spotlighting one
+  position. The out-of-position notes stay visible, so the reader sees
+  where the box sits inside the larger shape, without competing with the
+  notes they are meant to play.
+- **`hollow`** — background context. The canonical use is a chord overlay:
+  scale tones that are *not* in the current chord go hollow, so the chord
+  tones read as the solid ones. An **unlabelled** hollow dot renders small
+  — it sketches the scale's shape without competing with the labelled
+  notes, so omit `label` when a dot is context rather than content.
+- **`ringed`** — "here is where your hand actually is", as opposed to
+  "here is where else that note lives". Marks the notes genuinely fretted
+  in the shape being played, against the same pitch classes occurring
+  elsewhere on the neck. Combines with any fill.
+- **`light`** — a cut-out dot: brighter than a solid one without becoming
+  an empty ring, so chord tones stand out from a surrounding scale while
+  still looking like real notes. Pairs with `hollow`: `light` for the
+  foreground layer, `hollow` for the background one.
+
+They compose. "These are the scale tones, these are the chord tones inside
+it" is `hollow` (unlabelled) for the scale plus `light` for the chord
+tones; add `ringed` on the four your hand is actually holding and the same
+diagram now says three things. A diagram where every dot is plain is
+usually a diagram that could have taught more.
 
 ### `lesson.keyboard-diagram`
 
@@ -223,6 +270,115 @@ One hand-placed mark on a keyboard, for `mode: "explicit"`.
 | `label` | string | max 8 chars |
 | `root` | boolean, default `false` | see the "root" disambiguation above |
 | `flag` | boolean, default `false` | visually flags the key — used for landmark/teaching marks, e.g. the two "no black key between them" pairs (E–F, B–C) in the half-step lesson's opening diagram |
+
+### `lesson.chord-diagram`
+
+The songbook chord box. Answers **"how do I hold this chord"** — a 4–6
+fret window with a dot per fretted string, `O`/`×` markers above the nut,
+and an optional barre. This is the single most expected visual in a guitar
+lesson: **any lesson that names a chord the reader is meant to play should
+show one.**
+
+Distinct from `lesson.diagram`, which shows a stretch of neck. A chord box
+is cropped to the hand, oriented the way method books draw it (low E on
+the left, nut at the top), and says nothing about where those notes sit in
+a scale. Use whichever matches the question the surrounding prose just
+asked.
+
+| Field | Type | Notes |
+|---|---|---|
+| `strings` | repeatable `lesson.chord-string`, required | **exactly six entries, one per string.** Each carries its own `string` index, so array order does not matter — but a string you leave out renders **muted**, which is a different chord, silently. List all six, including the open ones. |
+| `barreFret` | integer, min 1 | absolute fret of the barre. Omit entirely for a chord with no barre. |
+| `barreFromString` / `barreToString` | integer, 0–5 | inclusive string indices the barre spans, same `0` = high e convention |
+| `fretCount` | integer, 3–6, default `5` | how many frets the box shows |
+| `startFret` | integer, min 1 | override the fret at the top of the box. Omit to derive it: chords reachable inside the window start at the nut; higher shapes start at their lowest fretted note and get a `5fr`-style position label automatically. |
+| `orientation` | enum, default `vertical` | `vertical` is the songbook box (nut across the top, strings running down) and is right almost always. `horizontal` rotates it so the neck runs left-to-right with the nut on the LEFT — matching `lesson.diagram`. Reach for it only when a chord box sits next to a fretboard diagram and the two must not disagree about which way the neck runs. |
+| `caption` | string | max 255 chars |
+| `source` | component | see `lesson.source` above |
+
+**All three barre fields go together.** Give one or two and the barre is
+dropped at render — no bar drawn, no error. The MCP path rejects a partial
+barre and names the fix.
+
+### `lesson.chord-string` (used inside `lesson.chord-diagram.strings`)
+
+One string's state in a chord box.
+
+| Field | Type | Notes |
+|---|---|---|
+| `string` | integer, required, 0–5 | **`0` = the highest-pitched string (high e), `5` = the lowest (low E)** — the same convention as `lesson.neck-dot.string`, and the opposite of most tab numbering. The rendered box flips this so low E appears on the left, where a chord chart expects it; you do not compensate for that yourself. |
+| `state` | enum, required, default `muted` | `fretted` — a finger at `fret`. `open` — played unfretted, drawn as `O` above the nut. `muted` — not played, drawn as `×`. |
+| `fret` | integer, min 1 | absolute fret. **Required when `state` is `fretted`**, ignored otherwise. Never `0` — an unfretted string is `state: "open"`, not fret 0. (The renderer forgives a `fretted` entry at fret 0 by reading it as open, but the MCP path rejects a `fretted` entry with no `fret` at all, because that one renders as a muted string — a wrong chord with no error.) |
+| `root` | boolean, default `false` | true if this fretted note is the chord's root — drawn in the accent colour so the shape's anchor is obvious |
+
+### `lesson.neck-pattern`
+
+Several fretboard patterns over **one** shared diagram, switched by pills.
+Answers **"how does this shape system cover the whole neck"** — five
+pentatonic boxes, seven three-note-per-string shapes, the CAGED positions.
+
+Stacking that many separate fretboards makes a page unreadable, and the
+shared fret window is the other half of the idea: with `fromFret`/`toFret`
+fixed for the whole set, stepping through the pills shows the patterns
+*climbing the neck* rather than each one being re-cropped to its own span.
+One pattern is a `lesson.diagram`, not this block.
+
+| Field | Type | Notes |
+|---|---|---|
+| `instrument` | enum, required, default `guitar` | `guitar` or `bass`, same enum as `lesson.diagram.instrument` |
+| `patterns` | JSON array, required | **two or more** entries of `{ label, sub?, dots[] }` — shape below. A single pattern renders nothing at all: a picker with one pill is a control that does nothing. |
+| `fromFret` / `toFret` | integer, min 0 | the shared window. **Set both or neither** — with only one, the renderer auto-fits each pattern separately, which is exactly the re-cropping this block exists to avoid. |
+| `caption` | string | max 255 chars |
+| `source` | component | see `lesson.source` above |
+
+There is **no link-out field.** An earlier version of this widget carried a
+"hear this on the fretboard explorer →" deep link; it was dropped on the
+way in, because lessons here are self-contained — that principle is why
+diagrams are inline in the first place.
+
+#### The pattern shape (entries in `lesson.neck-pattern.patterns`)
+
+| Field | Type | Notes |
+|---|---|---|
+| `label` | string, required | max 40 chars — pill text, e.g. `"Position 3"`. Kept short; the pills sit on one row. |
+| `sub` | string | max 160 chars — the line under the diagram while this pattern is selected, e.g. `"E minor pentatonic · frets 4–8"`. Plain text. |
+| `dots` | array, required | this pattern's dots — same fields, same string-index convention and same four style flags as `lesson.neck-dot` (see above). A pattern with no dots is dropped rather than shown as a pill over an empty neck. |
+
+**Why `patterns` is a JSON array and not a repeatable component.** Strapi
+populates a dynamic zone exactly **one component deep**. A pattern nested
+as a component would come back with an empty `dots` array at render —
+pills over blank necks, no error anywhere, the same silent class as the
+four unrendered fields. `lesson.table`'s `headers`/`rows` make the same
+trade. The MCP write tools validate the shape in full, so a malformed
+pattern is rejected there with a message naming the field, not discovered
+by looking at the page.
+
+The one-level limit is worth knowing generally: `lesson.diagram.dots`,
+`lesson.chord-diagram.strings` and `lesson.keyboard-diagram.marks` are
+real components and populate fine because each is exactly one level below
+its block. Anything a level deeper than that has to be JSON.
+
+Do **not** give a pattern an `id`. Patterns are identified by their
+position in the array, and `id` is a reserved Strapi field the write tools
+reject (see "field naming trap: block `id`" below).
+
+### `lesson.natural-notes`
+
+A fixed reference strip of the natural notes on the low E and A strings,
+frets 0–12, with the two half-step pairs (B–C, E–F) banded. **Takes no
+parameters** — it is the same diagram every time, which is the point:
+those 14 notes are the anchor for finding any root on the neck by name,
+and every sharp or flat is one fret away from one of them.
+
+Use it once, at the moment a lesson first asks the reader to *locate* a
+root rather than just play a given shape. It is a reference, not an
+illustration of the current sentence — a second one in the same lesson
+adds nothing.
+
+| Field | Type | Notes |
+|---|---|---|
+| `caption` | string | max 255 chars — the only thing you can vary |
+| `source` | component | see `lesson.source` above |
 
 ### `lesson.degree-chips`
 

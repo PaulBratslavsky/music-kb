@@ -2,7 +2,7 @@
   "collectionName": "components_lesson_neck_dots",
   "info": {
     "displayName": "Neck dot",
-    "description": "One explicit dot on a fretboard/keyboard diagram. Mirrors NeckDot in client/src/components/lesson/MiniNeck.tsx."
+    "description": "One explicit dot on a fretboard/keyboard diagram. Mirrors NeckDot in client/src/components/lesson/MiniNeck.tsx. dim/hollow/ringed/light are the four styles that let ONE diagram carry two layers of meaning (scale tones vs chord tones, where your hand is vs where else that note lives) instead of a flat set of identical dots — see MiniNeck.tsx's own doc comment on each."
   },
   "options": {},
   "attributes": {
@@ -10,6 +10,25 @@
     "fret": { "type": "integer", "required": true, "min": 0 },
     "label": { "type": "string", "maxLength": 8 },
     "root": { "type": "boolean", "default": false },
-    "dim": { "type": "boolean", "default": false }
+    "dim": {
+      "type": "boolean",
+      "default": false,
+      "description": "Fade the dot to ~22% opacity. Shows the whole scale across the neck while spotlighting one position: the out-of-position notes stay visible without competing with the ones you are meant to play."
+    },
+    "hollow": {
+      "type": "boolean",
+      "default": false,
+      "description": "Draw an outlined ring instead of a filled disc — background context. Unlabelled hollow dots render small, so they sketch the surrounding scale's shape without competing with the labelled notes."
+    },
+    "ringed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Draw an accent halo around the dot. Marks the notes actually fretted in the shape being played, as opposed to the same pitch classes occurring elsewhere on the neck."
+    },
+    "light": {
+      "type": "boolean",
+      "default": false,
+      "description": "Draw filled light with a dark outline — a cut-out dot. Brighter than a solid dot without becoming an empty ring, so chord tones stand out from the surrounding scale while still looking like real notes."
+    }
   }
 }

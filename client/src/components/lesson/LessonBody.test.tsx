@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { LessonBody } from './LessonBody';
 import type { LessonBlock, LessonSourceVideo } from '#/lib/services/lessons';
@@ -254,6 +254,230 @@ describe('LessonBody', () => {
     expect(container.querySelector('table')).toBeTruthy();
     expect(container.querySelectorAll('th')).toHaveLength(0);
     expect(container.querySelectorAll('tbody tr')).toHaveLength(0);
+  });
+
+  // The four NeckDot style flags are what let one diagram carry two layers
+  // of meaning (scale tones under chord tones). They were declared on
+  // MiniNeck from the start but absent from lesson.neck-dot's schema, so no
+  // authored lesson could reach them — the mirror image of this branch's
+  // declared-but-unrendered fields. These assert the whole path: block JSON
+  // → resolveDiagramDots → MiniNeck → distinct SVG treatment.
+  describe('explicit-diagram dot styles', () => {
+    const renderDots = (dots: Record<string, unknown>[]) =>
+      render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.diagram',
+              instrument: 'guitar',
+              mode: 'explicit',
+              fromFret: 5,
+              toFret: 9,
+              dots: dots as never,
+            }),
+          ]}
+          parameter={null}
+        />,
+      ).container;
+
+    it('draws a hollow dot as an outlined ring, not a filled disc', () => {
+      const container = renderDots([{ string: 0, fret: 7, hollow: true }]);
+      const circles = [...container.querySelectorAll('circle')];
+      const hollow = circles.find((c) => c.getAttribute('stroke') === 'var(--ink-muted)');
+      expect(hollow, 'no hollow dot rendered').toBeTruthy();
+      expect(hollow?.getAttribute('fill')).toBe('var(--card)');
+    });
+
+    it('draws a ringed dot with an accent halo in addition to the dot itself', () => {
+      const plain = renderDots([{ string: 0, fret: 7 }]);
+      const plainCount = plain.querySelectorAll('circle').length;
+      cleanup();
+      const ringed = renderDots([{ string: 0, fret: 7, ringed: true }]);
+      const circles = [...ringed.querySelectorAll('circle')];
+      expect(circles.length).toBe(plainCount + 1);
+      expect(circles.some((c) => c.getAttribute('stroke') === 'var(--accent)')).toBe(true);
+    });
+
+    it('draws a light dot as a cut-out — light fill, dark outline', () => {
+      const container = renderDots([{ string: 0, fret: 7, light: true, label: '3' }]);
+      const cutout = [...container.querySelectorAll('circle')].find(
+        (c) => c.getAttribute('stroke') === 'var(--ink)',
+      );
+      expect(cutout, 'no cut-out dot rendered').toBeTruthy();
+      expect(cutout?.getAttribute('fill')).toBe('var(--card)');
+    });
+
+    it('fades a dimmed dot', () => {
+      const container = renderDots([{ string: 0, fret: 7, dim: true }]);
+      expect(container.querySelector('g[opacity="0.22"]')).toBeTruthy();
+    });
+  });
+
+  describe('lesson.chord-diagram', () => {
+    // Strings are addressed by their own index, so order in the array is
+    // not load-bearing — this fixture is deliberately shuffled.
+    const cMajor = [
+      { string: 5, state: 'muted' },
+      { string: 2, state: 'open' },
+      { string: 0, state: 'open' },
+      { string: 4, state: 'fretted', fret: 3, root: true },
+      { string: 3, state: 'fretted', fret: 2 },
+      { string: 1, state: 'fretted', fret: 1 },
+    ];
+
+    it('renders a chord box with a dot per fretted string', () => {
+      const { container } = render(
+        <LessonBody
+          blocks={[block({ __component: 'lesson.chord-diagram', strings: cMajor as never })]}
+          parameter={null}
+        />,
+      );
+      const svg = container.querySelector('svg');
+      expect(svg).toBeTruthy();
+      // Three fretted strings → three dots (r=6.5 is the fingered-dot radius).
+      expect(container.querySelectorAll('circle[r="6.5"]')).toHaveLength(3);
+      // The root dot gets the accent fill.
+      expect(
+        [...container.querySelectorAll('circle[r="6.5"]')].filter(
+          (c) => c.getAttribute('fill') === 'var(--accent)',
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('marks open strings O and muted strings ×', () => {
+      render(
+        <LessonBody
+          blocks={[block({ __component: 'lesson.chord-diagram', strings: cMajor as never })]}
+          parameter={null}
+        />,
+      );
+      expect(screen.getAllByText('O')).toHaveLength(2);
+      expect(screen.getAllByText('×')).toHaveLength(1);
+    });
+
+    it('draws a barre when all three barre fields are present', () => {
+      const { container } = render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.chord-diagram',
+              strings: [
+                { string: 0, state: 'fretted', fret: 5 },
+                { string: 1, state: 'fretted', fret: 5 },
+                { string: 2, state: 'fretted', fret: 6 },
+                { string: 3, state: 'fretted', fret: 7 },
+                { string: 4, state: 'fretted', fret: 7 },
+                { string: 5, state: 'fretted', fret: 5, root: true },
+              ] as never,
+              barreFret: 5,
+              barreFromString: 0,
+              barreToString: 5,
+              caption: 'A minor barre at the 5th',
+            }),
+          ]}
+          parameter={null}
+        />,
+      );
+      expect(container.querySelector('rect[rx="5"]')).toBeTruthy();
+      expect(screen.getByText('A minor barre at the 5th')).toBeTruthy();
+      // Up the neck → a position label instead of a nut.
+      expect(screen.getByText('5fr')).toBeTruthy();
+    });
+
+    it('renders nothing when no string is played rather than an empty box', () => {
+      const { container } = render(
+        <LessonBody
+          blocks={[block({ __component: 'lesson.chord-diagram', strings: [] as never })]}
+          parameter={null}
+        />,
+      );
+      expect(container.querySelector('svg')).toBeNull();
+    });
+  });
+
+  describe('lesson.natural-notes', () => {
+    it('renders the fixed reference strip and its caption', () => {
+      const { container } = render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.natural-notes',
+              caption: 'Learn these 14 and every root is one fret away.',
+            }),
+          ]}
+          parameter={null}
+        />,
+      );
+      expect(
+        container.querySelector('svg[aria-label="Natural notes on the low E and A strings"]'),
+      ).toBeTruthy();
+      expect(screen.getByText('Learn these 14 and every root is one fret away.')).toBeTruthy();
+    });
+  });
+
+  describe('lesson.neck-pattern', () => {
+    const patterns = [
+      { label: 'Box 1', sub: 'frets 5–8', dots: [{ string: 5, fret: 5, root: true }] },
+      { label: 'Box 2', sub: 'frets 7–10', dots: [{ string: 5, fret: 8 }] },
+    ];
+
+    it('renders one pill per pattern over a single shared neck', () => {
+      const { container } = render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.neck-pattern',
+              instrument: 'guitar',
+              patterns: patterns as never,
+              fromFret: 3,
+              toFret: 12,
+            }),
+          ]}
+          parameter={null}
+        />,
+      );
+      expect(screen.getByRole('button', { name: 'Box 1' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Box 2' })).toBeTruthy();
+      // One diagram, not one per pattern — that is the whole point.
+      expect(container.querySelectorAll('svg')).toHaveLength(1);
+      expect(screen.getByText('frets 5–8')).toBeTruthy();
+    });
+
+    it('swaps the diagram when another pattern is picked', () => {
+      render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.neck-pattern',
+              patterns: patterns as never,
+              fromFret: 3,
+              toFret: 12,
+            }),
+          ]}
+          parameter={null}
+        />,
+      );
+      expect(screen.getByRole('button', { name: 'Box 1' }).getAttribute('aria-pressed')).toBe(
+        'true',
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Box 2' }));
+      expect(screen.getByRole('button', { name: 'Box 2' }).getAttribute('aria-pressed')).toBe(
+        'true',
+      );
+      expect(screen.getByText('frets 7–10')).toBeTruthy();
+    });
+
+    it('renders nothing for a single pattern — that is a lesson.diagram', () => {
+      const { container } = render(
+        <LessonBody
+          blocks={[
+            block({ __component: 'lesson.neck-pattern', patterns: [patterns[0]] as never }),
+          ]}
+          parameter={null}
+        />,
+      );
+      expect(container.querySelector('svg')).toBeNull();
+    });
   });
 
   describe('source citations', () => {
