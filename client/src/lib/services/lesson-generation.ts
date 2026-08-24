@@ -117,7 +117,9 @@ import { samplingOptions } from '#/lib/services/ollama-model-options';
 import {
   findEvidenceForQuote,
   loadStoredIndex,
+  searchBM25,
   type BM25Index,
+  type TranscriptChunk,
 } from '#/lib/services/transcript';
 import {
   buildMusicExtractionText,
@@ -205,6 +207,15 @@ export type LessonProgressEvent =
       total: number;
       heading: string;
       blocks: number;
+      /**
+       * How many real transcript passages this section was written FROM
+       * (see `retrieveSectionPassages`). Optional only so hand-built
+       * fixtures and older callers still typecheck; the pipeline always
+       * sets it. Reported because zero here means the section silently
+       * fell back to summary cards — the change that put passages in this
+       * prompt would then be inert with nothing to show for it.
+       */
+      passages?: number;
     }
   | {
       // The illustrate pass ticks off per section, same as 'section' above,
@@ -261,6 +272,21 @@ function emit(onProgress: ProgressFn | undefined, event: LessonProgressEvent) {
 
 export type PlanLessonInput = { topic: string; maxVideos?: number };
 
+/**
+ * The lesson-level `lesson.parameter` as this pipeline emits it — narrower
+ * than `LessonParameter` in lessons.ts, which is the READ-side shape (what
+ * Strapi hands back, where every enum arrives as a plain string). On the
+ * write side both `name` and `default` are closed sets, and saying so is
+ * what stops a `default` that `resolveDiagramDots` would refuse from ever
+ * being constructed. Structurally assignable to `LessonParameter`, so
+ * `saveLessonService` takes it unchanged.
+ */
+export type GeneratedLessonParameter = {
+  name: 'key';
+  label: string;
+  default: PitchClass;
+};
+
 export type SourceVideo = {
   documentId: string;
   youtubeVideoId: string;
@@ -294,6 +320,10 @@ export type GeneratedLesson = {
   instrument: 'guitar' | 'piano' | 'push' | 'any';
   duration: string | null;
   status: 'ai-generated';
+  /** The lesson-level `lesson.parameter` component, or null. Persisted by
+   * `saveLessonService` — without it a `lesson.param-picker` block in
+   * `body` renders as nothing at all. */
+  parameter: GeneratedLessonParameter | null;
   body: LessonBlock[];
 };
 
@@ -639,6 +669,16 @@ function buildDigestContextText(digest: Digest): string {
 // Step 4: outline — one small structured call
 // -----------------------------------------------------------------------------
 
+// Reused, not re-typed: the theory layer (`@music-kb/music`) is the single
+// source of truth for the 12 sharps-only pitch classes — see
+// docs/lesson-authoring.md's "The 12 pitch classes". Cast to a non-empty
+// tuple only because zod's `.enum()` wants that shape at the type level;
+// the runtime values come straight from the theory package, never
+// hand-copied. Declared HERE rather than down with the section schema
+// because module-scope consts evaluate top-to-bottom: LessonOutlineSchema
+// below reads it, so it has to exist by then.
+const PITCH_CLASS_ENUM = PITCH_CLASSES as [PitchClass, ...PitchClass[]];
+
 export const LessonOutlineSchema = z.object({
   title: z.string().describe('Short lesson title. MAX 150 characters.'),
   summary: z
@@ -654,6 +694,28 @@ export const LessonOutlineSchema = z.object({
     .string()
     .nullable()
     .describe('Rough time estimate like "15 min", or null. MAX 30 characters.'),
+  // The lesson-level reader-controlled parameter (`lesson.parameter`),
+  // declared as TWO nullable scalars rather than one nullable object on
+  // purpose: a nullable enum and a nullable string are both shapes this
+  // pipeline has already exercised against the live frontier tier, where
+  // a nullable OBJECT is not. Two `anyOf` nodes instead of one is a cheap
+  // price on a schema that otherwise uses 1 of its 16-union budget (see
+  // lesson-generation.test.ts's union-cap guard), and it buys zero new
+  // structured-output risk — the class of bug this file's comments are
+  // mostly about. `name` is not asked for at all: `key` is the only value
+  // lesson.parameter's own enum supports, so it is filled in by code.
+  parameterLabel: z
+    .string()
+    .nullable()
+    .describe(
+      'Set this ONLY if the whole lesson is about something a reader should be able to re-key (triad shapes, scale patterns, a chord grip that transposes) — then it is the picker\'s label, e.g. "Key". MAX 40 characters. Null (the common case) for a lesson whose content is tied to specific named keys/chords from the sources, which would become wrong if re-keyed.',
+    ),
+  parameterDefault: z
+    .enum(PITCH_CLASS_ENUM)
+    .nullable()
+    .describe(
+      'The key the lesson starts in, when parameterLabel is set — pick the one the sources actually demonstrate in. One of the 12 sharps-only pitch classes (no flats). Null whenever parameterLabel is null.',
+    ),
   sections: z
     .array(
       z.object({
@@ -701,6 +763,15 @@ export type LessonOutline = {
   level: 'beginner' | 'intermediate' | 'advanced';
   instrument: 'guitar' | 'piano' | 'push' | 'any';
   duration: string | null;
+  /**
+   * The lesson-level `lesson.parameter`, or null when this lesson has no
+   * re-keyable content. This is what makes a `lesson.param-picker` block
+   * render at all — LessonBody returns null for a picker on a lesson with
+   * no parameter — so the write pass is only allowed to emit a picker (or
+   * a `useParam` diagram) when this is non-null. See `toLessonBlock`'s
+   * `param-picker` case.
+   */
+  parameter: GeneratedLessonParameter | null;
   sections: Array<{ heading: string; goal: string }>;
 };
 
@@ -712,6 +783,7 @@ const OUTLINE_SYSTEM = [
   'If a recommended progression across the sources is given, use it to inform section order — a learner should hit prerequisite material before what depends on it.',
   'Shared themes and unique per-video contributions (if given) are good material for individual sections — the outline should give the learner the throughline AND the standout specifics, not just the throughline.',
   '`instrument` should reflect what the sources are teaching (guitar/piano/push), or "any" when the lesson is instrument-agnostic theory.',
+  'A lesson MAY declare ONE reader-controlled parameter (a key picker) via `parameterLabel` + `parameterDefault`. Declare one only when the lesson\'s content genuinely transposes — movable triad shapes, scale patterns, a grip that works from any root. Leave BOTH null when the lesson is about specific named keys, chords, or songs from the sources, where re-keying would make the text wrong.',
 ].join('\n');
 
 // Loaded once at module scope, not per call — see authoring-guide.ts's own
@@ -764,6 +836,28 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
   const duration =
     typeof r.duration === 'string' && r.duration.trim() ? r.duration.trim() : null;
 
+  // Both halves must be usable or the parameter is dropped entirely — a
+  // half-declared parameter is the silent-failure shape this file keeps
+  // guarding against: a picker that renders with no default, or a default
+  // with no picker label. `name` is filled in rather than asked for
+  // (lesson.parameter's enum has exactly one value today), and a default
+  // outside the 12 pitch classes falls back to C rather than shipping a
+  // value `resolveDiagramDots` would refuse.
+  const parameterLabel =
+    typeof r.parameterLabel === 'string' && r.parameterLabel.trim()
+      ? truncate(r.parameterLabel.trim(), 40)
+      : null;
+  const rawDefault = typeof r.parameterDefault === 'string' ? r.parameterDefault.trim() : '';
+  const parameter: GeneratedLessonParameter | null = parameterLabel
+    ? {
+        name: 'key',
+        label: parameterLabel,
+        default: (PITCH_CLASSES as readonly string[]).includes(rawDefault)
+          ? (rawDefault as PitchClass)
+          : 'C',
+      }
+    : null;
+
   const sectionsRaw = Array.isArray(r.sections) ? r.sections : [];
   const sections = sectionsRaw
     .map((s) => {
@@ -787,7 +881,7 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
   // one.
   if (sections.length === 0) return null;
 
-  return { title, summary, level, instrument, duration, sections };
+  return { title, summary, level, instrument, duration, parameter, sections };
 }
 
 // -----------------------------------------------------------------------------
@@ -816,15 +910,15 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
 // costs nothing on the sanitization side; only the schema declaration
 // changes.
 // Reused, not re-typed: the theory layer (`@music-kb/music`) is the single
-// source of truth for the 12 sharps-only pitch classes and the 4 guitar
-// string-set names (with their EN DASH separators) — see
-// docs/lesson-authoring.md's "The 12 pitch classes" and the `stringSet`
-// field of `lesson.diagram` for why byte-identical fidelity here matters:
-// a hyphenated string-set lookalike is a different (and empty-rendering)
+// source of truth for the 4 guitar string-set names (with their EN DASH
+// separators) — see docs/lesson-authoring.md's `stringSet` field of
+// `lesson.diagram` for why byte-identical fidelity here matters: a
+// hyphenated string-set lookalike is a different (and empty-rendering)
 // value. Cast to a non-empty tuple only because zod's `.enum()` wants that
 // shape at the type level — the runtime values come straight from the
-// theory package, never hand-copied.
-const PITCH_CLASS_ENUM = PITCH_CLASSES as [PitchClass, ...PitchClass[]];
+// theory package, never hand-copied. (PITCH_CLASS_ENUM is declared much
+// further up, next to the outline schema, because the outline call needs
+// it too — see its own comment there.)
 const STRING_SET_ENUM = STRING_SETS.map((s) => s.name) as [string, ...string[]];
 // Triads only — the theory layer only voices triads, so a seventh-chord
 // quality can never be rendered. See docs/lesson-authoring.md's
@@ -841,20 +935,28 @@ const TRIAD_QUALITY_ENUM = ['major', 'minor', 'augmented', 'diminished'] as cons
 // locking generation to theory-mode-only diagrams — see
 // SectionIllustrationsSchema below for how much room a schema with no
 // prose fields has instead).
+// `param-picker` and `video-ref` are back in this enum as of the passage
+// change. They were cut when the combined write+illustrate schema sat at
+// the ceiling of Anthropic's 16 union-typed-parameter cap; the two-pass
+// split moved every diagram field out of this schema, and restoring both
+// costs exactly ONE new union-typed field (`label`) because `video-ref`
+// re-uses `sourceVideoId` for its target and `body` for its (never
+// rendered, grounding-only) moment description. Count after: 11 of 16 —
+// see lesson-generation.test.ts's union-cap guard, which asserts it.
 const LessonBlockOutputSchema = z.object({
-  type: z.enum(['prose', 'callout', 'step', 'table', 'degree-chips']),
+  type: z.enum(['prose', 'callout', 'step', 'table', 'degree-chips', 'param-picker', 'video-ref']),
   // heading
   body: z
     .string()
     .nullable()
     .describe(
-      'prose/callout/step: prose is markdown paragraph(s) (MAX 2000 chars), callout is one short aside (MAX 500 chars), step is optional detail markdown. Null for heading/table/degree-chips.',
+      'prose/callout/step/video-ref: prose is markdown paragraph(s) (MAX 2000 chars), callout is one short aside (MAX 500 chars), step is optional detail markdown. On video-ref ONLY, this is NOT shown to the reader — it is a short description of the moment you are pointing at, in the source video\'s own words as far as you can recall them, used to locate the timecode. Null for heading/table/degree-chips/param-picker.',
     ),
   sourceVideoId: z
     .string()
     .nullable()
     .describe(
-      'prose/callout/step/diagram/keyboard-diagram only: the youtubeVideoId (copied exactly from the [bracketed] id in the source list) that THIS content is drawn from, or null if it synthesizes multiple sources evenly. Never invent an id — only use one from the list. Copy this id into THIS field only, never into the block\'s own text (body/caption) — a reader-facing sentence must never contain a raw video id; refer to a source by its title or a natural phrase instead. Null for heading/table/degree-chips.',
+      'prose/callout/step/video-ref only: the youtubeVideoId (copied exactly from the [bracketed] id in the source list) that THIS content is drawn from — on video-ref, the video it links TO (REQUIRED there) — or null if it synthesizes multiple sources evenly. Never invent an id — only use one from the list. Copy this id into THIS field only, never into the block\'s own text (body/caption/label) — a reader-facing sentence must never contain a raw video id; refer to a source by its title or a natural phrase instead. Null for heading/table/degree-chips/param-picker.',
     ),
   // callout
   tone: z
@@ -908,6 +1010,16 @@ const LessonBlockOutputSchema = z.object({
     .array(z.string())
     .nullable()
     .describe('degree-chips only: scale degrees like "I", "ii", "IV", "V7". Null for every other type.'),
+  // param-picker / video-ref. ONE field for both, deliberately — it means
+  // the same thing on each (the visible text of the control/link) and a
+  // second nullable string would cost a second union-typed parameter for
+  // no gain. See this schema's own header comment on the 16-union cap.
+  label: z
+    .string()
+    .nullable()
+    .describe(
+      'param-picker/video-ref only: param-picker — the picker\'s label, or null to use the lesson parameter\'s own. video-ref — the link text, a short verb phrase naming what the reader will see there (e.g. "Watch the barre-chord demo"), MAX 120 characters. Null for every other type.',
+    ),
 }).strict();
 
 // Code-enforced maxima for the array fields Anthropic won't let the schema
@@ -957,46 +1069,217 @@ const MIN_SECTION_BLOCKS = 2;
 // that reunites the two passes this branch split apart.
 const SECTION_SYSTEM = [
   'You write ONE section of a music lesson as short structured content blocks — as many as the content actually needs, not a fixed count.',
-  'Allowed block types: prose, callout, step, table, degree-chips. Never use any other type — diagrams are added separately, by a later pass, after this section\'s text is finished. Do not try to describe a diagram in prose either; if something would be clearer shown than described, say what it is and trust the illustration pass to show it.',
+  'Allowed block types: prose, callout, step, table, degree-chips, video-ref, param-picker. Never use any other type — diagrams are added separately, by a later pass, after this section\'s text is finished. Do not try to describe a diagram in prose either; if something would be clearer shown than described, say what it is and trust the illustration pass to show it.',
   'Do NOT emit a `heading` block. The section heading is added automatically from the outline — start straight in with content.',
   'Use `step` for sequenced instructions, `table` for comparisons, `degree-chips` for scale-degree sequences, `callout` for a short aside that carries one specific, checkable fact, `prose` for the reasoning that connects them — why, not just what.',
-  'Ground content in the provided source videos. Do not invent chords, keys, techniques, or songs the sources do not mention.',
-  'On every prose/callout/step block, set `sourceVideoId` to the exact id shown in [brackets] next to the source video this content is drawn from, or null if the content blends several sources evenly. Copy the id exactly — never invent or guess one.',
-  'NEVER write a bare video id into a block\'s own text (body) — that id is for `sourceVideoId` only. Refer to a source in text by its title or a natural phrase ("one video recommends..."), never by the [bracketed] id itself.',
+  'Use `video-ref` when a source shows something a reader really should watch rather than read — a demonstration, a sound, a hand position. Set `sourceVideoId` to the video, `label` to the link text, and `body` to a short description of that exact moment (in the video\'s own words as best you recall them) — the `body` is never shown to the reader, it is what locates the timecode. At most one or two per section; it is a pointer, not a substitute for teaching the material.',
+  'Use `param-picker` ONLY if the user prompt below says this lesson declares a reader-controlled parameter. At most ONE per lesson, placed early in the section it belongs to. On a lesson with no parameter it renders as nothing at all, so never emit one speculatively.',
+  'Ground content in the PASSAGES quoted from the source transcripts below. They are the actual words of the videos — prefer their specifics (note names, fret numbers, chord names, the exact wording of a rule) over generalities. Do not invent chords, keys, techniques, or songs the passages and source list do not mention.',
+  'Write what the passages actually say, concretely. "The minor third sits three frets up from the root" is a lesson; "focus on understanding the pattern" is filler. If a passage names a note, a fret, a string or a chord, name it too.',
+  'On every prose/callout/step/video-ref block, set `sourceVideoId` to the exact id shown in [brackets] next to the source video this content is drawn from, or null if the content blends several sources evenly. Copy the id exactly — never invent or guess one.',
+  'NEVER write a bare video id into a block\'s own text (body/label) — that id is for `sourceVideoId` only. Refer to a source in text by its title or a natural phrase ("one video recommends..."), never by the [bracketed] id itself.',
+  'The `[id @ m:ss]` header on each passage is metadata for you, not content: never copy a timecode or an id into a block\'s text. Timecodes are added automatically afterwards.',
   'Every block shares one field set (each field belongs to only some block types — see each field\'s own description for which). Set every field that does not apply to this block\'s `type` to null; only fill in the fields that belong to the chosen type.',
 ].join('\n');
 
 // Loaded once at module scope — see OUTLINE_GUIDE_EXCERPT's comment above.
-// The block-reference entries for exactly the five text block types this
-// call is allowed to emit, plus the judgment on what makes those blocks
-// good rather than generic (see getSectionBlockGuideExcerpt's own
-// comment). Lazy for the same reason as getOutlineSystemWithGuide above.
+// The block-reference entries for exactly the text block types this call is
+// allowed to emit, plus the judgment on what makes those blocks good rather
+// than generic (see getSectionBlockGuideExcerpt's own comment). Lazy for the
+// same reason as getOutlineSystemWithGuide above.
 let sectionSystemWithGuide: string | null = null;
 function getSectionSystemWithGuide(): string {
   sectionSystemWithGuide ??= `${SECTION_SYSTEM}\n\n---\n\n${getSectionBlockGuideExcerpt()}`;
   return sectionSystemWithGuide;
 }
 
-function buildSectionPrompt(
-  outline: { title: string; summary: string },
+// -----------------------------------------------------------------------------
+// Section source material — real transcript passages, not digest themes.
+// -----------------------------------------------------------------------------
+//
+// The write pass used to be prompted from the per-video CONTEXT CARDS
+// (title + 400-char summary + music-extraction line) and nothing else. A
+// summary exists to compress; a section needs exactly what compression
+// throws away — the note names, the fret numbers, the exact wording of a
+// rule. The symptom was prose that said "understand the pattern" where the
+// source said "fret 5 on the low E is A".
+//
+// So each section call now retrieves its own passages, per section, from
+// the SAME BM25 indexes citation grounding already uses (one per source
+// video, loaded from `transcriptSegments`) — the pattern
+// `retrieveChunksForDigest` in learning.ts uses for cross-video chat, with
+// the section's heading + goal as the query instead of a user question.
+//
+// Two knock-on effects worth naming, because both are the point rather
+// than a side effect:
+//   * Citations should get better, not just prose. A block written FROM a
+//     passage has text that BM25-matches that passage, so `resolveBlockSource`
+//     finds a real timecode instead of falling back to a video-only citation.
+//   * The digest stops being the section's source material and goes back to
+//     being the lesson's THROUGHLINE — see `buildDigestContinuityText`.
+
+// Budget. Deliberately small: this pipeline's whole shape is many small
+// calls (see the module header), and it has to stay runnable on the local
+// tier. A retrieval chunk is RETRIEVAL_CHUNK_WORDS (150) words ≈ 200
+// tokens, so 8 passages ≈ 1,600 tokens of source material per section
+// call — roughly the footprint of single-video chat's top-8 retrieval,
+// which is the largest retrieval budget anything else in this codebase
+// uses. 2 per video (rather than 3, as digest chat uses) keeps five
+// sources from crowding out the one that actually covers this section,
+// and the round-robin below spends the remaining slots on the
+// highest-ranked videos.
+const SECTION_PASSAGES_PER_VIDEO = 2;
+const SECTION_PASSAGES_MAX = 8;
+// Backstop only — a retrieval chunk is ~150 words ≈ 900 chars.
+const PASSAGE_MAX_CHARS = 1000;
+
+type SectionPassage = { videoId: string; timeSec: number; text: string };
+
+function formatPassageTimecode(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rest = s % 60;
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(rest).padStart(2, '0')}`;
+}
+
+// `chunkForRetrieval` embeds `[mm:ss]` markers inside chunk text so chat
+// can cite them. This pass must NOT cite them — a lesson block's timecode
+// is decided by grounding, never by the model (CLAUDE.md: "Do not add a
+// code path that trusts a timecode the model produced") — and a literal
+// "[2:15]" copied into prose renders as raw text with no chip behind it.
+// Stripped here rather than in transcript.ts: chat genuinely wants them.
+function stripInlineTimecodes(text: string): string {
+  return text.replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Retrieves the passages for ONE section across all source videos.
+ *
+ * Ranks per video (BM25 scores are not comparable ACROSS videos — each
+ * index has its own idf table — so there is no honest global sort), then
+ * interleaves by RANK: every video's best passage first, then every
+ * video's second, until the budget runs out. `videos` arrives in
+ * relevance order (phase 1 sorts by cosine), so when the budget cuts a
+ * rank tier short it cuts the least-relevant videos, not an arbitrary one.
+ */
+function retrieveSectionPassages(
   section: { heading: string; goal: string },
-  contextText: string,
+  videoIds: string[],
+  bm25ByVideoId: Map<string, BM25Index>,
+): SectionPassage[] {
+  const query = `${section.heading}. ${section.goal}`.trim();
+  if (!query) return [];
+
+  const perVideo: Array<{ videoId: string; chunks: TranscriptChunk[] }> = [];
+  for (const videoId of videoIds) {
+    const index = bm25ByVideoId.get(videoId);
+    if (!index) continue;
+    perVideo.push({ videoId, chunks: searchBM25(index, query, SECTION_PASSAGES_PER_VIDEO) });
+  }
+
+  const out: SectionPassage[] = [];
+  for (let rank = 0; rank < SECTION_PASSAGES_PER_VIDEO; rank++) {
+    for (const { videoId, chunks } of perVideo) {
+      if (out.length >= SECTION_PASSAGES_MAX) return out;
+      const chunk = chunks[rank];
+      if (!chunk) continue;
+      const text = truncate(stripInlineTimecodes(chunk.text), PASSAGE_MAX_CHARS);
+      if (!text) continue;
+      out.push({ videoId, timeSec: chunk.timeSec, text });
+    }
+  }
+  return out;
+}
+
+function formatSectionPassages(passages: SectionPassage[]): string {
+  return passages
+    .map((p) => `[${p.videoId} @ ${formatPassageTimecode(p.timeSec)}]\n${p.text}`)
+    .join('\n\n');
+}
+
+// The digest's job in the WRITE pass, now that passages carry the
+// specifics: continuity, and only continuity. Two one-line fields — the
+// throughline and the bottom line — so five independently-generated
+// sections still read as one lesson. Deliberately NOT sharedThemes /
+// uniqueInsights / viewingOrder: that is the compressed material this
+// change exists to stop writing sections from. The outline call still gets
+// all of it (`buildDigestContextText`), where structure IS the job.
+function buildDigestContinuityText(digest: Digest): string {
+  const lines: string[] = [];
+  if (digest.overallTheme.trim()) {
+    lines.push(`Throughline across the sources: ${truncate(digest.overallTheme.trim(), 400)}`);
+  }
+  if (digest.bottomLine.trim()) {
+    lines.push(`Where the lesson lands: ${truncate(digest.bottomLine.trim(), 300)}`);
+  }
+  return lines.join('\n');
+}
+
+// The source ROSTER for the write pass: `- [id] "Title"` and nothing more,
+// for videos whose passages are already in the prompt — the id is there so
+// `sourceVideoId` can be filled in, and the passages carry the substance.
+// A video that contributed NO passage to this section (no stored transcript
+// index, or nothing matched) keeps its full context card, so it doesn't
+// silently shrink to a bare title and drop out of the lesson.
+function buildSectionRosterText(videos: StrapiVideo[], withPassages: Set<string>): string {
+  return videos
+    .map((v) =>
+      withPassages.has(v.youtubeVideoId)
+        ? `- [${v.youtubeVideoId}] "${v.summaryTitle ?? v.videoTitle ?? 'Untitled video'}"`
+        : buildVideoContextText(v),
+    )
+    .join('\n');
+}
+
+function buildSectionPrompt(
+  outline: { title: string; summary: string; parameter: GeneratedLessonParameter | null },
+  section: { heading: string; goal: string },
+  rosterText: string,
+  passagesText: string,
+  continuityText: string,
 ): string {
-  return [
+  const parts = [
     `Lesson: "${outline.title}" — ${outline.summary}`,
+  ];
+  if (continuityText) parts.push(continuityText);
+  parts.push(
+    outline.parameter
+      ? `This lesson DOES declare a reader-controlled parameter: a ${outline.parameter.label.toLowerCase()} picker starting on ${outline.parameter.default}. A \`param-picker\` block is allowed (at most one in the whole lesson).`
+      : 'This lesson declares NO reader-controlled parameter — do not emit a `param-picker` block; it would render as nothing.',
     '',
     `This section's heading (already added automatically — do not repeat it): "${section.heading}"`,
     `This section's goal: ${section.goal}`,
     '',
-    'Source videos (ground this section in these; cite by the [bracketed] id):',
-    contextText,
-  ].join('\n');
+    'Source videos (cite by the [bracketed] id):',
+    rosterText,
+  );
+  if (passagesText) {
+    parts.push(
+      '',
+      'Passages retrieved from those transcripts for THIS section — the videos\' actual words, and the material to write from:',
+      passagesText,
+    );
+  } else {
+    parts.push(
+      '',
+      '(No transcript passages matched this section. Write from the source summaries above, and stay conservative — do not invent specifics they do not state.)',
+    );
+  }
+  return parts.join('\n');
 }
 
 // Truncate on a hard boundary (no ellipsis) — captions are short labels, not
 // prose, so an ellipsis reads oddly. Matches the brief's "truncate, don't
 // fail" rule for the 255-char Strapi `string` cap on `caption`.
 const CAPTION_MAX = 255;
+
+// `lesson.param-picker.label` / `lesson.video-ref.label` are Strapi
+// `string` columns (255) but are rendered as a control label and a link —
+// both want to stay on one line, so they're capped well below the column.
+const PARAM_PICKER_LABEL_MAX = 40;
+const VIDEO_REF_LABEL_MAX = 120;
 
 // -----------------------------------------------------------------------------
 // Citation grounding — never trust a timecode the model produced. The model
@@ -1011,6 +1294,19 @@ type GroundingContext = {
   bm25ByVideoId: Map<string, BM25Index>;
   /** youtubeVideoId -> display title, for stripLeakedVideoIds below. */
   titleByVideoId: Map<string, string>;
+  /**
+   * The lesson's `lesson.parameter`, or null. Gates BOTH the
+   * `param-picker` block and a diagram's `useParam`: without a parameter
+   * a picker renders as literally nothing (LessonBody returns null), and
+   * `useParam: true` would make `resolveDiagramDots` take LessonBody's
+   * fallback paramValue ('C') as the root — silently redrawing every
+   * theory diagram in the wrong key. Both are dropped here rather than
+   * shipped, since neither failure raises anything at render time.
+   *
+   * The `default` is load-bearing too, not just informational — see
+   * `honoursLessonParameter` below.
+   */
+  parameter: GeneratedLessonParameter | null;
   /**
    * Called when a block is discarded. Dropping silently is the failure this
    * whole pipeline keeps guarding against, so every drop is announced with
@@ -1074,7 +1370,7 @@ function resolveBlockSource(
 // against a live Ollama call; here we treat the value as fully untrusted
 // content (same stance as sanitizeMusicExtraction / sanitizeSummary).
 // Returns null for anything that fails validation, including block types
-// outside the five this WRITE pass is allowed to emit — lesson.diagram /
+// outside the seven this WRITE pass is allowed to emit — lesson.diagram /
 // lesson.keyboard-diagram are never in this call's schema at all, let alone
 // this function; see toIllustrationBlock further below for those two,
 // which is the separate ILLUSTRATE pass's equivalent of this function.
@@ -1193,7 +1489,61 @@ function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): Less
       return block;
     }
 
-    // Covers unknown/missing `type`, and any block outside the five this
+    case 'param-picker': {
+      // Dropped outright on a lesson with no `parameter` — see
+      // GroundingContext.parameter. The one-per-lesson rule is NOT
+      // enforced here (this function sees one block, not the lesson);
+      // assembly in `writeLesson` keeps the first and drops the rest.
+      if (!ground.parameter) {
+        ground.warn('param-picker on a lesson that declares no parameter', {});
+        return null;
+      }
+      const block: LessonBlock = { __component: 'lesson.param-picker', id };
+      const label = sanitizeReaderText(r.label, ground);
+      if (label) block.label = truncate(label, PARAM_PICKER_LABEL_MAX);
+      return block;
+    }
+
+    case 'video-ref': {
+      // `videoId` is REQUIRED by the component (and by LessonBody, which
+      // renders nothing without it), so an unresolvable one drops the
+      // block rather than shipping a dead link.
+      const rawVideoId = typeof r.sourceVideoId === 'string' ? r.sourceVideoId.trim() : '';
+      if (!rawVideoId || !ground.validVideoIds.has(rawVideoId)) {
+        ground.warn('video-ref names a video outside this lesson\'s source set', {
+          sourceVideoId: rawVideoId,
+        });
+        return null;
+      }
+      const label = sanitizeReaderText(r.label, ground);
+      // `body` on a video-ref is grounding material, never rendered: the
+      // model describes the moment it is pointing at, and BM25 turns that
+      // into the real caption-segment start. Same rule as every other
+      // timecode in this codebase — the model names WHICH video, code
+      // decides WHEN. Falls back to the label when body is missing (a
+      // weaker query, so more likely to yield a video-only link).
+      const momentText = sanitizeReaderText(r.body, ground) || label;
+      const resolved = resolveBlockSource(rawVideoId, momentText, ground);
+      if (!resolved) return null;
+      const block: LessonBlock = {
+        __component: 'lesson.video-ref',
+        id,
+        videoId: resolved.videoId,
+        // LessonBody defaults to "Watch this moment" when absent; set it
+        // explicitly so a generated lesson never leans on that fallback.
+        label: label ? truncate(label, VIDEO_REF_LABEL_MAX) : 'Watch this moment',
+      };
+      if (typeof resolved.timeSec === 'number') {
+        block.timeSec = resolved.timeSec;
+      } else {
+        ground.warn('video-ref grounded to a video but not to a timecode — linking to 0:00', {
+          videoId: resolved.videoId,
+        });
+      }
+      return block;
+    }
+
+    // Covers unknown/missing `type`, and any block outside the seven this
     // WRITE pass is allowed to emit — including 'diagram'/'keyboard-diagram'
     // if a model ignores the schema and emits one anyway (impossible under
     // real structured-output decoding, but this stays defensive since `raw`
@@ -1288,8 +1638,9 @@ const KeyMarkOutputSchema = z.object({
 //
 // Union-parameter count: 12 nullable (anyOf) fields at the top level
 // (afterBlockIndex, sourceVideoId, instrument, root, quality, stringSet,
-// inversion, fretWindow, octaves, dots, marks, caption) plus `type`/`mode`
-// as plain required enums — 12 total, walking the WHOLE compiled request
+// inversion, fretWindow, octaves, dots, marks, caption) plus
+// `type`/`mode`/`useParam` as plain required enums/booleans — 12 total,
+// walking the WHOLE compiled request
 // schema recursively (including NeckDotOutputSchema/KeyMarkOutputSchema
 // nested inside `dots`/`marks`, which contribute zero more because their
 // own fields are plain, not nullable — see those schemas' comment). Well
@@ -1345,6 +1696,15 @@ export const IllustrationItemSchema = z.object({
     .number()
     .nullable()
     .describe('keyboard-diagram only: how many octaves the keyboard spans, 1-3. Null for diagram.'),
+  // Plain required boolean, NOT nullable — it means the same thing on both
+  // diagram types and in both modes ("does the reader's key drive this"),
+  // never "does not apply", so it costs zero union-typed parameters
+  // (same reasoning as NeckDotOutputSchema's fields — see its comment).
+  useParam: z
+    .boolean()
+    .describe(
+      'mode="theory" only: true if this diagram should follow the reader\'s chosen key from the lesson\'s key picker instead of its own fixed root. ONLY allowed when the user prompt says this lesson declares a parameter, AND this diagram\'s `root` is that same key — a chord on some OTHER scale degree (the vi, the vii°) must set false, or the picker would slide it away from what the caption says it is. Still set `root` when true: it is the fallback, and a diagram with no root draws nothing. When true, do not name the specific root in the caption; it changes.',
+    ),
   dots: z
     .array(NeckDotOutputSchema)
     .nullable()
@@ -1400,6 +1760,7 @@ const ILLUSTRATION_SYSTEM = [
   'PREFER mode="theory" (root+quality, and stringSet on diagram) over mode="explicit" (hand-placed dots/marks) — theory mode cannot be musically wrong the way hand-placed positions can. Use explicit mode only when theory mode genuinely cannot express the shape (e.g. a specific fret window, or a voicing that is not a plain triad).',
   'quality is TRIADS ONLY: major, minor, augmented, or diminished — never a seventh-chord quality. stringSet on a theory-mode diagram MUST use an EN DASH (–) between letters, e.g. "e–B–G", never a hyphen — a hyphenated lookalike silently renders an empty diagram.',
   'Set `sourceVideoId` to the exact id shown in [brackets] next to the source video an illustration is drawn from, or null if it is not drawn from one specific source. Never invent or guess one.',
+  '`useParam` is false unless the user prompt below explicitly says this lesson declares a reader-controlled key picker AND this diagram\'s root IS that key. A diagram of a different scale degree — the vi chord, the vii° — keeps its own fixed root and sets useParam: false, because the picker replaces the root outright and would leave the caption describing a chord that is no longer on screen. Always set `root` alongside useParam as the fallback — a diagram with no root draws nothing.',
   'Every illustration shares one field set (each field belongs to only some type/mode combination — see each field\'s own description). Set every field that does not apply to null; for the small dots/marks sub-object fields specifically (label/root/dim/flag), use "" / false rather than omitting them.',
 ].join('\n');
 
@@ -1440,13 +1801,16 @@ function summarizeSectionBlocksForIllustration(blocks: LessonBlock[]): string {
 }
 
 function buildIllustrationPrompt(
-  outline: { title: string; summary: string },
+  outline: { title: string; summary: string; parameter: GeneratedLessonParameter | null },
   section: { heading: string; goal: string },
   blocksSummary: string,
   contextText: string,
 ): string {
   return [
     `Lesson: "${outline.title}" — ${outline.summary}`,
+    outline.parameter
+      ? `This lesson declares a reader-controlled ${outline.parameter.label.toLowerCase()} picker, starting on ${outline.parameter.default}. A theory-mode diagram MAY set useParam: true to follow it — but ONLY if its own root is ${outline.parameter.default}. Any diagram rooted on a different note keeps useParam: false. Always set root either way.`
+      : 'This lesson declares NO reader-controlled parameter — set useParam: false on every illustration.',
     '',
     `Section: "${section.heading}" — ${section.goal}`,
     '',
@@ -1467,6 +1831,33 @@ function buildIllustrationPrompt(
  * check as toLessonBlock's old diagram/keyboard-diagram cases, run against
  * the exact renderer function, not just schema validity.
  */
+/**
+ * Whether a theory-mode diagram may follow the lesson's key picker.
+ *
+ * `useParam` substitutes the reader's chosen key for the diagram's ROOT,
+ * which is only meaningful for a diagram whose root IS the key. A live run
+ * produced the counter-example: a `vii°` diagram (root B) with
+ * `useParam: true` on a lesson keyed to C — turn the picker to anything
+ * and it draws a diminished triad on THAT note, while the caption still
+ * says "the vii° chord", which is only B in the key of C. No error, no
+ * empty diagram; just a chord that quietly stops matching its own caption.
+ *
+ * The checkable invariant: at the parameter's DEFAULT value the diagram
+ * must draw exactly what it would draw without `useParam`. Root equal to
+ * the default means moving the picker transposes the whole lesson
+ * together; root different from it means the model picked a scale-degree
+ * chord, and the picker would desynchronise it from its caption. Not a
+ * judgment call the prompt can be trusted with — a code check, because the
+ * failure is silent.
+ */
+function honoursLessonParameter(
+  root: unknown,
+  parameter: GeneratedLessonParameter | null,
+): boolean {
+  if (!parameter) return false;
+  return typeof root === 'string' && root.trim() === parameter.default;
+}
+
 function toIllustrationBlock(
   raw: unknown,
   ground: GroundingContext,
@@ -1492,6 +1883,18 @@ function toIllustrationBlock(
     for (const key of ['root', 'quality', 'stringSet'] as const) {
       const v = r[key];
       if (typeof v === 'string' && v.trim()) block[key] = v.trim();
+    }
+    // Only honoured on a lesson that declares a parameter AND when the
+    // diagram's own root matches it — see `honoursLessonParameter`.
+    if (mode === 'theory' && r.useParam === true) {
+      if (honoursLessonParameter(block.root, ground.parameter)) {
+        block.useParam = true;
+      } else {
+        ground.warn('illustration useParam ignored — root does not match the lesson key', {
+          root: block.root,
+          parameterDefault: ground.parameter?.default ?? null,
+        });
+      }
     }
     const inv = Number(r.inversion);
     if (Number.isFinite(inv) && inv >= 0) block.inversion = Math.floor(inv);
@@ -1533,6 +1936,16 @@ function toIllustrationBlock(
   for (const key of ['root', 'quality'] as const) {
     const v = r[key];
     if (typeof v === 'string' && v.trim()) block[key] = v.trim();
+  }
+  if (mode === 'theory' && r.useParam === true) {
+    if (honoursLessonParameter(block.root, ground.parameter)) {
+      block.useParam = true;
+    } else {
+      ground.warn('illustration useParam ignored — root does not match the lesson key', {
+        root: block.root,
+        parameterDefault: ground.parameter?.default ?? null,
+      });
+    }
   }
   const oct = Number(r.octaves);
   if (Number.isFinite(oct) && oct >= 1) block.octaves = Math.floor(oct);
@@ -1951,6 +2364,19 @@ const LessonOutlineInputSchema = z.object({
   level: z.enum(['beginner', 'intermediate', 'advanced']),
   instrument: z.enum(['guitar', 'piano', 'push', 'any']),
   duration: z.string().trim().max(40).nullable(),
+  // `.optional()` as well as `.nullable()`: a phase-1 result always carries
+  // this field now, but the browser round-trip is a wire format other
+  // callers (and this repo's own route tests) construct by hand — an older
+  // payload that predates the parameter must still write a lesson, just
+  // without one. Normalized to `null` immediately below in writeLesson.
+  parameter: z
+    .object({
+      name: z.literal('key'),
+      label: z.string().trim().min(1).max(40),
+      default: z.enum(PITCH_CLASS_ENUM),
+    })
+    .nullable()
+    .optional(),
   sections: z
     .array(
       z.object({
@@ -2001,7 +2427,10 @@ export async function writeLesson(
     emit(onProgress, { type: 'error', step: 'validate', message });
     return { ok: false, error: message };
   }
-  const { topic, outline, sources, digest } = parsed.data;
+  const { topic, sources, digest } = parsed.data;
+  // Normalized once, here, so nothing downstream has to care that the wire
+  // format allows the field to be absent as well as null.
+  const outline = { ...parsed.data.outline, parameter: parsed.data.outline.parameter ?? null };
 
   const lessonModel = resolveLessonModel();
   logPhase(topic, `model ✓ ${lessonModel.tier}`, { model: lessonModel.model });
@@ -2040,8 +2469,25 @@ export async function writeLesson(
     validVideoIds,
     bm25ByVideoId,
     titleByVideoId,
+    parameter: outline.parameter,
     warn: (reason, meta) => logPhase(topic, `block ✗ dropped — ${reason}`, meta),
   };
+
+  // The write pass's own source material — see `retrieveSectionPassages`.
+  // A video with no stored BM25 index can contribute no passage to any
+  // section; that is a real, silent-by-default degradation (the lesson
+  // quietly falls back to summary cards for it), so it is logged once here
+  // rather than left to be inferred from thin prose later.
+  const videosWithoutIndex = fullVideos
+    .filter((v) => !bm25ByVideoId.has(v.youtubeVideoId))
+    .map((v) => v.youtubeVideoId);
+  if (videosWithoutIndex.length > 0) {
+    logPhase(topic, 'passages ⚠ some sources have no stored transcript index', {
+      videos: videosWithoutIndex,
+    });
+  }
+  const passageVideoIds = fullVideos.map((v) => v.youtubeVideoId);
+  const continuityText = buildDigestContinuityText(digest);
 
   // --- 5: sections (WRITE), with a single retry on a failed call or zero
   //        usable blocks. A THIN (but non-empty) result is accepted without
@@ -2059,6 +2505,21 @@ export async function writeLesson(
     const section = outline.sections[index];
     let sectionBlocks: LessonBlock[] = [];
 
+    // Retrieved ONCE per section, not per attempt — BM25 is deterministic,
+    // so a retry would get the identical passages; re-running it would only
+    // cost time.
+    const passages = retrieveSectionPassages(section, passageVideoIds, bm25ByVideoId);
+    const passagesText = formatSectionPassages(passages);
+    const rosterText = buildSectionRosterText(
+      fullVideos,
+      new Set(passages.map((p) => p.videoId)),
+    );
+    logPhase(topic, `passages · "${section.heading}"`, {
+      passages: passages.length,
+      videos: new Set(passages.map((p) => p.videoId)).size,
+      chars: passagesText.length,
+    });
+
     for (let attempt = 1; attempt <= 2; attempt++) {
       const isLastAttempt = attempt === 2;
       try {
@@ -2068,7 +2529,13 @@ export async function writeLesson(
             { role: 'system', content: getSectionSystemWithGuide() },
             {
               role: 'user',
-              content: buildSectionPrompt(outline, section, contextText),
+              content: buildSectionPrompt(
+                outline,
+                section,
+                rosterText,
+                passagesText,
+                continuityText,
+              ),
             },
           ] as never,
           outputSchema: SectionBlocksSchema,
@@ -2141,6 +2608,7 @@ export async function writeLesson(
         total: totalSections,
         heading: section.heading,
         blocks: sectionBlocks.length,
+        passages: passages.length,
       });
     }
     // else: single-section failure is non-fatal — drop it and keep going.
@@ -2262,11 +2730,26 @@ export async function writeLesson(
   // as before this branch's write/illustrate split.
   const body: LessonBlock[] = [];
   let blockId = 1;
+  // `lesson.parameter` is one per lesson, so one picker for it is enough —
+  // but sections are generated independently and each one only knows that
+  // a parameter exists, not whether another section already put a picker
+  // on the page. Deduped here, at the only point that sees the whole body:
+  // first wins, the rest are dropped loudly.
+  let paramPickerSeen = false;
   for (const { heading, blocks } of illustratedSections) {
     if (blocks.length === 0) continue;
     body.push({ __component: 'lesson.heading', id: blockId, text: truncate(heading, 150), level: 'h2' });
     blockId += 1;
     for (const block of blocks) {
+      if (block.__component === 'lesson.param-picker') {
+        if (paramPickerSeen) {
+          logPhase(topic, 'block ✗ dropped — a second param-picker (one per lesson)', {
+            section: heading,
+          });
+          continue;
+        }
+        paramPickerSeen = true;
+      }
       block.id = blockId;
       body.push(block);
       blockId += 1;
@@ -2315,12 +2798,20 @@ export async function writeLesson(
     instrument: outline.instrument,
     duration: outline.duration ? truncate(outline.duration, 40) : null,
     status: 'ai-generated',
+    // Kept even when nothing emitted a picker: a `useParam` diagram also
+    // needs it, and a lesson parameter with no picker is still coherent
+    // (the reader just can't change it). Dropped to null when the outline
+    // never declared one.
+    parameter: outline.parameter,
     body,
   };
 
   logPhase(topic, '✓ generation complete', {
     sections: `${succeededSections}/${totalSections}`,
     blocks: body.length,
+    parameter: outline.parameter ? outline.parameter.label : null,
+    paramPicker: paramPickerSeen,
+    videoRefs: body.filter((b) => b.__component === 'lesson.video-ref').length,
     tier: lessonModel.tier,
     model: lessonModel.model,
   });

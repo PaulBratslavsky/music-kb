@@ -23,6 +23,7 @@ function makeLesson(overrides: Partial<GeneratedLesson> = {}): GeneratedLesson {
     instrument: 'guitar',
     duration: null,
     status: 'ai-generated',
+    parameter: null,
     body: [],
     ...overrides,
   };

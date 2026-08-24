@@ -176,6 +176,7 @@ const OUTLINE: LessonOutline = {
   level: 'beginner',
   instrument: 'guitar',
   duration: '15 min',
+  parameter: null,
   sections: [
     { heading: 'What a turnaround does', goal: 'Explain the function of a turnaround in a 12-bar blues.' },
     { heading: 'The classic V-IV-I shape', goal: 'Walk through the classic descending turnaround shape.' },
@@ -1155,6 +1156,486 @@ describe('writeLesson — section retry', () => {
   });
 });
 
+// =============================================================================
+// writeLesson — section source material (real transcript passages)
+// =============================================================================
+//
+// The write pass used to see only the per-video CONTEXT CARDS (title +
+// 400-char summary). It now retrieves real transcript passages per section
+// from the same BM25 indexes citation grounding uses. These tests assert on
+// the PROMPT, because that is the whole change — no mocked model response
+// can tell you whether the material reaching the model got more specific.
+
+/** The user-message content of the Nth chat() call this test made. */
+function userPromptOf(callIndex: number): string {
+  const args = mockedChat.mock.calls[callIndex]?.[0] as
+    | { messages: Array<{ role: string; content: string }> }
+    | undefined;
+  return args?.messages.find((m) => m.role === 'user')?.content ?? '';
+}
+
+// A one-chunk BM25 index retrieves NOTHING: transcript.ts drops any query
+// term whose IDF is under BM25_MIN_QUERY_IDF (1.5), and with N=1 every term
+// sits at log(1 + 0.5/1.5) ≈ 0.29. A distinctive term needs a corpus to be
+// distinctive against — at N=9 (one real chunk + eight filler), a term in
+// exactly one chunk scores log(1 + 8.5/1.5) ≈ 1.86 and is retrievable.
+// This is not a test artifact: a real transcript is hundreds of chunks.
+const BM25_FILLER = [
+  'microphone placement and gain staging for recording acoustic instruments at home',
+  'cable management pedal order and power supply noise on a pedalboard',
+  'humidity storage and seasonal neck relief adjustment for wooden instruments',
+  'choosing an amplifier speaker size and cabinet material for a small room',
+  'restringing winding technique and stretching new strings before a session',
+  'metronome subdivisions and practising slowly with a click for timing',
+  'ear training intervals sung against a drone for pitch accuracy',
+  'setting action height and intonation at the bridge saddles',
+];
+
+function bm25ForPassages(passages: Array<{ text: string; timeSec: number }>) {
+  const chunks: TranscriptChunk[] = [
+    ...passages.map((p, i) => ({ id: i, text: p.text, startWord: i * 150, timeSec: p.timeSec })),
+    ...BM25_FILLER.map((text, i) => ({
+      id: passages.length + i,
+      text,
+      startWord: (passages.length + i) * 150,
+      timeSec: 900 + i * 60,
+    })),
+  ];
+  return buildBM25Index(chunks);
+}
+
+const PASSAGE_A =
+  'A turnaround signals the loop back to the top of the twelve bar blues form.';
+const PASSAGE_B =
+  'The turnaround walks down from the five chord to the four chord and lands on fret eight.';
+
+/** Video rows whose transcripts actually contain retrievable passages. */
+function makePassageVideo(documentId: string, passageText: string, timeSec: number): StrapiVideo {
+  return makeVideo(documentId, 0.9, {
+    transcriptSegments: {
+      version: 1,
+      bm25: bm25ForPassages([{ text: passageText, timeSec }]),
+    },
+  } as Partial<StrapiVideo>);
+}
+
+function usePassageVideos() {
+  fetchVideoByVideoIdMock.mockImplementation((id: string) =>
+    Promise.resolve(
+      id === 'yt-A' ? makePassageVideo('A', PASSAGE_A, 42) : makePassageVideo('B', PASSAGE_B, 77),
+    ),
+  );
+}
+
+describe('writeLesson — sections are written from transcript passages, not digest themes', () => {
+  beforeEach(() => {
+    usePassageVideos();
+    mockedChat.mockResolvedValue({ blocks: [{ type: 'prose', body: 'x', sourceVideoId: null }] });
+  });
+
+  const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
+
+  it('puts the real transcript text into the section prompt, attributed to its video and timecode', async () => {
+    await writeLesson(oneSection());
+
+    const prompt = userPromptOf(0);
+    expect(prompt).toContain(PASSAGE_A);
+    expect(prompt).toContain(PASSAGE_B);
+    expect(prompt).toContain('[yt-A @ 0:42]');
+    expect(prompt).toContain('[yt-B @ 1:17]');
+  });
+
+  it('collapses a video that contributed a passage to id + title, dropping its summary card', async () => {
+    await writeLesson(oneSection());
+
+    const prompt = userPromptOf(0);
+    expect(prompt).toContain('- [yt-A] "Summary title A"');
+    // The compressed material the passages replace.
+    expect(prompt).not.toContain('Summary description for A');
+  });
+
+  it('keeps the full context card for a source with no stored transcript index', async () => {
+    fetchVideoByVideoIdMock.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === 'yt-A'
+          ? makePassageVideo('A', PASSAGE_A, 42)
+          : makeVideo('B', 0.9, { transcriptSegments: null } as Partial<StrapiVideo>),
+      ),
+    );
+
+    await writeLesson(oneSection());
+
+    const prompt = userPromptOf(0);
+    // A source that can contribute no passage must not silently shrink to
+    // a bare title — it keeps the summary it always had.
+    expect(prompt).toContain('Summary description for B');
+    expect(prompt).not.toContain('Summary description for A');
+  });
+
+  it('strips the inline [mm:ss] markers chunk text carries, so no timecode can be copied into prose', async () => {
+    fetchVideoByVideoIdMock.mockImplementation(() =>
+      Promise.resolve(
+        makePassageVideo('A', `[0:42] ${PASSAGE_A} [0:58] and then it resolves.`, 42),
+      ),
+    );
+
+    await writeLesson(oneSection());
+
+    const prompt = userPromptOf(0);
+    expect(prompt).toContain('and then it resolves.');
+    expect(prompt).not.toContain('[0:42]');
+    expect(prompt).not.toContain('[0:58]');
+  });
+
+  it('carries only the digest THROUGHLINE into the section prompt, not its compressed themes', async () => {
+    await writeLesson(oneSection());
+
+    const prompt = userPromptOf(0);
+    expect(prompt).toContain(EMPTY_DIGEST.overallTheme);
+    expect(prompt).toContain(EMPTY_DIGEST.bottomLine);
+    // sharedThemes/uniqueInsights/viewingOrder are what the outline call
+    // gets. Feeding them here is the thing this change removed.
+    expect(prompt).not.toContain(EMPTY_DIGEST.sharedThemes[0].body);
+  });
+
+  it('reports how many passages each section was written from, via the `section` progress event', async () => {
+    const { events, onProgress } = collector();
+    await writeLesson(oneSection(), onProgress);
+
+    const section = events.find((e) => e.type === 'section');
+    expect(section).toBeDefined();
+    if (section?.type !== 'section') return;
+    expect(section.passages).toBe(2);
+  });
+
+  it('says so in the prompt — and reports passages: 0 — when nothing matched, rather than pretending', async () => {
+    fetchVideoByVideoIdMock.mockImplementation((id: string) =>
+      Promise.resolve(makeVideo(id.replace(/^yt-/, ''), 0.9, {
+        transcriptSegments: { version: 1, bm25: bm25ForPassages([]) },
+      } as Partial<StrapiVideo>)),
+    );
+    const { events, onProgress } = collector();
+
+    await writeLesson(oneSection(), onProgress);
+
+    const prompt = userPromptOf(0);
+    expect(prompt).toContain('No transcript passages matched this section');
+    const section = events.find((e) => e.type === 'section');
+    if (section?.type !== 'section') return;
+    expect(section.passages).toBe(0);
+  });
+
+  it('retrieves per section — a second section gets its own passages, not the first section\'s', async () => {
+    fetchVideoByVideoIdMock.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === 'yt-A'
+          ? makePassageVideo('A', PASSAGE_A, 42)
+          : makePassageVideo('B', 'Descending from the five chord to the four chord on the top strings.', 77),
+      ),
+    );
+
+    await writeLesson(writeInput());
+
+    // Section 2's goal ("the classic descending turnaround shape") should
+    // pull the descending passage; the prompts must not be identical.
+    expect(userPromptOf(0)).not.toBe(userPromptOf(1));
+    expect(userPromptOf(1)).toContain('This section\'s goal: Walk through the classic descending turnaround shape.');
+  });
+});
+
+// =============================================================================
+// writeLesson — param-picker and video-ref (restored to the write schema)
+// =============================================================================
+
+const KEY_PARAMETER = { name: 'key' as const, label: 'Key', default: 'A' as const };
+
+describe('writeLesson — param-picker', () => {
+  beforeEach(usePassageVideos);
+
+  const withParameter = (sections = [OUTLINE.sections[0]]) =>
+    writeInput({ outline: { ...OUTLINE, parameter: KEY_PARAMETER, sections } });
+
+  it('emits a param-picker and persists the lesson parameter that makes it render', async () => {
+    mockedChat.mockResolvedValueOnce({
+      blocks: [
+        { type: 'param-picker', label: 'Try it in', body: null, sourceVideoId: null },
+        { type: 'prose', body: 'Move the shape to any root.', sourceVideoId: 'yt-A' },
+      ],
+    });
+
+    const result = await writeLesson(withParameter());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The pair, together: a picker with no lesson parameter renders as
+    // nothing, and a parameter with no picker is unreachable.
+    expect(result.lesson.parameter).toEqual(KEY_PARAMETER);
+    const picker = result.lesson.body.find((b) => b.__component === 'lesson.param-picker');
+    expect(picker).toBeDefined();
+    expect(picker?.label).toBe('Try it in');
+  });
+
+  it('drops a param-picker on a lesson that declares no parameter — it would render as nothing', async () => {
+    mockedChat.mockResolvedValueOnce({
+      blocks: [
+        { type: 'param-picker', label: 'Key', body: null, sourceVideoId: null },
+        { type: 'prose', body: 'Still real content.', sourceVideoId: 'yt-A' },
+      ],
+    });
+
+    const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.parameter).toBeNull();
+    expect(result.lesson.body.some((b) => b.__component === 'lesson.param-picker')).toBe(false);
+    expect(result.lesson.body.some((b) => b.__component === 'lesson.prose')).toBe(true);
+  });
+
+  it('keeps only the FIRST param-picker when independently-generated sections each emit one', async () => {
+    mockedChat
+      .mockResolvedValueOnce({
+        blocks: [{ type: 'param-picker', label: 'First', body: null, sourceVideoId: null }],
+      })
+      .mockResolvedValueOnce({
+        blocks: [{ type: 'param-picker', label: 'Second', body: null, sourceVideoId: null }],
+      });
+
+    const result = await writeLesson(withParameter(OUTLINE.sections));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const pickers = result.lesson.body.filter((b) => b.__component === 'lesson.param-picker');
+    expect(pickers).toHaveLength(1);
+    expect(pickers[0].label).toBe('First');
+  });
+
+  const diagramItem = (overrides: Record<string, unknown> = {}) => ({
+    type: 'diagram',
+    mode: 'theory',
+    afterBlockIndex: null,
+    sourceVideoId: null,
+    instrument: 'guitar',
+    root: 'A',
+    quality: 'major',
+    stringSet: 'e–B–G',
+    inversion: null,
+    fretWindow: null,
+    octaves: null,
+    dots: null,
+    marks: null,
+    useParam: true,
+    caption: 'A movable major shape.',
+    ...overrides,
+  });
+
+  it('honours a diagram\'s useParam only when the lesson has a parameter', async () => {
+    const illustration = diagramItem();
+    const section = { blocks: [{ type: 'prose', body: 'The shape moves.', sourceVideoId: 'yt-A' }] };
+
+    mockedChat
+      .mockResolvedValueOnce(section)
+      .mockResolvedValueOnce({ illustrations: [illustration] });
+    const withParam = await writeLesson(withParameter());
+
+    mockedChat.mockReset();
+    mockedChat
+      .mockResolvedValueOnce(section)
+      .mockResolvedValueOnce({ illustrations: [illustration] });
+    const withoutParam = await writeLesson(
+      writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }),
+    );
+
+    expect(withParam.ok && withoutParam.ok).toBe(true);
+    if (!withParam.ok || !withoutParam.ok) return;
+    expect(withParam.lesson.body.find((b) => b.__component === 'lesson.diagram')?.useParam).toBe(true);
+    // Without a lesson parameter, useParam: true would make
+    // resolveDiagramDots take LessonBody's fallback 'C' as the root and
+    // silently redraw an A-major diagram in C.
+    expect(
+      withoutParam.lesson.body.find((b) => b.__component === 'lesson.diagram')?.useParam,
+    ).toBeUndefined();
+  });
+
+  // Caught by a live frontier run, not by any of the above: the model set
+  // useParam on a vii° diagram (root B) in a lesson keyed to C. The picker
+  // replaces the ROOT, so at the default key that diagram would have drawn
+  // C diminished under a caption calling it "the vii° chord" — a chord
+  // that silently stops matching its own caption. See
+  // `honoursLessonParameter`.
+  it('ignores useParam on a diagram rooted somewhere other than the lesson key, keeping the fixed root', async () => {
+    mockedChat
+      .mockResolvedValueOnce({
+        blocks: [{ type: 'prose', body: 'The seventh degree is diminished.', sourceVideoId: 'yt-A' }],
+      })
+      .mockResolvedValueOnce({
+        illustrations: [
+          // Lesson key is A (KEY_PARAMETER.default); this is the vii°.
+          diagramItem({ root: 'G', quality: 'diminished', caption: 'The vii° chord.' }),
+        ],
+      });
+
+    const result = await writeLesson(withParameter());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const diagram = result.lesson.body.find((b) => b.__component === 'lesson.diagram');
+    expect(diagram).toBeDefined();
+    // Still drawn — just fixed on its own root, which is what the caption
+    // describes. Dropping the diagram would lose real content.
+    expect(diagram?.root).toBe('G');
+    expect(diagram?.useParam).toBeUndefined();
+  });
+});
+
+describe('writeLesson — video-ref', () => {
+  beforeEach(usePassageVideos);
+
+  const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
+
+  it('emits a video-ref whose timeSec is BM25-grounded from the moment description, never taken from the model', async () => {
+    mockedChat.mockResolvedValueOnce({
+      blocks: [
+        {
+          type: 'video-ref',
+          sourceVideoId: 'yt-A',
+          label: 'Watch the turnaround demonstrated',
+          // Never rendered — this is the grounding query.
+          body: 'A turnaround signals the loop back to the top of the twelve bar blues form.',
+          // A model-supplied timecode is not even in the schema; if one
+          // arrives anyway it must be ignored.
+          timeSec: 999,
+        },
+      ],
+    });
+
+    const result = await writeLesson(oneSection());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const ref = result.lesson.body.find((b) => b.__component === 'lesson.video-ref');
+    expect(ref).toBeDefined();
+    expect(ref?.videoId).toBe('yt-A');
+    expect(ref?.label).toBe('Watch the turnaround demonstrated');
+    expect(ref?.timeSec).toBe(42);
+    // The grounding text is a query, not content — it must not survive
+    // into the saved block.
+    expect(ref?.body).toBeUndefined();
+  });
+
+  it('drops a video-ref naming a video outside the lesson\'s source set rather than shipping a dead link', async () => {
+    mockedChat.mockResolvedValueOnce({
+      blocks: [
+        { type: 'video-ref', sourceVideoId: 'yt-NOPE', label: 'Watch this', body: 'anything' },
+        { type: 'prose', body: 'Real content survives.', sourceVideoId: 'yt-A' },
+      ],
+    });
+
+    const result = await writeLesson(oneSection());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.some((b) => b.__component === 'lesson.video-ref')).toBe(false);
+    expect(result.lesson.body.some((b) => b.__component === 'lesson.prose')).toBe(true);
+  });
+
+  it('falls back to the default link text rather than rendering an unlabelled link', async () => {
+    mockedChat.mockResolvedValueOnce({
+      blocks: [
+        {
+          type: 'video-ref',
+          sourceVideoId: 'yt-A',
+          label: null,
+          body: 'A turnaround signals the loop back to the top of the twelve bar blues form.',
+        },
+      ],
+    });
+
+    const result = await writeLesson(oneSection());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.find((b) => b.__component === 'lesson.video-ref')?.label).toBe(
+      'Watch this moment',
+    );
+  });
+});
+
+// =============================================================================
+// planLesson — the lesson-level parameter the outline may declare
+// =============================================================================
+
+describe('planLesson — lesson parameter', () => {
+  function planWith(outlineRaw: Record<string, unknown>) {
+    mockedChat.mockResolvedValueOnce(COVERED).mockResolvedValueOnce(outlineRaw);
+    return planLesson({ topic: 'movable triad shapes' });
+  }
+
+  const baseOutline = {
+    title: 'Movable triad shapes',
+    summary: 'Take one triad shape anywhere on the neck.',
+    level: 'beginner',
+    instrument: 'guitar',
+    duration: '10 min',
+    // Two, not one: MIN_OUTLINE_SECTIONS is 2 and a thinner outline gets
+    // retried, which would consume the mocked responses these tests queue.
+    sections: [
+      { heading: 'The shape', goal: 'Show the shape.' },
+      { heading: 'Moving it', goal: 'Move the shape to another root.' },
+    ],
+  };
+
+  it('builds a lesson parameter from the label + default the outline declared', async () => {
+    const result = await planWith({
+      ...baseOutline,
+      parameterLabel: 'Key',
+      parameterDefault: 'G',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.outline.parameter).toEqual({ name: 'key', label: 'Key', default: 'G' });
+  });
+
+  it('leaves the parameter null when the outline declares no label', async () => {
+    const result = await planWith({
+      ...baseOutline,
+      parameterLabel: null,
+      parameterDefault: null,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.outline.parameter).toBeNull();
+  });
+
+  it('falls back to C rather than shipping a default resolveDiagramDots would refuse', async () => {
+    const result = await planWith({
+      ...baseOutline,
+      parameterLabel: 'Key',
+      // A flat — the theory layer is sharps-only, so this would render
+      // nothing at all if it survived.
+      parameterDefault: 'Bb',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.outline.parameter).toEqual({ name: 'key', label: 'Key', default: 'C' });
+  });
+
+  it('drops a half-declared parameter (a default with no label) entirely', async () => {
+    const result = await planWith({
+      ...baseOutline,
+      parameterLabel: '   ',
+      parameterDefault: 'G',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.outline.parameter).toBeNull();
+  });
+});
+
 // -----------------------------------------------------------------------------
 // Regression guard: Anthropic's structured-output schema support rejects
 // several JSON Schema shapes, ALL caught live (never by a mocked/local
@@ -1353,5 +1834,25 @@ describe('outputSchema regression guard — Anthropic 16-union-parameter cap', (
   it('IllustrationItemSchema alone (the richest single schema in this pipeline) also stays under the cap', () => {
     const count = countUnionParams(toDraft07JsonSchema(IllustrationItemSchema));
     expect(count).toBeLessThanOrEqual(ANTHROPIC_UNION_PARAM_CAP);
+  });
+
+  // The ≤16 assertions above tell you a schema is legal. They do NOT tell
+  // you how much room is left, which is the number that actually decides
+  // whether the next block type can be added — `param-picker` and
+  // `video-ref` were cut for exactly this budget and only came back once
+  // the write/illustrate split freed room. Pinning the exact counts means
+  // a field added without thinking about the budget fails here, naming the
+  // new number, instead of passing quietly at 15 and 400ing live at 17.
+  it.each([
+    ['CoverageVerdictSchema', CoverageVerdictSchema, 2],
+    ['LessonOutlineSchema', LessonOutlineSchema, 3],
+    ['SectionBlocksSchema', SectionBlocksSchema, 11],
+    ['SectionIllustrationsSchema', SectionIllustrationsSchema, 12],
+  ])('%s spends exactly the union budget it is documented to spend', (name, schema, expected) => {
+    const count = countUnionParams(toDraft07JsonSchema(schema));
+    expect(
+      count,
+      `${name} now uses ${count} of ${ANTHROPIC_UNION_PARAM_CAP} union-typed parameters, not ${expected}. If that is intentional, update this expectation AND the schema's own comment; if it is not, you just spent budget a future block type needs.`,
+    ).toBe(expected);
   });
 });

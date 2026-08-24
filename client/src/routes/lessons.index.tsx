@@ -216,7 +216,15 @@ function renderProgressEvent(event: LessonProgressEvent) {
       return (
         <span>
           Section {event.index + 1}/{event.total} &ldquo;{event.heading}&rdquo; — {event.blocks} block
-          {event.blocks === 1 ? '' : 's'}.
+          {event.blocks === 1 ? '' : 's'}
+          {/* Written from real transcript passages, or (0) from the source
+              summaries alone — worth showing, since a section that fell
+              back to summaries is the one most likely to read vaguely. */}
+          {typeof event.passages === 'number'
+            ? event.passages === 0
+              ? ', from the source summaries (no transcript passages matched).'
+              : ` from ${event.passages} transcript passage${event.passages === 1 ? '' : 's'}.`
+            : '.'}
         </span>
       );
     case 'illustrate':

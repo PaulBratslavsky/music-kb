@@ -276,6 +276,12 @@ export async function saveLessonService(
           instrument: lesson.instrument,
           duration: lesson.duration,
           status: lesson.status,
+          // Sent even when null. Without it a `lesson.param-picker` block
+          // in `body` renders as literally nothing (LessonBody returns
+          // null when `parameter` is unset) — the silent-hole failure this
+          // codebase keeps hitting, so the picker and the parameter that
+          // makes it work are written in the same call, never separately.
+          parameter: lesson.parameter,
           body: lesson.body,
           videos: sources.map((s) => s.documentId),
         },

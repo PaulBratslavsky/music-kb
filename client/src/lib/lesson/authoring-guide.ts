@@ -70,19 +70,27 @@ function extractSection(markdown: string, heading: string): string {
 
 // The block types the in-app WRITE pass (SECTION_SYSTEM in
 // lesson-generation.ts) is allowed to emit. Deliberately a SUBSET of the
-// ten dynamic-zone components — no heading (injected deterministically
-// from the outline, never model-emitted), no param-picker/video-ref (not
-// part of this pipeline's output today), and — since this branch's
-// write/illustrate split — no diagram/keyboard-diagram either. Those two
-// are emitted by the separate ILLUSTRATE pass below, given the write
-// pass's finished text, not by this one; see docs/lesson-authoring.md's
-// "Generation is two passes" note for why.
+// dynamic-zone components — no heading (injected deterministically from
+// the outline, never model-emitted), and — since the write/illustrate
+// split — no diagram/keyboard-diagram either. Those two are emitted by the
+// separate ILLUSTRATE pass below, given the write pass's finished text,
+// not by this one; see docs/lesson-authoring.md's "Generation is two
+// passes" note for why.
+//
+// param-picker and video-ref rejoined this list once the write/illustrate
+// split freed room under Anthropic's 16-union-typed-parameter cap (see
+// LessonBlockOutputSchema's own comment). Their guide entries matter as
+// much as the rest: param-picker's says it renders as nothing on a lesson
+// with no `parameter`, and video-ref's says a `timeSec` is grounded and
+// never invented — both rules the write pass enforces in code too.
 const SECTION_BLOCK_TYPES = [
   'lesson.prose',
   'lesson.callout',
   'lesson.step',
   'lesson.table',
   'lesson.degree-chips',
+  'lesson.param-picker',
+  'lesson.video-ref',
 ] as const;
 
 // The block types the in-app ILLUSTRATE pass is allowed to emit — the two
@@ -121,7 +129,7 @@ export function getOutlineGuideExcerpt(): string {
 
 /**
  * Excerpt for the per-section WRITE call: the block reference entries for
- * exactly the five text block types that call is allowed to emit, plus the
+ * exactly the block types that call is allowed to emit, plus the
  * judgment sections most directly about what those blocks should contain.
  * No diagram vocabulary and no "when a diagram earns its place" judgment
  * here — this call never emits a diagram, see ILLUSTRATION_BLOCK_TYPES
