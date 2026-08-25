@@ -88,12 +88,19 @@
 import { PITCH_CLASSES } from '@music-kb/music/types';
 import { STRING_SETS } from '@music-kb/music/theory/triad-shapes';
 import {
+  asNeckInstrument,
+  isOnNeck,
   resolveDiagramDots,
   resolveDiagramMarks,
+  visibleNeckDots,
+  widenNeckWindow,
+  NECK_MAX_FRET,
+  NECK_STRING_COUNT,
   type DiagramBlock,
   type KeyboardDiagramBlock,
   type KeyMarkInput,
   type NeckDotInput,
+  type NeckInstrument,
 } from './diagram-params';
 import type { JsonValue, LessonBlock } from '#/lib/services/lessons';
 
@@ -293,9 +300,23 @@ const TABLE_HEADERS_MAX = 12;
 const TABLE_ROWS_MAX = 24;
 const DEGREE_CHIPS_MAX = 12;
 const DOT_LABEL_MAX = 8;
-/** A triad has 3 notes; 6 leaves room for a doubled note or two. */
-const MAX_DIAGRAM_DOTS = 6;
-const MAX_KEYBOARD_MARKS = 6;
+/**
+ * Runaway backstops for the two dot lists, and the same story as the table
+ * caps above: 6 was "a triad plus a doubled note", which is a shaping
+ * constraint wearing a limit's clothes. A two-octave scale shape is 14–16
+ * dots and a whole-neck overlay more, so every scale diagram the model drew
+ * was silently becoming a 6-dot one that looked deliberate.
+ *
+ * Now set to what the boards can physically hold — 6 strings × frets 0–22,
+ * and one mark per pitch class, since `lesson.key-mark` addresses keys by pc
+ * — so nothing an author could mean can hit them. Going over means repeats
+ * or a runaway, and is an ERROR that DROPS the block rather than a warning
+ * that truncates: truncation is invisible (a `warning` is not counted in the
+ * `dropped` figure the SSE stream and /lessons show), and a diagram quietly
+ * missing half its notes is worse than a diagram that is missing.
+ */
+const MAX_DIAGRAM_DOTS = NECK_STRING_COUNT.guitar * (NECK_MAX_FRET.guitar + 1);
+const MAX_KEYBOARD_MARKS = PITCH_CLASSES.length;
 const VIDEO_REF_LABEL_MAX = 120;
 const PARAM_PICKER_LABEL_MAX = 40;
 const PATTERN_LABEL_MAX = 40;
@@ -815,27 +836,42 @@ function buildDiagram(ctx: BuildContext, a: AttrReader): Built {
   if (toFret !== undefined) block.toFret = toFret;
   if (caption) block.caption = caption;
 
+  const neck = asNeckInstrument(instrument);
+
   if (mode === 'explicit') {
     const dots = split.entries
       .map((e) => readNeckDot(e, issues))
-      .filter((d): d is NeckDotInput => d !== null);
+      .filter((d): d is NeckDotInput => d !== null)
+      .filter((d) => keepOnBoard(d, neck, '::diagram', line, issues));
     if (dots.length > MAX_DIAGRAM_DOTS) {
-      issues.push({
-        line,
-        severity: 'warning',
-        message: `::diagram: ${dots.length} dots is over the ${MAX_DIAGRAM_DOTS}-dot cap — extra dots dropped.`,
-      });
+      err(
+        `${dots.length} dots is past the ${MAX_DIAGRAM_DOTS}-dot runaway backstop — a ${neck} neck only has ${MAX_DIAGRAM_DOTS} positions, so the extras are repeats. Dropped.`,
+      );
+      return null;
     }
-    if (dots.length) block.dots = dots.slice(0, MAX_DIAGRAM_DOTS) as unknown as JsonValue;
+    if (dots.length) block.dots = dots as unknown as JsonValue;
   } else if (split.entries.length > 0) {
     a.warn('mode="theory" ignores hand-placed dots — set mode="explicit" to use them. Entries ignored.');
+  }
+
+  // triadVoicing() computes frets from STANDARD_TUNING_MIDI — guitar, always.
+  // On a bass the same string indices are a different tuning AND a shorter
+  // board, so a theory-mode bass diagram is not "a bit off", it names the
+  // wrong notes (and half of them fall off a 4-string neck entirely). It
+  // schema-validates, so nothing else catches it.
+  if (mode === 'theory' && neck === 'bass') {
+    err(
+      'mode="theory" voices triads with guitar tuning, so on a bass it draws the wrong notes on strings that may not exist. Use mode="explicit" with hand-placed dots for a bass. Dropped.',
+    );
+    return null;
   }
 
   // THE resolve check. Kept from the schema era on purpose: it runs the
   // renderer's OWN resolver, so it catches the failures schema validity
   // never could — a theory-mode diagram missing one of root/quality/
   // stringSet renders as a completely empty gap with no error anywhere.
-  if (resolveDiagramDots(block as unknown as DiagramBlock).length === 0) {
+  const resolved = resolveDiagramDots(block as unknown as DiagramBlock);
+  if (resolved.length === 0) {
     err(
       mode === 'explicit'
         ? 'mode="explicit" resolved to zero dots — an explicit diagram needs at least one `- string=… fret=…` entry. Dropped.'
@@ -843,7 +879,134 @@ function buildDiagram(ctx: BuildContext, a: AttrReader): Built {
     );
     return null;
   }
+
+  // ...and THE VISIBILITY CHECK, which is the other half of it. Resolving is
+  // not drawing: MiniNeck clips every dot to a fret window, and an explicit
+  // `fromFret`/`toFret` beats the dots ("an explicit from/to always wins",
+  // MiniNeck.tsx:102). A C major first inversion sits at frets 8–9 — inside
+  // `fromFret=3 toFret=8` two of its three dots resolve, pass the check above,
+  // and are then clipped away. The window is a CROP HINT and the dots are the
+  // content, so a hint that hides content loses: it is widened to fit, the way
+  // barreFret=0 is repaired rather than taking the chord box down with it.
+  applyWindowRepair({
+    block,
+    line,
+    issues,
+    where: '::diagram',
+    instrument: neck,
+    fromFret,
+    toFret,
+    // `useParam` swaps the root at RENDER time, so the shape moves: C major
+    // on e–B–G is frets 3–5 and F major is 8–10. One fixed window cannot
+    // follow it, and only the values the parameter can actually take reveal
+    // that — hence resolving all twelve.
+    dotSets: useParam
+      ? PITCH_CLASSES.map((pc) => resolveDiagramDots(block as unknown as DiagramBlock, pc))
+      : [resolved],
+  });
   return { block, src };
+}
+
+/**
+ * Report a dot the board has no position for. MiniNeck draws a string index
+ * the instrument doesn't have outside its own viewBox and clips a fret past
+ * the last one, so the dot is simply gone — not misplaced, invisible.
+ *
+ * Reported as an `error`, which by this file's contract takes the whole
+ * block with it (see the dispatcher's "an error means the block is not
+ * trustworthy" note): a dot addressed to a string that does not exist means
+ * the author had the wrong instrument or the wrong numbers in mind, and a
+ * shape silently missing a note is the failure this check exists to stop.
+ */
+function keepOnBoard(
+  dot: NeckDotInput,
+  instrument: NeckInstrument,
+  where: string,
+  line: number,
+  issues: ParseIssue[],
+): boolean {
+  if (isOnNeck(dot, instrument)) return true;
+  issues.push({
+    line,
+    severity: 'error',
+    message: `${where}: dot string=${dot.string} fret=${dot.fret} is off a ${instrument} neck (strings 0–${NECK_STRING_COUNT[instrument] - 1}, frets 0–${NECK_MAX_FRET[instrument]}) — the renderer draws it outside the board, where nobody sees it. Block dropped.`,
+  });
+  return false;
+}
+
+/**
+ * The shared window repair for the two blocks that carry `fromFret`/
+ * `toFret`. Mutates `block` — widening the window so every dot survives
+ * the clip, or dropping it where no fixed window can be right — and says
+ * so. A `warning`, not an `error`, because the block is KEPT: this file's
+ * contract is that `error` means dropped, and `dropped` is the count the
+ * SSE stream and /lessons show.
+ */
+function applyWindowRepair(args: {
+  block: LessonBlock;
+  line: number;
+  issues: ParseIssue[];
+  where: string;
+  instrument: NeckInstrument;
+  fromFret?: number;
+  toFret?: number;
+  /**
+   * Every set of dots this one window has to hold. More than one means the
+   * shape MOVES (a `useParam` diagram redraws in the reader's chosen key),
+   * and a moving shape has no fixed crop — that case drops the window
+   * instead of widening it to the union, which would be a whole-neck board
+   * with three dots on it at every value.
+   */
+  dotSets: readonly (readonly { string: number; fret: number }[])[];
+}): void {
+  const { block, line, issues, where, instrument, fromFret, toFret, dotSets } = args;
+
+  // MiniNeck only honours the window when BOTH ends are set; with one it
+  // auto-fits and the authored value is read by nothing. Stored, it is a
+  // number that lies about what the diagram does.
+  if ((fromFret === undefined) !== (toFret === undefined)) {
+    delete block.fromFret;
+    delete block.toFret;
+    issues.push({
+      line,
+      severity: 'warning',
+      message: `${where}: ${fromFret === undefined ? 'toFret' : 'fromFret'} was set without the other — the renderer ignores a half-set window and auto-fits around the dots. Dropped the stray value.`,
+    });
+    return;
+  }
+  if (fromFret === undefined || toFret === undefined) return;
+
+  let from = fromFret;
+  let to = toFret;
+  let worstHidden = 0;
+  let worstTotal = 0;
+  for (const dots of dotSets) {
+    if (dots.length === 0) continue;
+    const hidden = dots.length - visibleNeckDots(dots, instrument, from, to).length;
+    if (hidden > worstHidden) {
+      worstHidden = hidden;
+      worstTotal = dots.length;
+    }
+    if (hidden > 0) ({ fromFret: from, toFret: to } = widenNeckWindow(dots, instrument, from, to));
+  }
+  if (worstHidden === 0) return;
+
+  const blank = worstHidden === worstTotal ? 'completely blank' : 'incomplete';
+  const moving = dotSets.length > 1;
+  if (moving) {
+    delete block.fromFret;
+    delete block.toFret;
+  } else {
+    block.fromFret = from;
+    block.toFret = to;
+  }
+  issues.push({
+    line,
+    severity: 'warning',
+    message: moving
+      ? `${where}: fromFret=${fromFret} toFret=${toFret} clips ${worstHidden} of ${worstTotal} dots at some values of the lesson parameter, so the diagram would have rendered ${blank} in those keys. A parameterised shape moves with the key and cannot have a fixed window — dropped it so the neck auto-fits whatever the reader picks.`
+      : `${where}: fromFret=${fromFret} toFret=${toFret} clips ${worstHidden} of ${worstTotal} dots, so the diagram would have rendered ${blank}. Widened the window to ${from}–${to} so the whole shape is visible.`,
+  });
 }
 
 function buildKeyboardDiagram(ctx: BuildContext, a: AttrReader): Built {
@@ -874,13 +1037,12 @@ function buildKeyboardDiagram(ctx: BuildContext, a: AttrReader): Built {
       .map((e) => readKeyMark(e, issues))
       .filter((m): m is KeyMarkInput => m !== null);
     if (marks.length > MAX_KEYBOARD_MARKS) {
-      issues.push({
-        line,
-        severity: 'warning',
-        message: `::keyboard-diagram: ${marks.length} marks is over the ${MAX_KEYBOARD_MARKS}-mark cap — extra marks dropped.`,
-      });
+      err(
+        `${marks.length} marks is past the ${MAX_KEYBOARD_MARKS}-mark runaway backstop — marks are addressed by pitch class, so there are only ${MAX_KEYBOARD_MARKS} distinct keys to light and the extras are repeats. Dropped.`,
+      );
+      return null;
     }
-    if (marks.length) block.marks = marks.slice(0, MAX_KEYBOARD_MARKS) as unknown as JsonValue;
+    if (marks.length) block.marks = marks as unknown as JsonValue;
   } else if (split.entries.length > 0) {
     a.warn('mode="theory" ignores hand-placed marks — set mode="explicit" to use them. Entries ignored.');
   }
@@ -1051,7 +1213,8 @@ function buildNeckPattern(ctx: BuildContext, a: AttrReader): Built {
         continue;
       }
       const dot = readNeckDot(entry, issues);
-      if (dot) current.dots.push(dot);
+      if (dot && keepOnBoard(dot, asNeckInstrument(instrument), '::neck-pattern', entry.line, issues))
+        current.dots.push(dot);
       continue;
     }
     const pa = attrReader(entry.attrs, entry.line, issues, 'pattern');
@@ -1103,6 +1266,23 @@ function buildNeckPattern(ctx: BuildContext, a: AttrReader): Built {
   if (fromFret !== undefined) block.fromFret = fromFret;
   if (toFret !== undefined) block.toFret = toFret;
   if (caption) block.caption = caption;
+
+  // The shared window is this block's whole reason to exist, and it is also
+  // the one place it can hide a pattern completely: NeckPatternPicker hands
+  // MiniNeck the ACTIVE pattern's dots against the SHARED window, so a set
+  // cropped to frets 0–5 with a fifth box at 12–15 draws an empty neck the
+  // moment the reader clicks that pill. Every pattern is passed in, so the
+  // widened window holds all of them and the boxes still climb the neck.
+  applyWindowRepair({
+    block,
+    line,
+    issues,
+    where: '::neck-pattern',
+    instrument: asNeckInstrument(instrument),
+    fromFret,
+    toFret,
+    dotSets: [usable.flatMap((p) => p.dots)],
+  });
   return { block, src };
 }
 

@@ -21,6 +21,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { PITCH_CLASSES as PITCH_CLASS_NAMES } from '@music-kb/music/types';
 import {
   DIRECTIVE_ATTRIBUTES,
   DIRECTIVE_NAMES,
@@ -32,6 +33,10 @@ import {
 
 function errorsOf(issues: ParseIssue[]): ParseIssue[] {
   return issues.filter((i) => i.severity === 'error');
+}
+
+function warningsOf(issues: ParseIssue[]): ParseIssue[] {
+  return issues.filter((i) => i.severity === 'warning');
 }
 
 function componentsOf(blocks: ReturnType<typeof parseLessonMarkdown>['blocks']): string[] {
@@ -162,11 +167,16 @@ describe('every directive parses to its block', () => {
     expect(blocks[0].moment).toContain('rolls the finger back');
   });
 
+  // The window here is 3–10, not the 3–8 this test carried until the
+  // visibility check went in: C major first inversion on e–B–G is frets
+  // 8/8/9, so 3–8 clipped the third off and this suite's own showcase
+  // example was a two-dot triad. See "the visibility check" below.
   it('::diagram in theory mode, with the body as the caption', () => {
     const { blocks, issues } = parseLessonMarkdown(
-      '::diagram{root=C quality=major stringSet=e–B–G inversion=1 fromFret=3 toFret=8}\nThe third sits two frets above the root here.\n::',
+      '::diagram{root=C quality=major stringSet=e–B–G inversion=1 fromFret=3 toFret=10}\nThe third sits two frets above the root here.\n::',
     );
     expect(errorsOf(issues)).toEqual([]);
+    expect(issues).toEqual([]);
     expect(blocks[0].block).toMatchObject({
       __component: 'lesson.diagram',
       instrument: 'guitar',
@@ -176,7 +186,7 @@ describe('every directive parses to its block', () => {
       stringSet: 'e–B–G',
       inversion: 1,
       fromFret: 3,
-      toFret: 8,
+      toFret: 10,
       caption: 'The third sits two frets above the root here.',
     });
   });
@@ -517,6 +527,226 @@ describe('the resolve check drops diagrams that would draw nothing', () => {
 });
 
 // =============================================================================
+// The visibility check — resolving is not drawing
+// =============================================================================
+//
+// The resolve check above asks "does this produce dots?". MiniNeck then
+// clips those dots to a fret window, and an explicit fromFret/toFret beats
+// the dots ("an explicit from/to always wins", MiniNeck.tsx:102). So a
+// diagram can resolve, pass every check, and render a blank fretboard.
+// These cases are the window logic the renderer applies, applied here.
+
+describe('the visibility check, on what the renderer will actually draw', () => {
+  it('widens a window that would clip part of a theory triad', () => {
+    // C major, first inversion, on e–B–G is frets 9/8/8. This exact
+    // directive — 3–8 — was the suite's own example of a good diagram, and
+    // it hid the third.
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{root=C quality=major stringSet=e–B–G inversion=1 fromFret=3 toFret=8}\n::',
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(componentsOf(blocks)).toEqual(['lesson.diagram']);
+    expect(blocks[0].block).toMatchObject({ fromFret: 3, toFret: 10 });
+    const warn = warningsOf(issues)[0];
+    expect(warn.message).toContain('clips 1 of 3 dots');
+    expect(warn.message).toContain('Widened the window to 3–10');
+  });
+
+  it('widens a window that would have rendered completely blank', () => {
+    // The reported failure: a shape at 7–9 inside a window of 0–5.
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::diagram{mode=explicit fromFret=0 toFret=5}',
+        '- string=0 fret=7',
+        '- string=1 fret=8',
+        '- string=2 fret=9',
+        '::',
+      ].join('\n'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(componentsOf(blocks)).toEqual(['lesson.diagram']);
+    expect(blocks[0].block).toMatchObject({ fromFret: 0, toFret: 10 });
+    expect(warningsOf(issues)[0].message).toContain('completely blank');
+  });
+
+  it('leaves a window that already holds every dot alone', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{root=C quality=major stringSet=e–B–G fromFret=1 toFret=7}\n::',
+    );
+    expect(issues).toEqual([]);
+    expect(blocks[0].block).toMatchObject({ fromFret: 1, toFret: 7 });
+  });
+
+  it('drops a fixed window on a useParam diagram, whose shape moves with the key', () => {
+    // Root position on e–B–G runs from A at frets 0–2 to G at 10–12: no one
+    // window is right for all twelve, so the renderer's auto-fit has to take
+    // over. Without this the diagram is blank in most keys.
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{useParam root=C quality=major stringSet=e–B–G fromFret=3 toFret=8}\n::',
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(blocks[0].block.fromFret).toBeUndefined();
+    expect(blocks[0].block.toFret).toBeUndefined();
+    expect(warningsOf(issues)[0].message).toContain('cannot have a fixed window');
+  });
+
+  it('strips a half-set window the renderer would ignore', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{root=C quality=major stringSet=e–B–G fromFret=3}\n::',
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(blocks[0].block.fromFret).toBeUndefined();
+    expect(warningsOf(issues)[0].message).toContain('half-set window');
+  });
+
+  it('rejects a dot placed on a string the instrument does not have', () => {
+    // MiniNeck indexes strings by array position without bounds-checking,
+    // so string=5 on a 4-string bass is drawn outside its own viewBox — the
+    // dot does not move, it disappears. An error, so the whole block goes
+    // with it (this file's rule) rather than a shape quietly short a note.
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::diagram{mode=explicit instrument=bass}',
+        '- string=0 fret=5',
+        '- string=5 fret=5',
+        '::',
+      ].join('\n'),
+    );
+    expect(blocks).toHaveLength(0);
+    const err = errorsOf(issues)[0];
+    expect(err.message).toContain('off a bass neck');
+    expect(err.message).toContain('strings 0–3');
+  });
+
+  it('keeps a bass diagram whose dots are all on the 4-string board', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{mode=explicit instrument=bass}\n- string=3 fret=5\n- string=2 fret=7\n::',
+    );
+    expect(issues).toEqual([]);
+    expect(componentsOf(blocks)).toEqual(['lesson.diagram']);
+  });
+
+  it('drops a diagram whose only dot is past the last fret', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{mode=explicit}\n- string=0 fret=30\n::',
+    );
+    expect(blocks).toHaveLength(0);
+    expect(errorsOf(issues)[0].message).toContain('frets 0–22');
+    expect(errorsOf(issues)[1].message).toContain('zero dots');
+  });
+
+  it('refuses a theory diagram on a bass, which would draw guitar frets', () => {
+    // triadVoicing() computes from STANDARD_TUNING_MIDI. On a bass, string
+    // set e–B–G lands on G/D/A with guitar fret maths: a "C major" that
+    // reads D-G-B♭. Nothing else in the pipeline can see that.
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{instrument=bass root=C quality=major stringSet=e–B–G}\n::',
+    );
+    expect(blocks).toHaveLength(0);
+    expect(errorsOf(issues)[0].message).toContain('guitar tuning');
+  });
+
+  it('widens a neck-pattern window that hides a later box behind its pill', () => {
+    // NeckPatternPicker draws the ACTIVE pattern against the SHARED window,
+    // so this is invisible until the reader clicks the second pill.
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::neck-pattern{fromFret=0 toFret=5}',
+        '- label="Box 1"',
+        '  - string=5 fret=0',
+        '  - string=5 fret=3',
+        '- label="Box 5"',
+        '  - string=5 fret=12',
+        '  - string=5 fret=15',
+        '::',
+      ].join('\n'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(blocks[0].block).toMatchObject({ fromFret: 0, toFret: 16 });
+    expect(warningsOf(issues)[0].message).toContain('clips 2 of 4 dots');
+  });
+});
+
+// =============================================================================
+// Runaway backstops — a cap that shapes content is a cap that lies
+// =============================================================================
+
+describe('the dot and mark backstops', () => {
+  it('keeps every dot of a two-octave scale shape', () => {
+    // 14 dots. Under the old 6-dot cap this became a 6-dot diagram with a
+    // `warning` — and `warning` is not counted in the `dropped` figure the
+    // SSE stream and /lessons show, so it became a 6-dot diagram silently.
+    const shape = [
+      [5, 5],
+      [5, 7],
+      [5, 8],
+      [4, 5],
+      [4, 7],
+      [3, 5],
+      [3, 7],
+      [2, 4],
+      [2, 5],
+      [2, 7],
+      [1, 5],
+      [1, 6],
+      [0, 5],
+      [0, 7],
+    ];
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::diagram{mode=explicit}',
+        ...shape.map(([s, f]) => `- string=${s} fret=${f}`),
+        '::',
+      ].join('\n'),
+    );
+    expect(issues).toEqual([]);
+    expect(blocks[0].block.dots).toHaveLength(14);
+  });
+
+  it('keeps every mark of a seven-note scale on the keyboard', () => {
+    const scale = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::keyboard-diagram{mode=explicit octaves=2}',
+        ...scale.map((pc) => `- pc=${pc} label=${pc}`),
+        '::',
+      ].join('\n'),
+    );
+    expect(issues).toEqual([]);
+    expect(blocks[0].block.marks).toHaveLength(7);
+  });
+
+  it('DROPS a diagram past the backstop instead of truncating it in silence', () => {
+    const dots: string[] = [];
+    for (let s = 0; s < 6; s += 1)
+      for (let f = 0; f <= 22; f += 1) dots.push(`- string=${s} fret=${f}`);
+    dots.push('- string=0 fret=0');
+    const { blocks, issues } = parseLessonMarkdown(
+      ['::diagram{mode=explicit}', ...dots, '::'].join('\n'),
+    );
+    expect(blocks).toHaveLength(0);
+    // `error`, so it reaches the dropped count the user is shown.
+    expect(errorsOf(issues)).toHaveLength(1);
+    expect(errorsOf(issues)[0].message).toContain('runaway backstop');
+    expect(warningsOf(issues)).toEqual([]);
+  });
+
+  it('DROPS a keyboard diagram past the backstop instead of truncating it', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::keyboard-diagram{mode=explicit}',
+        ...PITCH_CLASS_NAMES.map((pc) => `- pc=${pc}`),
+        '- pc=C',
+        '::',
+      ].join('\n'),
+    );
+    expect(blocks).toHaveLength(0);
+    expect(errorsOf(issues)).toHaveLength(1);
+    expect(errorsOf(issues)[0].message).toContain('runaway backstop');
+  });
+});
+
+// =============================================================================
 // Placement (illustrate pass)
 // =============================================================================
 
@@ -737,7 +967,12 @@ function probeEnum(component: string, field: string, value: string): string | nu
         '::',
       ].join('\n');
     case 'lesson.diagram.instrument':
-      return `::diagram{instrument=${value} root=C quality=major stringSet=e–B–G}\n::`;
+      // Probed in EXPLICIT mode, because theory mode is guitar-only by
+      // construction — triadVoicing() computes frets from the guitar's
+      // STANDARD_TUNING_MIDI, so `instrument=bass mode=theory` names the
+      // wrong notes and is refused (see "the visibility check" below).
+      // `bass` is still fully expressible, which is what this test is for.
+      return `::diagram{instrument=${value} mode=explicit}\n- string=0 fret=3\n::`;
     case 'lesson.diagram.mode':
       return value === 'theory'
         ? '::diagram{mode=theory root=C quality=major stringSet=e–B–G}\n::'

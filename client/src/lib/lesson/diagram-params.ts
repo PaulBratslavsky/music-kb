@@ -128,6 +128,126 @@ export function resolveDiagramDots(
   }));
 }
 
+// -----------------------------------------------------------------------------
+// What the renderer will actually DRAW
+// -----------------------------------------------------------------------------
+//
+// Resolving a diagram is only half of "does this draw something". MiniNeck
+// then picks a fret WINDOW and clips to it — and when the block carries an
+// explicit `fromFret`/`toFret`, that window always wins over the dots. A
+// triad that resolves at frets 7–9 inside a block that says `fromFret=0
+// toFret=5` resolves fine and renders a completely empty fretboard.
+//
+// So the geometry below mirrors MiniNeck's own `resolveWindow` + `visible`
+// filter, exactly, and the parse-time check in markdown-blocks.ts runs it.
+// A mirror is a drift risk, so `diagram-params.test.ts` renders the REAL
+// MiniNeck into jsdom and asserts this module predicts exactly the dots it
+// draws: change either side alone and the suite fails. (The honest fix is
+// for MiniNeck to import `resolveNeckWindow` from here — it cannot happen
+// in this commit because that file is being edited elsewhere.)
+
+/** MiniNeck's `MAX_FRET`. Higher than a real board so a 14th-fret shape isn't clipped. */
+export const NECK_MAX_FRET = { guitar: 22, bass: 20 } as const;
+/** MiniNeck's `GUITAR_STRINGS` / `BASS_STRINGS` lengths. */
+export const NECK_STRING_COUNT = { guitar: 6, bass: 4 } as const;
+/** MiniNeck's `minSpan` default — no caller passes another value. */
+export const NECK_MIN_SPAN = 5;
+
+export type NeckInstrument = keyof typeof NECK_MAX_FRET;
+
+/** The renderer's own narrowing: anything that isn't 'bass' draws a guitar. */
+export function asNeckInstrument(value: unknown): NeckInstrument {
+  return value === 'bass' ? 'bass' : 'guitar';
+}
+
+/** Mirrors `resolveWindow` in MiniNeck.tsx. Keep the two identical. */
+export function resolveNeckWindow(
+  dots: readonly { fret: number }[],
+  instrument: NeckInstrument,
+  fromFret?: number,
+  toFret?: number,
+  minSpan: number = NECK_MIN_SPAN,
+): { lo: number; hi: number } {
+  const maxFret = NECK_MAX_FRET[instrument];
+  if (fromFret != null && toFret != null) {
+    return { lo: Math.max(0, fromFret), hi: Math.min(maxFret, toFret) };
+  }
+  if (dots.length === 0) return { lo: 0, hi: minSpan };
+
+  const frets = dots.map((d) => d.fret);
+  let lo = Math.max(0, Math.min(...frets) - 1);
+  let hi = Math.min(maxFret, Math.max(...frets) + 1);
+  if (frets.includes(0)) lo = 0;
+  while (hi - lo < minSpan && hi < maxFret) hi += 1;
+  while (hi - lo < minSpan && lo > 0) lo -= 1;
+  return { lo, hi };
+}
+
+/**
+ * Is there a position on this board for the dot at all?
+ *
+ * MiniNeck indexes strings by array position and does NOT bounds-check
+ * them: `string=5` on a bass is drawn at a y outside the svg's own
+ * viewBox, so it vanishes without clipping anything else. A fret past the
+ * last one is clipped by the window instead. Both are invisible dots that
+ * validate, which is why this is a separate predicate from the window —
+ * a window repair cannot rescue them.
+ */
+export function isOnNeck(
+  dot: { string: number; fret: number },
+  instrument: NeckInstrument,
+): boolean {
+  return (
+    Number.isInteger(dot.string) &&
+    dot.string >= 0 &&
+    dot.string < NECK_STRING_COUNT[instrument] &&
+    Number.isInteger(dot.fret) &&
+    dot.fret >= 0 &&
+    dot.fret <= NECK_MAX_FRET[instrument]
+  );
+}
+
+/**
+ * The dots a reader will actually see: on the board AND inside the window
+ * MiniNeck picks for this `fromFret`/`toFret` pair. Returning fewer than
+ * it was given is the whole signal — see `markdown-blocks.ts`.
+ */
+export function visibleNeckDots<T extends { string: number; fret: number }>(
+  dots: readonly T[],
+  instrument: NeckInstrument,
+  fromFret?: number,
+  toFret?: number,
+  minSpan: number = NECK_MIN_SPAN,
+): T[] {
+  const { lo, hi } = resolveNeckWindow(dots, instrument, fromFret, toFret, minSpan);
+  return dots.filter((d) => isOnNeck(d, instrument) && d.fret >= lo && d.fret <= hi);
+}
+
+/**
+ * The window that shows every one of `dots` — the author's own window
+ * WIDENED to fit rather than replaced, so a deliberately wide framing
+ * survives the repair. Padded one fret either side and pinned to the nut
+ * by an open string, the same two rules MiniNeck's auto-fit uses, because
+ * a dot sitting exactly on `lo` is drawn in the open-string gutter to the
+ * left of the nut instead of on the board.
+ */
+export function widenNeckWindow(
+  dots: readonly { fret: number }[],
+  instrument: NeckInstrument,
+  fromFret: number,
+  toFret: number,
+): { fromFret: number; toFret: number } {
+  const maxFret = NECK_MAX_FRET[instrument];
+  const frets = dots.map((d) => d.fret).filter((f) => f >= 0 && f <= maxFret);
+  if (frets.length === 0) return { fromFret, toFret };
+  const needLo = frets.includes(0) ? 0 : Math.max(0, Math.min(...frets) - 1);
+  const needHi = Math.min(maxFret, Math.max(...frets) + 1);
+  return {
+    fromFret: Math.max(0, Math.min(fromFret, needLo)),
+    toFret: Math.min(maxFret, Math.max(toFret, needHi)),
+  };
+}
+
 export type KeyMarkInput = {
   pc: PitchClass;
   label?: string;
