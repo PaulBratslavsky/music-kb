@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { BackendErrorPanel } from '#/components/BackendErrorPanel';
 import { LessonBody } from '#/components/lesson/LessonBody';
+import { LessonNav } from '#/components/lesson/LessonNav';
 import { LessonSources } from '#/components/lesson/LessonSources';
 import { getLessonBySlug } from '#/data/server-functions/lessons';
 import type { LessonResult } from '#/lib/services/lessons';
@@ -62,6 +63,7 @@ function LessonPage() {
           <p className="mt-3 text-sm text-[var(--ink-soft)]">{lesson.summary}</p>
         ) : null}
       </header>
+      <LessonNav blocks={lesson.body} />
       <LessonBody
         blocks={lesson.body}
         parameter={lesson.parameter}

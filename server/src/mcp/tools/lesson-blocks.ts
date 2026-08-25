@@ -545,6 +545,16 @@ const degreeChipsBlock = z
       .array(z.string())
       .min(1, 'degrees must contain at least one entry.')
       .describe('Scale-degree labels in order, e.g. ["1","2","3","4","5","6","7"] or ["R","♭3","5"].'),
+    label: z
+      .string()
+      .max(120)
+      .optional()
+      .describe(
+        'Names what the row IS, e.g. "C major scale". Effectively required: a bare row of numbers is the one block a reader cannot identify from its contents — "1 2 3 4 5 6 7" floating in a lesson reads as a pagination control, not a scale.',
+      ),
+    caption: captionSchema
+      .optional()
+      .describe('What to notice about the row, e.g. "Degree 1 is the root — every chord in the key is built from these seven."'),
     size: z.enum(['sm', 'md']).default('md'),
   })
   .strict();

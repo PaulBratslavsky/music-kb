@@ -4,11 +4,13 @@ vi.mock('./strapi-client', () => ({ strapiFetch: vi.fn() }));
 
 import { strapiFetch } from './strapi-client';
 import {
+  computeLessonDuration,
   getLessonBySlugWithStatus,
   listLessonsWithStatus,
   saveLessonService,
 } from './lessons';
 import type { GeneratedLesson, SourceVideo } from './lesson-generation';
+import type { LessonBlock } from './lessons';
 
 const mocked = vi.mocked(strapiFetch);
 
@@ -338,5 +340,78 @@ describe('saveLessonService', () => {
     await saveLessonService(makeLesson());
     const createCall = mocked.mock.calls.find(([m]) => m === 'POST');
     expect(createCall?.[2]).toMatchObject({ body: { data: { videos: [] } } });
+  });
+
+  it('overwrites the model-provided duration with a computed one (brief #4)', async () => {
+    mocked.mockImplementation(async (method, path) => {
+      if (method === 'GET' && path === '/api/lessons') return { ok: true, data: [] } as never;
+      if (method === 'POST' && path === '/api/lessons') {
+        return { ok: true, data: { documentId: 'doc-1', slug: 'drop-d-basics' } } as never;
+      }
+      return { ok: true, data: [] } as never;
+    });
+
+    // 400 words at 200 wpm = 2 minutes exactly — nothing like the model's
+    // guess, which the save path must never let through unchanged.
+    const body: LessonBlock[] = [
+      {
+        __component: 'lesson.prose',
+        id: 1,
+        body: Array.from({ length: 400 }, () => 'word').join(' '),
+      } as unknown as LessonBlock,
+    ];
+    await saveLessonService(makeLesson({ duration: '30 min', body }));
+
+    const createCall = mocked.mock.calls.find(([m]) => m === 'POST');
+    expect(createCall?.[2]).toMatchObject({ body: { data: { duration: '2 min' } } });
+  });
+});
+
+describe('computeLessonDuration', () => {
+  const proseBlock = (words: number, id: number): LessonBlock =>
+    ({
+      __component: 'lesson.prose',
+      id,
+      body: Array.from({ length: words }, () => 'word').join(' '),
+    }) as unknown as LessonBlock;
+
+  it('returns null for an empty body — nothing to estimate', () => {
+    expect(computeLessonDuration([])).toBeNull();
+  });
+
+  it('computes minutes from word count at 200 words/minute', () => {
+    expect(computeLessonDuration([proseBlock(400, 1)])).toBe('2 min');
+  });
+
+  it('floors at 1 minute rather than reporting 0', () => {
+    expect(computeLessonDuration([proseBlock(10, 1)])).toBe('1 min');
+  });
+
+  it('keeps similarly-sized lessons close, unlike the model guess it replaces', () => {
+    // Real numbers from the brief: 1,769 and 1,682 words came back "7 min"
+    // and "20 min" from the model despite being close in length. A
+    // computed duration for word counts this close must itself be close.
+    const minutesOf = (s: string | null) => Number(s?.match(/\d+/)?.[0]);
+    const a = minutesOf(computeLessonDuration([proseBlock(1769, 1)]));
+    const b = minutesOf(computeLessonDuration([proseBlock(1682, 1)]));
+    expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
+  });
+
+  it('adds a fixed allowance per diagram/table block on top of the word count', () => {
+    const minutesOf = (s: string | null) => Number(s?.match(/\d+/)?.[0]);
+    const withoutVisual = computeLessonDuration([proseBlock(600, 1)]);
+    const withVisual = computeLessonDuration([
+      proseBlock(600, 1),
+      { __component: 'lesson.table', id: 2, headers: [], rows: [] } as unknown as LessonBlock,
+    ]);
+    expect(minutesOf(withVisual)).toBeGreaterThanOrEqual(minutesOf(withoutVisual));
+  });
+
+  it('ignores non-textual blocks for word count (a param-picker has no prose)', () => {
+    expect(
+      computeLessonDuration([
+        { __component: 'lesson.param-picker', id: 1, label: 'Key' } as unknown as LessonBlock,
+      ]),
+    ).toBe('1 min');
   });
 });

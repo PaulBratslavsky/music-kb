@@ -191,6 +191,83 @@ export async function getLessonBySlugWithStatus(
 }
 
 // -----------------------------------------------------------------------------
+// Duration — computed, not modelled.
+// -----------------------------------------------------------------------------
+//
+// (lesson-ux brief #4) The model's `duration` guess was noise, not signal:
+// two lessons of near-identical length (1,769 and 1,682 words) came back
+// "7 min" and "20 min" from the same generator run. It is also the first
+// number a reader sees, on the /lessons index cards, before they've read a
+// word — worth getting right more than most fields in this schema.
+//
+// Chose to keep the `duration` column (removing it would touch the Strapi
+// schema in server/, out of scope here) and overwrite the model's value at
+// SAVE time with a real word count, discarding whatever the model wrote in
+// `lesson.duration`. The alternative the brief allowed — stop asking the
+// model for it — would leave the field silently null for every future
+// lesson for no benefit, since the prompt cost is the same either way and
+// this way the field still means something.
+const READING_WORDS_PER_MINUTE = 200;
+// The commonly cited average adult silent-reading speed, and the same
+// ballpark most blogging platforms' own read-time estimators use. Not
+// slowed down further for "technical" content — lesson prose here runs
+// short, plain sentences (see docs/lesson-authoring.md's own guidance to
+// the model), not dense reference text.
+const SECONDS_PER_VISUAL_BLOCK = 12;
+// Fixed allowance for the time it takes to actually look at a labeled
+// diagram or scan a small table — deliberately NOT proportional to row/dot
+// count, which would mean walking each block's nested json shape
+// (headers/rows, patterns[].dots, …) just to shave a few seconds off a
+// number that doesn't need that precision.
+const VISUAL_BLOCK_COMPONENTS = new Set([
+  'lesson.diagram',
+  'lesson.keyboard-diagram',
+  'lesson.chord-diagram',
+  'lesson.neck-pattern',
+  'lesson.natural-notes',
+  'lesson.table',
+  'lesson.degree-chips',
+]);
+
+function wordCount(text: JsonValue | undefined): number {
+  return typeof text === 'string' && text.trim().length > 0
+    ? text.trim().split(/\s+/).length
+    : 0;
+}
+
+/**
+ * Reading duration for a lesson body: word count across its text-bearing
+ * blocks at READING_WORDS_PER_MINUTE, plus SECONDS_PER_VISUAL_BLOCK for
+ * every diagram/table-shaped block (those take time to look at, not
+ * read). Rounded to the nearest minute, floored at 1 for any lesson that
+ * has content at all. `null` for an empty body — nothing to estimate.
+ */
+export function computeLessonDuration(body: LessonBlock[]): string | null {
+  if (body.length === 0) return null;
+  let words = 0;
+  for (const block of body) {
+    switch (block.__component) {
+      case 'lesson.prose':
+      case 'lesson.callout':
+        words += wordCount(block.body);
+        break;
+      case 'lesson.step':
+        words += wordCount(block.lede) + wordCount(block.body);
+        break;
+      case 'lesson.heading':
+        words += wordCount(block.text);
+        break;
+      default:
+        break;
+    }
+  }
+  const visualBlocks = body.filter((b) => VISUAL_BLOCK_COMPONENTS.has(b.__component)).length;
+  const totalSeconds = (words / READING_WORDS_PER_MINUTE) * 60 + visualBlocks * SECONDS_PER_VISUAL_BLOCK;
+  const minutes = Math.max(1, Math.round(totalSeconds / 60));
+  return `${minutes} min`;
+}
+
+// -----------------------------------------------------------------------------
 // Write side — persisting a generated lesson.
 // -----------------------------------------------------------------------------
 
@@ -274,7 +351,8 @@ export async function saveLessonService(
           summary: lesson.summary,
           level: lesson.level,
           instrument: lesson.instrument,
-          duration: lesson.duration,
+          // The model's guess, discarded — see computeLessonDuration above.
+          duration: computeLessonDuration(lesson.body),
           status: lesson.status,
           // Sent even when null. Without it a `lesson.param-picker` block
           // in `body` renders as literally nothing (LessonBody returns

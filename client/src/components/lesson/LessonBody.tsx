@@ -56,6 +56,88 @@ const CALLOUT_TONE: Record<
   },
 };
 
+/** DOM id for a `lesson.heading` block, shared with LessonNav so its jump
+ *  links land on the exact element LessonBody renders. `block.id` alone is
+ *  enough — it comes from `components_lesson_headings`' own id sequence,
+ *  so it is unique among headings even though it is NOT unique across
+ *  different component types in the same body (see the `${__component}-
+ *  ${id}` React key just below, which exists for that reason). */
+export function headingAnchorId(blockId: number): string {
+  return `lesson-heading-${blockId}`;
+}
+
+/** For each block, the heading level (`h2` or, deliberately, the implicit
+ *  top-level default when no heading has appeared yet) of the section it
+ *  currently sits inside — tracked by walking the body once and updating
+ *  on every `lesson.heading` block. Steps use this to nest one level below
+ *  their enclosing section (brief #1) instead of hardcoding `h2` and
+ *  colliding with it. Exported for the same reason as headingAnchorId:
+ *  pinned directly by a unit test rather than only exercised indirectly. */
+export function deriveSectionLevels(blocks: LessonBlock[]): Array<'h2' | 'h3'> {
+  const levels: Array<'h2' | 'h3'> = [];
+  let current: 'h2' | 'h3' = 'h2';
+  for (const b of blocks) {
+    if (b.__component === 'lesson.heading') {
+      current = b.level === 'h3' ? 'h3' : 'h2';
+    }
+    levels.push(current);
+  }
+  return levels;
+}
+
+// -- Citation de-duplication -------------------------------------------------
+//
+// Brief #2: the same citation repeating on up to nine consecutive blocks
+// reads as noise, not evidence. Collapsed here at the render layer only —
+// `block.source` is never modified, so the "Built from" section and every
+// individual block's underlying data stay intact; a block that had its
+// citation suppressed still carries the same `source` it always did.
+//
+// Comparison is against the IMMEDIATELY PRECEDING block only, not the last
+// block that happened to carry a citation — a block with no source of its
+// own (a heading, a table, a param-picker) breaks the run, so the citation
+// after it shows again even if it would have matched the run before. That
+// matches the reader's experience: something else appeared on the page in
+// between, so the reminder of where a claim came from is welcome again.
+const COMPARABLE_TIMESEC_WINDOW_SEC = 5;
+// BM25 grounds each block's citation independently against transcript
+// chunks. Two adjacent blocks landing within a few seconds of each other
+// are, in practice, the model paraphrasing the same source passage across
+// multiple blocks — not two different moments worth citing separately. A
+// genuinely new moment in a longer explanation typically lands much
+// farther away than this; 5s is a deliberately tight window so a real
+// second citation is never swallowed by mistake.
+
+type CitationKey = { videoId: string; timeSec?: number };
+
+function citationKey(source: JsonValue | undefined): CitationKey | null {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  const record = source as Record<string, JsonValue>;
+  const videoId = typeof record.videoId === 'string' ? record.videoId : '';
+  if (!videoId) return null;
+  const timeSec = typeof record.timeSec === 'number' ? record.timeSec : undefined;
+  return { videoId, timeSec };
+}
+
+function citationsComparable(a: CitationKey, b: CitationKey | null): boolean {
+  if (!b || a.videoId !== b.videoId) return false;
+  if (a.timeSec === undefined && b.timeSec === undefined) return true;
+  if (a.timeSec === undefined || b.timeSec === undefined) return false;
+  return Math.abs(a.timeSec - b.timeSec) <= COMPARABLE_TIMESEC_WINDOW_SEC;
+}
+
+/** Per-block "suppress this block's citation" flags, derived by comparing
+ *  each block's `source` against the block immediately before it. Exported
+ *  for direct testing alongside deriveSectionLevels/headingAnchorId. */
+export function deriveCitationSuppression(blocks: LessonBlock[]): boolean[] {
+  return blocks.map((b, i) => {
+    if (i === 0) return false;
+    const cur = citationKey(b.source);
+    if (!cur) return false;
+    return citationsComparable(cur, citationKey(blocks[i - 1].source));
+  });
+}
+
 export function LessonBody({
   blocks,
   parameter,
@@ -84,13 +166,16 @@ export function LessonBody({
     [sourceVideos],
   );
 
+  const sectionLevels = useMemo(() => deriveSectionLevels(blocks), [blocks]);
+  const citationSuppressed = useMemo(() => deriveCitationSuppression(blocks), [blocks]);
+
   return (
     // gap-10, not the old gap-6: the block-to-block gap needs to read as
     // clearly bigger than the gap-1 used *inside* a block (prose/diagram/
     // table to its own caption or citation) — otherwise a citation floats
     // ambiguously between the block above it and the block below.
     <div className="flex flex-col gap-10">
-      {blocks.map((b) => (
+      {blocks.map((b, i) => (
         <Block
           key={`${b.__component}-${b.id}`}
           block={b}
@@ -98,13 +183,22 @@ export function LessonBody({
           paramValue={paramValue}
           onParamChange={setParamValue}
           sourceVideoMap={sourceVideoMap}
+          stepHeadingLevel={sectionLevels[i] === 'h3' ? 'h4' : 'h3'}
+          suppressCitation={citationSuppressed[i]}
         />
       ))}
     </div>
   );
 }
 
-// Small, muted line beneath a block — supporting evidence, not content.
+// Small line beneath a block — supporting evidence, not content. Styled
+// deliberately UNLIKE Caption below (brief #5): a diagram's caption
+// explains the figure it sits under, a citation says where the claim it
+// sits under was verified — different jobs, so they need to stop reading
+// as one run of identical grey text. The "Source" kicker plus a step down
+// in size (11px vs Caption's text-xs/12px) marks this as metadata, the
+// same way a footnote or a byline reads differently from body copy.
+//
 // `source` is `{ videoId, timeSec? }` (lesson.source component); timeSec
 // is optional (BM25 grounding deliberately omits it when there's no
 // confident match) and must never serialize as a literal `t=undefined`.
@@ -119,10 +213,16 @@ export function LessonBody({
 function SourceNote({
   source,
   sourceVideoMap,
+  suppressed = false,
 }: Readonly<{
   source: JsonValue | undefined;
   sourceVideoMap: Map<string, LessonSourceVideo>;
+  /** True when the immediately preceding block already showed this same
+   *  citation (brief #2) — see deriveCitationSuppression. The underlying
+   *  `source` data is untouched; this only skips the render. */
+  suppressed?: boolean;
 }>) {
+  if (suppressed) return null;
   if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
   const record = source as Record<string, JsonValue>;
   const videoId = typeof record.videoId === 'string' ? record.videoId : '';
@@ -131,7 +231,8 @@ function SourceNote({
   if (!video) return null;
   const timeSec = typeof record.timeSec === 'number' ? record.timeSec : undefined;
   return (
-    <p className="text-xs text-[var(--ink-muted)]">
+    <p className="flex items-center gap-1.5 text-[11px] text-[var(--ink-muted)]">
+      <span className="font-medium uppercase tracking-wide">Source</span>
       <Link
         to="/learn/$videoId"
         params={{ videoId }}
@@ -144,6 +245,16 @@ function SourceNote({
       </Link>
     </p>
   );
+}
+
+// A figure's caption — belongs to the visual it sits under, explains what
+// it shows. Italic and a step darker (`ink-soft`) than SourceNote's
+// `ink-muted`/uppercase-kicker treatment (brief #5): the two used to share
+// one style (`text-xs text-[var(--ink-muted)]`) and read as a single run
+// of grey text with no way to tell caption from citation at a glance.
+function Caption({ text }: Readonly<{ text: string }>) {
+  if (!text) return null;
+  return <p className="text-xs italic text-[var(--ink-soft)]">{text}</p>;
 }
 
 // -- Block-payload coercion -------------------------------------------------
@@ -234,20 +345,24 @@ function toNeckPatterns(value: JsonValue | undefined): NeckPattern[] {
   return patterns;
 }
 
-// Caption + citation, the trailing pair every visual block carries.
+// Caption + citation, the trailing pair every visual block carries. Kept
+// as one component so the two never drift back out of sync stylistically —
+// see Caption and SourceNote above for why they look different now.
 function BlockFooter({
   caption,
   source,
   sourceVideoMap,
+  suppressCitation,
 }: Readonly<{
   caption: string;
   source: JsonValue | undefined;
   sourceVideoMap: Map<string, LessonSourceVideo>;
+  suppressCitation: boolean;
 }>) {
   return (
     <>
-      {caption ? <p className="text-xs text-[var(--ink-muted)]">{caption}</p> : null}
-      <SourceNote source={source} sourceVideoMap={sourceVideoMap} />
+      <Caption text={caption} />
+      <SourceNote source={source} sourceVideoMap={sourceVideoMap} suppressed={suppressCitation} />
     </>
   );
 }
@@ -258,12 +373,21 @@ function Block({
   paramValue,
   onParamChange,
   sourceVideoMap,
+  stepHeadingLevel,
+  suppressCitation,
 }: Readonly<{
   block: LessonBlock;
   parameter: LessonParameter | null;
   paramValue: string;
   onParamChange: (v: string) => void;
   sourceVideoMap: Map<string, LessonSourceVideo>;
+  /** The `<h3>`/`<h4>` a `lesson.step` in this position should title
+   *  itself with — see deriveSectionLevels. Unused by every other case. */
+  stepHeadingLevel: 'h3' | 'h4';
+  /** Whether this block's own citation duplicates the block immediately
+   *  before it — see deriveCitationSuppression. Passed to every case that
+   *  renders a SourceNote/BlockFooter. */
+  suppressCitation: boolean;
 }>) {
   switch (block.__component) {
     case 'lesson.prose':
@@ -274,7 +398,11 @@ function Block({
               {String(block.body ?? '')}
             </ReactMarkdown>
           </div>
-          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
+          <SourceNote
+            source={block.source}
+            sourceVideoMap={sourceVideoMap}
+            suppressed={suppressCitation}
+          />
         </div>
       );
 
@@ -283,11 +411,20 @@ function Block({
       // a heading should read as closer to the section it opens than to
       // the block that came before it, and the parent's gap-10 already
       // gives it that trailing space.
+      //
+      // `id` is the anchor LessonNav's table-of-contents jumps to (brief
+      // #3) — see headingAnchorId's doc comment for why block.id alone is
+      // safe to use here.
       const text = String(block.text ?? '');
+      const id = headingAnchorId(block.id);
       return block.level === 'h3' ? (
-        <h3 className="mt-4 text-base font-semibold text-[var(--ink)]">{text}</h3>
+        <h3 id={id} className="mt-4 scroll-mt-20 text-base font-semibold text-[var(--ink)]">
+          {text}
+        </h3>
       ) : (
-        <h2 className="mt-6 text-lg font-semibold text-[var(--ink)]">{text}</h2>
+        <h2 id={id} className="mt-6 scroll-mt-20 text-lg font-semibold text-[var(--ink)]">
+          {text}
+        </h2>
       );
     }
 
@@ -302,7 +439,11 @@ function Block({
             {tone.label}
           </p>
           {String(block.body ?? '')}
-          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
+          <SourceNote
+            source={block.source}
+            sourceVideoMap={sourceVideoMap}
+            suppressed={suppressCitation}
+          />
         </aside>
       );
     }
@@ -313,11 +454,16 @@ function Block({
           number={Number(block.number ?? 1)}
           title={String(block.title ?? '')}
           lede={String(block.lede ?? '')}
+          headingLevel={stepHeadingLevel}
         >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {String(block.body ?? '')}
           </ReactMarkdown>
-          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
+          <SourceNote
+            source={block.source}
+            sourceVideoMap={sourceVideoMap}
+            suppressed={suppressCitation}
+          />
         </Step>
       );
 
@@ -344,10 +490,12 @@ function Block({
             toFret={toFret}
             ariaLabel={ariaLabel}
           />
-          {caption ? (
-            <p className="text-xs text-[var(--ink-muted)]">{caption}</p>
-          ) : null}
-          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
+          <Caption text={caption} />
+          <SourceNote
+            source={block.source}
+            sourceVideoMap={sourceVideoMap}
+            suppressed={suppressCitation}
+          />
         </div>
       );
     }
@@ -365,10 +513,12 @@ function Block({
             octaves={keyboardBlock.octaves ?? undefined}
             ariaLabel={ariaLabel}
           />
-          {caption ? (
-            <p className="text-xs text-[var(--ink-muted)]">{caption}</p>
-          ) : null}
-          <SourceNote source={block.source} sourceVideoMap={sourceVideoMap} />
+          <Caption text={caption} />
+          <SourceNote
+            source={block.source}
+            sourceVideoMap={sourceVideoMap}
+            suppressed={suppressCitation}
+          />
         </div>
       );
     }
@@ -402,6 +552,7 @@ function Block({
             caption={caption}
             source={block.source}
             sourceVideoMap={sourceVideoMap}
+            suppressCitation={suppressCitation}
           />
         </div>
       );
@@ -426,6 +577,7 @@ function Block({
             caption={caption}
             source={block.source}
             sourceVideoMap={sourceVideoMap}
+            suppressCitation={suppressCitation}
           />
         </div>
       );
@@ -442,6 +594,7 @@ function Block({
             caption={caption}
             source={block.source}
             sourceVideoMap={sourceVideoMap}
+            suppressCitation={suppressCitation}
           />
         </div>
       );
@@ -511,9 +664,7 @@ function Block({
               ))}
             </tbody>
           </table>
-          {caption ? (
-            <p className="text-xs text-[var(--ink-muted)]">{caption}</p>
-          ) : null}
+          <Caption text={caption} />
         </div>
       );
     }

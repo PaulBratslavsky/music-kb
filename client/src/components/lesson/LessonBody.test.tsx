@@ -565,4 +565,221 @@ describe('LessonBody', () => {
       expect(container.querySelectorAll('a')).toHaveLength(0);
     });
   });
+
+  describe('step heading level (brief #1: steps must nest under their section)', () => {
+    it('titles a step h3 when no section heading precedes it', () => {
+      render(
+        <LessonBody
+          blocks={[
+            block({ __component: 'lesson.step', number: 1, title: 'First step', lede: 'l' }),
+          ]}
+          parameter={null}
+        />,
+      );
+      expect(screen.getByRole('heading', { level: 3, name: 'First step' })).toBeTruthy();
+    });
+
+    it('titles a step h3 under an h2 section, and h4 under an h3 subsection', () => {
+      render(
+        <LessonBody
+          blocks={[
+            { ...block({ __component: 'lesson.heading', text: 'Section', level: 'h2' }), id: 1 },
+            {
+              ...block({ __component: 'lesson.step', number: 1, title: 'Under h2', lede: 'l' }),
+              id: 2,
+            },
+            { ...block({ __component: 'lesson.heading', text: 'Subsection', level: 'h3' }), id: 3 },
+            {
+              ...block({ __component: 'lesson.step', number: 2, title: 'Under h3', lede: 'l' }),
+              id: 4,
+            },
+          ]}
+          parameter={null}
+        />,
+      );
+      // The section headings themselves stay h2/h3 — only the steps move.
+      expect(screen.getByRole('heading', { level: 2, name: 'Section' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 3, name: 'Under h2' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 3, name: 'Subsection' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 4, name: 'Under h3' })).toBeTruthy();
+    });
+  });
+
+  describe('citation de-duplication (brief #2)', () => {
+    const videoA: LessonSourceVideo = {
+      documentId: 'doc-a',
+      youtubeVideoId: 'vidA',
+      videoTitle: 'Video A',
+      videoThumbnailUrl: null,
+    };
+    const videoB: LessonSourceVideo = {
+      documentId: 'doc-b',
+      youtubeVideoId: 'vidB',
+      videoTitle: 'Video B',
+      videoThumbnailUrl: null,
+    };
+
+    it('suppresses an immediately-following citation to the same video at a comparable timestamp', () => {
+      render(
+        <LessonBody
+          blocks={[
+            {
+              ...block({
+                __component: 'lesson.prose',
+                body: 'first claim',
+                source: { videoId: 'vidA', timeSec: 100 },
+              }),
+              id: 1,
+            },
+            {
+              ...block({
+                __component: 'lesson.prose',
+                body: 'second claim, same passage',
+                // Within the 5s comparable window — same grounded passage.
+                source: { videoId: 'vidA', timeSec: 102 },
+              }),
+              id: 2,
+            },
+          ]}
+          parameter={null}
+          sourceVideos={[videoA]}
+        />,
+      );
+      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(1);
+    });
+
+    it('shows the citation again when the timestamp is far enough away to be a different moment', () => {
+      render(
+        <LessonBody
+          blocks={[
+            {
+              ...block({
+                __component: 'lesson.prose',
+                body: 'first claim',
+                source: { videoId: 'vidA', timeSec: 100 },
+              }),
+              id: 1,
+            },
+            {
+              ...block({
+                __component: 'lesson.prose',
+                body: 'second claim, a different moment',
+                source: { videoId: 'vidA', timeSec: 240 },
+              }),
+              id: 2,
+            },
+          ]}
+          parameter={null}
+          sourceVideos={[videoA]}
+        />,
+      );
+      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(2);
+    });
+
+    it('shows the citation again for a different video', () => {
+      render(
+        <LessonBody
+          blocks={[
+            {
+              ...block({
+                __component: 'lesson.prose',
+                body: 'first claim',
+                source: { videoId: 'vidA', timeSec: 100 },
+              }),
+              id: 1,
+            },
+            {
+              ...block({
+                __component: 'lesson.prose',
+                body: 'second claim, different source',
+                source: { videoId: 'vidB', timeSec: 100 },
+              }),
+              id: 2,
+            },
+          ]}
+          parameter={null}
+          sourceVideos={[videoA, videoB]}
+        />,
+      );
+      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(1);
+      expect(screen.getAllByRole('link', { name: 'Video B' })).toHaveLength(1);
+    });
+
+    it('does not suppress across a block with no citation of its own — the run breaks', () => {
+      render(
+        <LessonBody
+          blocks={[
+            {
+              ...block({
+                __component: 'lesson.prose',
+                body: 'first claim',
+                source: { videoId: 'vidA', timeSec: 100 },
+              }),
+              id: 1,
+            },
+            { ...block({ __component: 'lesson.heading', text: 'A new section', level: 'h2' }), id: 2 },
+            {
+              ...block({
+                __component: 'lesson.prose',
+                body: 'resumed claim, same source',
+                source: { videoId: 'vidA', timeSec: 101 },
+              }),
+              id: 3,
+            },
+          ]}
+          parameter={null}
+          sourceVideos={[videoA]}
+        />,
+      );
+      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(2);
+    });
+
+    it('a run of many identical citations collapses to exactly one', () => {
+      const blocks = Array.from({ length: 9 }, (_, i) => ({
+        ...block({
+          __component: 'lesson.prose',
+          body: `claim ${i}`,
+          source: { videoId: 'vidA', timeSec: 100 },
+        }),
+        id: i + 1,
+      }));
+      render(<LessonBody blocks={blocks} parameter={null} sourceVideos={[videoA]} />);
+      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(1);
+    });
+  });
+
+  describe('caption vs. citation styling (brief #5)', () => {
+    it('renders a diagram caption and its citation with visually distinct treatment', () => {
+      const knownVideo: LessonSourceVideo = {
+        documentId: 'doc-1',
+        youtubeVideoId: 'vid123',
+        videoTitle: 'Drop D Basics',
+        videoThumbnailUrl: null,
+      };
+      render(
+        <LessonBody
+          blocks={[
+            block({
+              __component: 'lesson.diagram',
+              instrument: 'guitar',
+              mode: 'explicit',
+              caption: 'The low E string, nut to 12th fret.',
+              dots: [{ string: 5, fret: 0, root: true }],
+              source: { videoId: 'vid123', timeSec: 5 },
+            }),
+          ]}
+          parameter={null}
+          sourceVideos={[knownVideo]}
+        />,
+      );
+      const caption = screen.getByText('The low E string, nut to 12th fret.');
+      const sourceLabel = screen.getByText('Source');
+      // Different elements, different classes — no longer one run of
+      // identical grey text.
+      expect(caption).not.toBe(sourceLabel);
+      expect(caption.className).toContain('italic');
+      expect(sourceLabel.className).not.toContain('italic');
+      expect(caption.className).not.toBe(sourceLabel.parentElement?.className);
+    });
+  });
 });
