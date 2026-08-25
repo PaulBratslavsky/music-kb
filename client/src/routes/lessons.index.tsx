@@ -310,6 +310,11 @@ function renderProgressEvent(event: LessonProgressEvent) {
           {event.blockCount === 1 ? '' : 's'}).
         </span>
       );
+    case 'notice':
+      // Not a failure — the run continued. Red "Failed at" on a successful
+      // generation is worse than saying nothing, because it teaches the
+      // reader to distrust a pipeline that is working.
+      return <span className="text-[var(--ink-soft)]">{event.message}</span>;
     case 'error':
       return (
         <span className="text-red-600 dark:text-red-400">
@@ -341,6 +346,25 @@ export function GenerateLessonPanel({ onGenerated }: { onGenerated: () => void }
   const [topic, setTopic] = useState('');
   const [phase, setPhase] = useState<GeneratePhase>('idle');
   const [events, setEvents] = useState<LessonProgressEvent[]>([]);
+  // What the write phase is ACTUALLY doing, derived from the last event.
+  // The sections finish long before the lesson does: illustration runs per
+  // section, then citations are ground against transcripts, then the body is
+  // assembled and saved. None of that emitted a status line, so the panel sat
+  // on "Writing each section…" through the whole tail and looked frozen.
+  const writingStage = (() => {
+    const last = [...events].reverse().find((e) => e.type !== 'notice');
+    switch (last?.type) {
+      case 'section':
+        return 'Writing each section…';
+      case 'illustrate':
+        return 'Choosing diagrams for each section…';
+      case 'grounding':
+        return 'Grounding citations against the transcripts…';
+      default:
+        return 'Assembling and saving the lesson…';
+    }
+  })();
+
   const [plan, setPlan] = useState<PlanPayload | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editHeadings, setEditHeadings] = useState<string[]>([]);
@@ -563,7 +587,13 @@ export function GenerateLessonPanel({ onGenerated }: { onGenerated: () => void }
       )}
 
       {phase === 'writing' && (
-        <p className="mt-3 text-xs text-[var(--ink-muted)]">Writing each section…</p>
+        <p className="mt-3 text-xs text-[var(--ink-muted)]">
+          {/* After the last section there is a long, previously un-narrated
+              stretch — illustration passes, citation grounding, assembly,
+              save. A static "Writing each section…" through all of it reads
+              exactly like a freeze, and was reported as one. */}
+          {writingStage}
+        </p>
       )}
 
       {phase === 'success' && saved && (

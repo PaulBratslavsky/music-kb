@@ -291,6 +291,17 @@ export type LessonProgressEvent =
        */
       repaired?: number;
     }
+  | {
+      /**
+       * Something worth telling the reader that is NOT a failure — content
+       * dropped for a good reason, a repair applied. Distinct from `error`,
+       * which means the run cannot continue. Conflating them made a
+       * successful generation render as a red "Failed at citation".
+       */
+      type: 'notice';
+      step: string;
+      message: string;
+    }
   | { type: 'grounding'; grounded: number; total: number }
   | {
       type: 'retry';
@@ -2702,10 +2713,15 @@ export async function writeLesson(
       // `section` event alone would be invisible. Non-fatal: the run
       // continues and still saves.
       if (sectionUnsourced > 0) {
+        // A NOTICE, not an error. The blocks were dropped, the section
+        // succeeded, the lesson saved. Emitting this as `error` painted a
+        // healthy run red with "Failed at citation" and made a working
+        // pipeline look broken — the signal is worth surfacing, the alarm
+        // is not.
         emit(onProgress, {
-          type: 'error',
+          type: 'notice',
           step: 'citation',
-          message: `Section "${section.heading}": ${sectionUnsourced} block${sectionUnsourced === 1 ? '' : 's'} name a source in the text but carry no citation. Check the lesson before trusting the attribution.`,
+          message: `Section "${section.heading}": ${sectionUnsourced} block${sectionUnsourced === 1 ? '' : 's'} named a source in the text but carried no citation, so ${sectionUnsourced === 1 ? 'it was' : 'they were'} dropped.`,
         });
       }
     } else {

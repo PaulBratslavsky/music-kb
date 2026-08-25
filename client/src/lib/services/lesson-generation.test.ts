@@ -2086,7 +2086,7 @@ describe('writeLesson — unlinked sourcing claims', () => {
 
   const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
 
-  it('reports an uncited verbatim quotation, on the section event and as an error frame', async () => {
+  it('reports an uncited verbatim quotation as a NOTICE, not an error — the run succeeded', async () => {
     mockedChat.mockResolvedValueOnce(
       'The rule is simple: "count frets, not notes, every single time".',
     );
@@ -2097,9 +2097,14 @@ describe('writeLesson — unlinked sourcing claims', () => {
     // Non-fatal: the lesson still generates and still saves.
     expect(result.ok).toBe(true);
     expect(events.find((e) => e.type === 'section')).toMatchObject({ unsourced: 1 });
+    // `notice`, not `error`. This used to emit an error frame, which the UI
+    // rendered as a red "Failed at citation" on a run that had succeeded and
+    // saved — reported as a broken generation. The signal is worth keeping;
+    // dressing it as a failure is not.
     expect(events).toContainEqual(
-      expect.objectContaining({ type: 'error', step: 'citation' }),
+      expect.objectContaining({ type: 'notice', step: 'citation' }),
     );
+    expect(events.some((e) => e.type === 'error')).toBe(false);
   });
 
   it('reports an uncited attribution to a source video', async () => {
