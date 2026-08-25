@@ -447,13 +447,33 @@ function Block({
       );
     }
 
-    case 'lesson.degree-chips':
+    case 'lesson.degree-chips': {
+      // A bare row of numbers means nothing on its own — "1 2 3 4 5 6 7"
+      // floating in a lesson reads as a pagination control, not a scale.
+      // Every other visual block carries a caption; this one did not, which
+      // is why it was the one block a reader could not identify. `label`
+      // names what the row IS, `caption` says what to notice about it.
+      const chipLabel = typeof block.label === 'string' ? block.label.trim() : '';
+      const chipCaption = typeof block.caption === 'string' ? block.caption.trim() : '';
       return (
-        <DegreeChips
-          degrees={Array.isArray(block.degrees) ? block.degrees.map(String) : []}
-          size={(block.size as 'sm' | 'md') ?? 'md'}
-        />
+        <figure className="m-0">
+          {chipLabel ? (
+            <figcaption className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-muted)]">
+              {chipLabel}
+            </figcaption>
+          ) : null}
+          <DegreeChips
+            degrees={Array.isArray(block.degrees) ? block.degrees.map(String) : []}
+            size={(block.size as 'sm' | 'md') ?? 'md'}
+          />
+          {chipCaption ? (
+            <figcaption className="mt-2 text-xs text-[var(--ink-muted)]">
+              {chipCaption}
+            </figcaption>
+          ) : null}
+        </figure>
       );
+    }
 
     case 'lesson.table': {
       // `headers`/`rows` are Strapi `json` columns — no shape guarantee at

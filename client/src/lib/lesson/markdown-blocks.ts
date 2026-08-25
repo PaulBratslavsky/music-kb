@@ -247,7 +247,7 @@ export const DIRECTIVE_ATTRIBUTES: Record<LessonDirectiveName, readonly string[]
   ],
   'neck-pattern': ['instrument', 'fromFret', 'toFret', 'caption', 'src'],
   'natural-notes': ['caption', 'src'],
-  'degree-chips': ['size'],
+  'degree-chips': ['label', 'caption', 'size'],
   table: ['caption'],
   'param-picker': ['label'],
   'video-ref': ['videoId', 'label', 'timeSec'],

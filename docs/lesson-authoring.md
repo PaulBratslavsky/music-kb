@@ -648,13 +648,21 @@ A row of scale-degree chips, e.g. `1 2 3 4 5 6 7` or `R ♭3 5`.
 | Field | Type | Notes |
 |---|---|---|
 | `degrees` | JSON array of strings, required | in order, e.g. `["1","2","3","4","5","6","7"]` or `["I","ii","IV","V7"]` — the field is a bare JSON array, not an enum, so any string is schema-legal; keep them short and consistent within one lesson (don't mix Arabic scale degrees and Roman-numeral chord functions in the same chip row) |
+| `label` | string | names what the row IS. **Effectively required in practice** — see below |
+| `caption` | string | max 255 chars — what to notice about the row |
 | `size` | enum, default `md` | `sm`, `md` |
+
+**Always label a chip row.** This is the one block a reader cannot identify
+from its own contents. A bare `1 2 3 4 5 6 7` sitting in a lesson reads as a
+pagination control, not a scale — that happened in a real generated lesson and
+the reader's reaction was "I have no idea what this component is". Every other
+visual block carries a caption; use these.
 
 **As a directive.** The chips go on one line, separated by spaces.
 
 ```
-::degree-chips{size=md}
-I ii iii IV V vi vii°
+::degree-chips{label="C major scale" caption="Degree 1 is the root — every chord in the key is built from these seven."}
+1 2 3 4 5 6 7
 ::
 ```
 

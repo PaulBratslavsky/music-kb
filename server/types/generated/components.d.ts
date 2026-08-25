@@ -291,7 +291,9 @@ export interface LessonDegreeChips extends Struct.ComponentSchema {
     displayName: 'Degree chips';
   };
   attributes: {
+    caption: Schema.Attribute.String;
     degrees: Schema.Attribute.JSON & Schema.Attribute.Required;
+    label: Schema.Attribute.String;
     size: Schema.Attribute.Enumeration<['sm', 'md']> &
       Schema.Attribute.DefaultTo<'md'>;
   };
