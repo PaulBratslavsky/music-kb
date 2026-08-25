@@ -231,6 +231,17 @@ export type LessonProgressEvent =
        * otherwise show up as nothing but a shorter lesson.
        */
       dropped?: number;
+      /**
+       * How many blocks in this section NAME a source in their own text —
+       * an attribution, a verbatim quotation, a source video's title —
+       * while carrying no `src` citation. Reported because an unlinked
+       * sourcing claim is the one content defect this pipeline cannot
+       * repair without guessing (see `findSourcingClaim`), and a lesson
+       * whose premise is grounded citation must not hide it. A section
+       * with any of these ALSO emits a non-fatal `error` event, since
+       * that is the only frame today's UI renders in the run log.
+       */
+      unsourced?: number;
     }
   | {
       // The illustrate pass ticks off per section, same as 'section' above,
@@ -271,6 +282,18 @@ export type LessonProgressEvent =
       tier: ModelTier;
       model: string;
     }
+  /**
+   * Something went wrong. NOT necessarily terminal: every path that fails
+   * the whole run emits one of these last, but a run can also emit one and
+   * keep going — a section that produced nothing after its retry, a
+   * section carrying unlinked sourcing claims. Those defects have no other
+   * frame that reaches the reader's screen, and the alternative (a step
+   * that shows a retry and then simply vanishes) is the silence this
+   * pipeline keeps being bitten by. Consumers should treat `error` as
+   * "surface this", and decide success from whether a terminal frame
+   * (`saved`, or an `ok: true` return) arrived — which is exactly what
+   * `lessons.index.tsx` already does.
+   */
   | { type: 'error'; step: string; message: string };
 
 type ProgressFn = (event: LessonProgressEvent) => void;
@@ -1003,6 +1026,7 @@ const SECTION_SYSTEM = [
   'Write what the passages actually say, concretely. "The minor third sits three frets up from the root" is a lesson; "focus on understanding the pattern" is filler. If a passage names a note, a fret, a string or a chord, name it too.',
   'Cite with `src=` — the exact id shown in [brackets] next to the source video that content is drawn from. It belongs on ::prose, ::callout, ::step and (as `videoId`) ::video-ref. Aim for nearly every content block to carry one: a section where most blocks are uncited is a section that drifted off its passages.',
   'NEVER write a bare video id into text a reader sees — that id is for `src` only. Refer to a source in text by its title or a natural phrase ("one video recommends…"), never by the [bracketed] id itself.',
+  'If a block NAMES a source in its own words — quotes a video verbatim, says "one video recommends…", "according to…", or names a channel or instructor — that block MUST carry `src` pointing at exactly that video. An attribution the reader cannot follow is worse than no attribution: either cite it, or make the point in your own voice without naming a source. Quote verbatim only when the exact wording matters, and always with `src`.',
   'The `[id @ m:ss]` header on each passage is metadata for you, not content: never copy a timecode or an id into the lesson text. Timecodes are added automatically afterwards.',
   'Output the markdown for this section and nothing else — no preamble, no code fence around the whole answer, no explanation of what you wrote.',
 ].join('\n');
@@ -1254,12 +1278,240 @@ function stripLeakedVideoIds(text: string, ground: GroundingContext): string {
   return result;
 }
 
+// -----------------------------------------------------------------------------
+// Prompt scaffolding must not reach the reader either.
+// -----------------------------------------------------------------------------
+//
+// `stripLeakedVideoIds` above exists because a model copied an id out of its
+// own prompt into reader-facing prose. The illustrate pass leaks a SECOND
+// kind of prompt detail the same way: it is handed the section's finished
+// text as a NUMBERED list so it can anchor `after=N`, and a live run shipped
+// a caption that referred to that numbering — a sentence about the
+// pipeline's own bookkeeping, published in a lesson. The numbering is not
+// content, the reader never sees the list, and no caption that mentions it
+// can be read into sense.
+//
+// Same treatment as a leaked id, then: remove it, tidy what's left, and SAY
+// SO (see sanitizeReaderText, which now warns on BOTH kinds of repair
+// instead of doing them in silence). The prompts were reworded too, so the
+// numbering is presented as an address rather than as a thing worth
+// describing — see ILLUSTRATION_SYSTEM — but a prompt is a request and this
+// is the enforcement.
+const PROMPT_SCAFFOLDING_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  // "block 2", "block [2]", "block index 2", "as shown in block 3", and the
+  // plural forms. A music lesson has no other use for the word.
+  {
+    label: 'a block index reference',
+    re: /\b(?:as\s+(?:shown|described|seen|listed)\s+in\s+)?blocks?\s*(?:index\s*)?[#[]?\s*-?\d+\s*\]?/gi,
+  },
+  // The framing itself: "the indexed list", "the list of blocks above".
+  {
+    label: 'the indexed-list framing',
+    re: /\b(?:the\s+)?(?:indexed\s+list|list\s+of\s+blocks|block\s+list)(?:\s+above)?\b/gi,
+  },
+  // Attribute syntax quoted out of the prompt rather than used.
+  { label: 'a placement attribute', re: /\bafter\s*=\s*-?\d+/gi },
+  { label: 'raw attribute syntax', re: /\b(?:src|videoId)\s*=\s*[^\s,;.)]+/gi },
+  { label: 'a placeholder id', re: /\bVIDEO_ID\b/g },
+  { label: 'directive syntax', re: /::[a-z][a-z-]*(?:\{[^}]*\})?/gi },
+  // A bare "[2]" left where the index used to be. Never a timecode — those
+  // are `[m:ss]` and are stripped from passages before the model sees them.
+  { label: 'a bare index reference', re: /(?<![\w:])\[\s*-?\d+\s*\]/g },
+];
+
+// Whitespace/punctuation left behind by a removal. Only ever runs when
+// something WAS removed, so it can't quietly reshape untouched text.
+function tidyAfterRemoval(text: string): string {
+  const cleaned = text
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/([,;:])\s*(?=[,.;:])/g, '')
+    .replace(/^[\s,.;:—–-]+/, '')
+    .trim();
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : cleaned;
+}
+
+/** Returns the cleaned text plus what kind of scaffolding was taken out. */
+function stripPromptScaffolding(text: string): { text: string; removed: string[] } {
+  let result = text;
+  const removed: string[] = [];
+  for (const { label, re } of PROMPT_SCAFFOLDING_PATTERNS) {
+    const next = result.replace(re, ' ');
+    if (next !== result) removed.push(label);
+    result = next;
+  }
+  if (removed.length === 0) return { text, removed };
+  return { text: tidyAfterRemoval(result), removed };
+}
+
 // Every reader-facing free-text field (prose/callout/step body+lede+title,
 // diagram/keyboard-diagram/table caption) is read through this, not a bare
-// `.trim()` — see stripLeakedVideoIds above for why.
-function sanitizeReaderText(raw: unknown, ground: GroundingContext): string {
+// `.trim()` — see stripLeakedVideoIds above for why. BOTH repairs announce
+// themselves: a silent repair is how a prompt-scaffolding caption reached a
+// live lesson unnoticed in the first place.
+function sanitizeReaderText(
+  raw: unknown,
+  ground: GroundingContext,
+  where?: Record<string, unknown>,
+): string {
   if (typeof raw !== 'string') return '';
-  return stripLeakedVideoIds(raw.trim(), ground).trim();
+  const trimmed = raw.trim();
+  const deIded = stripLeakedVideoIds(trimmed, ground);
+  if (deIded !== trimmed) {
+    ground.warn('a raw video id leaked into reader-facing text — replaced with the title', {
+      ...where,
+      text: truncate(trimmed, 160),
+    });
+  }
+  const { text: deScaffolded, removed } = stripPromptScaffolding(deIded);
+  if (removed.length > 0) {
+    ground.warn('prompt scaffolding leaked into reader-facing text — removed', {
+      ...where,
+      removed,
+      before: truncate(deIded, 160),
+      after: truncate(deScaffolded, 160),
+    });
+  }
+  return deScaffolded.trim();
+}
+
+// -----------------------------------------------------------------------------
+// A transposable diagram must not carry a caption pinned to one key.
+// -----------------------------------------------------------------------------
+//
+// `honoursLessonParameter` (below) checks the diagram's ROOT against the
+// lesson key. Nothing checked the CAPTION, and a live lesson shipped the
+// consequence: a `useParam` diagram rooted on the lesson key, captioned
+// "C, E and G — scale degrees 1, 3 and 5". Turn the picker to G and the
+// diagram redraws as G–B–D while the caption still names C, E and G. No
+// error, no empty diagram — the lesson just contradicts itself on screen.
+//
+// So a caption that names a concrete note is treated as evidence that the
+// diagram does NOT transpose, and `useParam` is switched off — the same
+// remedy the root-mismatch case already uses, for the same reason: the
+// caption is grounded, cited content and the transposition is the
+// speculative part, so the diagram stays fixed on the root its caption
+// describes. One rule, stated once: a diagram whose caption cannot survive
+// being re-keyed does not get re-keyed.
+//
+// The detector deliberately errs toward finding a note name. A false
+// positive costs one diagram its interactivity and prints a warning naming
+// the caption; a false negative publishes a lesson that argues with itself.
+
+/**
+ * String names are note letters that do NOT move when the key does — "the
+ * low E string" is the low E string in every key, and so is "the E/A pair"
+ * and "the e–B–G set" — so they are removed before the scan rather than
+ * counted as key pins. Checked against the captions of a real generated
+ * lesson; see the fixture in lesson-generation.test.ts.
+ */
+const STRING_NAME_RE =
+  /\b[A-Ga-g][#♯b♭]?(?:\s*[–—/-]\s*[A-Ga-g][#♯b♭]?)*\s*(?:strings?|set|pairs?)\b/g;
+
+/**
+ * A note letter that is not the first letter of an ordinary word: an
+ * optional accidental, an optional chord-quality suffix (`Am`, `Cmaj7`),
+ * and no letter directly either side.
+ */
+const NOTE_TOKEN_RE = /(?<![A-Za-z#♯♭])([A-G])([#♯b♭]?)(maj|min|dim|aug|sus|m|°|Δ)?(?![A-Za-z])/g;
+
+/** "C major", "G 7", "E triad" — a quality word right after the letter. */
+const QUALITY_FOLLOWS_RE =
+  /^\s*(?:major|minor|maj|min|diminished|dim|augmented|aug|sus|triad|chord|scale|arpeggio|note|root|tonic|\d)/i;
+
+/** "in the key of C", "the root note G", "rooted on D". */
+const ANCHOR_PRECEDES_RE =
+  /(?:\bkey(?:\s+of)?|\bnotes?|\broot|\btonic|\bchord|\bscale|\brooted\s+on|\bstarting\s+on|\bbased\s+on|\bin|\bon|\bto|\bfrom|\baround)\s+$/i;
+
+/** The gap between two note letters in a run: "C, E and G", "G–B–D". */
+const NOTE_RUN_GAP_RE = /^\s*(?:[,/–—+-]|and|or|to|then)?\s*$/i;
+
+export type PinnedNote = { term: string; why: string };
+
+/**
+ * The first concrete note name a caption pins itself to, or null.
+ *
+ * Exported for its own unit tests — the qualification rules below are the
+ * whole substance of this check and are much easier to pin down directly
+ * than through a full generation run.
+ */
+export function findKeyPinnedNote(caption: string): PinnedNote | null {
+  const text = stripStringNames(caption);
+  if (!text.trim()) return null;
+  const matches = [...text.matchAll(NOTE_TOKEN_RE)];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (m[2]) return { term: m[0], why: 'a note name carrying an accidental' };
+    if (m[3]) return { term: m[0], why: 'a chord name built on a note letter' };
+    const after = text.slice(end);
+    if (QUALITY_FOLLOWS_RE.test(after)) {
+      return { term: m[0], why: 'a note letter followed by a chord or scale quality' };
+    }
+    if (ANCHOR_PRECEDES_RE.test(text.slice(0, start))) {
+      return { term: m[0], why: 'a note letter introduced as a key, root or chord' };
+    }
+    const next = matches[i + 1];
+    if (next) {
+      const gap = text.slice(end, next.index ?? end);
+      if (gap.length <= 6 && NOTE_RUN_GAP_RE.test(gap)) {
+        return { term: `${m[0]}${gap}${next[0]}`, why: 'a run of note names' };
+      }
+    }
+  }
+  return null;
+}
+
+function stripStringNames(text: string): string {
+  return text.replace(STRING_NAME_RE, ' ');
+}
+
+// -----------------------------------------------------------------------------
+// Prose that names a source but carries no citation.
+// -----------------------------------------------------------------------------
+//
+// This whole pipeline's premise is that a claim in a lesson can be followed
+// back to the transcript it came from. A block that NAMES a source in its
+// own words — "one video recommends…", a channel or instructor by name, a
+// verbatim quotation — and then carries no `src` is worse than an uncited
+// generality: it advertises a provenance the reader cannot reach. A live
+// lesson shipped both shapes, including a quotation in quote marks, while
+// prose citation coverage sat around 41% against 100% for every other block
+// type.
+//
+// Detected here rather than trusted to the prompt (SECTION_SYSTEM asks for
+// it too, but a prompt is a request), and REPORTED rather than repaired:
+// guessing which video a claim came from would replace an unlinked
+// attribution with a possibly-wrong one, which is worse still. The count
+// reaches the progress stream, so it is visible per section and not only in
+// the server log.
+const SOURCING_CLAIM_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  { label: 'a verbatim quotation', re: /[“"][^”"]{12,}[”"]/ },
+  {
+    label: 'an attribution to a source video',
+    re: /\b(?:one|another|the|this|that)\s+(?:video|tutorial|instructor|teacher|source|creator|channel)\b/i,
+  },
+  { label: 'an "according to" attribution', re: /\baccording to\b/i },
+  {
+    label: 'an attribution to a named speaker',
+    re: /\bas\s+[\w'’]+\s+(?:puts it|explains|says|describes|calls)\b/i,
+  },
+];
+
+/** What makes this text read as a sourcing claim, or null. */
+function findSourcingClaim(text: string, ground: GroundingContext): string | null {
+  for (const { label, re } of SOURCING_CLAIM_PATTERNS) {
+    if (re.test(text)) return label;
+  }
+  for (const title of ground.titleByVideoId.values()) {
+    // Short titles collide with ordinary phrases; only a substantial one is
+    // evidence that the text is naming a specific source.
+    if (title.length >= 12 && text.includes(title)) {
+      return `a source video named in the text ("${truncate(title, 60)}")`;
+    }
+  }
+  return null;
 }
 
 function resolveBlockSource(
@@ -1299,6 +1551,13 @@ function resolveBlockSource(
 // WHEN in a video a block came from is decided here, by BM25 against that
 // video's real transcript chunks.
 
+/** The text blocks a `src` citation belongs on when they cite in prose. */
+const CITEABLE_TEXT_COMPONENTS = new Set([
+  'lesson.prose',
+  'lesson.callout',
+  'lesson.step',
+]);
+
 /** Every reader-facing free-text field, read through sanitizeReaderText. */
 const READER_TEXT_FIELDS = ['body', 'title', 'lede', 'caption', 'label', 'text'] as const;
 
@@ -1318,13 +1577,34 @@ function groundingTextOf(block: LessonBlock): string {
 }
 
 /**
+ * What grounding did beyond producing blocks — the numbers a caller needs
+ * to report instead of only logging.
+ */
+export type GroundingStats = {
+  /** Blocks grounding discarded (unrenderable, or citing an unknown video). */
+  dropped: number;
+  /** Text blocks that name a source in their own words but carry no `src`. */
+  unsourced: number;
+  /** Diagrams whose `useParam` was switched off (root or caption mismatch). */
+  fixedUseParam: number;
+};
+
+/**
  * Returns the SURVIVING parsed items, with their blocks grounded in place
  * — not a bare `LessonBlock[]`. Dropping is part of this function's job, so
  * a caller that needs a block's parse metadata (the illustrate pass needs
  * its `after` anchor) would silently mis-pair by array index otherwise.
+ *
+ * Also returns the counts above: every drop here used to be a log line and
+ * nothing else, so a run that lost half a section to grounding still
+ * reported `dropped: 0` to the progress stream.
  */
-function groundParsedBlocks(parsed: ParsedBlock[], ground: GroundingContext): ParsedBlock[] {
+function groundParsedBlocks(
+  parsed: ParsedBlock[],
+  ground: GroundingContext,
+): { items: ParsedBlock[]; stats: GroundingStats } {
   const out: ParsedBlock[] = [];
+  const stats: GroundingStats = { dropped: 0, unsourced: 0, fixedUseParam: 0 };
   for (const item of parsed) {
     const block = item.block;
 
@@ -1334,26 +1614,24 @@ function groundParsedBlocks(parsed: ParsedBlock[], ground: GroundingContext): Pa
     // assembly, which is the only point that sees the whole body.
     if (block.__component === 'lesson.param-picker' && !ground.parameter) {
       ground.warn('param-picker on a lesson that declares no parameter', { line: item.line });
+      stats.dropped += 1;
       continue;
     }
 
-    // `useParam` substitutes the reader's chosen key for the diagram's
-    // root, which is only meaningful when the root IS that key — see
-    // honoursLessonParameter for the live counter-example.
-    if (block.useParam === true && !honoursLessonParameter(block.root, ground.parameter)) {
-      ground.warn('useParam ignored — the diagram root does not match the lesson key', {
-        root: block.root ?? null,
-        parameterDefault: ground.parameter?.default ?? null,
-        line: item.line,
-      });
-      block.useParam = false;
-    }
-
     // Reader-facing text must never contain a raw video id: a real run
-    // produced "One fix from PS54GhZoojo is octave displacement."
+    // produced "One fix from PS54GhZoojo is octave displacement." Nor may
+    // it carry this pipeline's own prompt scaffolding — see
+    // stripPromptScaffolding. Runs BEFORE the useParam checks below, so
+    // the caption those read is the caption the reader will actually see.
     for (const field of READER_TEXT_FIELDS) {
       const value = block[field];
-      if (typeof value === 'string') block[field] = sanitizeReaderText(value, ground);
+      if (typeof value === 'string') {
+        block[field] = sanitizeReaderText(value, ground, {
+          component: block.__component,
+          field,
+          line: item.line,
+        });
+      }
     }
     if (
       (block.__component === 'lesson.prose' || block.__component === 'lesson.callout') &&
@@ -1363,7 +1641,43 @@ function groundParsedBlocks(parsed: ParsedBlock[], ground: GroundingContext): Pa
         component: block.__component,
         line: item.line,
       });
+      stats.dropped += 1;
       continue;
+    }
+
+    // `useParam` substitutes the reader's chosen key for the diagram's
+    // root. That is only coherent when TWO things hold: the root IS the
+    // lesson key (see honoursLessonParameter), and the caption does not
+    // pin the diagram to one key in words (see findKeyPinnedNote). Either
+    // failure silently desynchronises the picture from its own caption, so
+    // both switch the picker off rather than shipping the contradiction.
+    if (block.useParam === true) {
+      if (!honoursLessonParameter(block.root, ground.parameter)) {
+        ground.warn('useParam ignored — the diagram root does not match the lesson key', {
+          root: block.root ?? null,
+          parameterDefault: ground.parameter?.default ?? null,
+          line: item.line,
+        });
+        block.useParam = false;
+        stats.fixedUseParam += 1;
+      } else {
+        const caption = typeof block.caption === 'string' ? block.caption : '';
+        const pinned = findKeyPinnedNote(caption);
+        if (pinned) {
+          ground.warn(
+            'useParam ignored — the caption names a specific note, so the diagram cannot be re-keyed under it',
+            {
+              term: pinned.term,
+              why: pinned.why,
+              root: block.root ?? null,
+              caption: truncate(caption, 160),
+              line: item.line,
+            },
+          );
+          block.useParam = false;
+          stats.fixedUseParam += 1;
+        }
+      }
     }
 
     if (block.__component === 'lesson.video-ref') {
@@ -1376,11 +1690,15 @@ function groundParsedBlocks(parsed: ParsedBlock[], ground: GroundingContext): Pa
           videoId,
           line: item.line,
         });
+        stats.dropped += 1;
         continue;
       }
       const momentText =
-        sanitizeReaderText(item.moment ?? '', ground) ||
-        (typeof block.label === 'string' ? block.label : '');
+        sanitizeReaderText(item.moment ?? '', ground, {
+          component: block.__component,
+          field: 'moment',
+          line: item.line,
+        }) || (typeof block.label === 'string' ? block.label : '');
       const resolved = resolveBlockSource(videoId, momentText, ground);
       if (resolved && typeof resolved.timeSec === 'number') {
         block.timeSec = resolved.timeSec;
@@ -1401,10 +1719,52 @@ function groundParsedBlocks(parsed: ParsedBlock[], ground: GroundingContext): Pa
           src: item.src,
           line: item.line,
         });
+    } else if (CITEABLE_TEXT_COMPONENTS.has(block.__component)) {
+      // No `src` at all. Fine for a general statement; NOT fine for a block
+      // that names a source in its own text — see findSourcingClaim.
+      const text = groundingTextOf(block);
+      const claim = findSourcingClaim(text, ground);
+      if (claim) {
+        ground.warn('block names a source in its own text but carries no citation', {
+          component: block.__component,
+          claim,
+          line: item.line,
+          text: truncate(text, 200),
+        });
+        stats.unsourced += 1;
+      }
     }
     out.push(item);
   }
-  return out;
+  return { items: out, stats };
+}
+
+
+/**
+ * Reports a runaway-backstop truncation as the drop it is, and returns how
+ * many blocks it cost.
+ *
+ * Both authoring passes used to truncate their parsed block list with a
+ * bare `.slice(0, BACKSTOP)` inline — no log, and nothing added to the
+ * `dropped` count the progress stream carries. A backstop firing is rare
+ * and always interesting (it means a pass produced an order of magnitude
+ * more blocks than a section should have), so it is exactly the kind of
+ * thing that must not be inferable only from a slightly shorter lesson.
+ */
+function countBackstopOverflow(
+  topic: string,
+  label: string,
+  parsedCount: number,
+  backstop: number,
+): number {
+  const overflow = Math.max(0, parsedCount - backstop);
+  if (overflow > 0) {
+    logPhase(topic, `${label} ⚠ truncated at the runaway backstop — ${overflow} block(s) dropped`, {
+      parsed: parsedCount,
+      backstop,
+    });
+  }
+  return overflow;
 }
 
 /**
@@ -1482,7 +1842,14 @@ const ILLUSTRATIONS_PER_LESSON_BACKSTOP = 40;
 const ILLUSTRATION_SYSTEM = [
   'You are the ILLUSTRATE pass for one already-written section of a music lesson. The section\'s text is finished — you do not write or edit it. Your only job: decide what in it would be clearer SHOWN than described, and emit the diagram(s) for that.',
   'Answer in MARKDOWN, using ONLY component directives — no prose, no preamble, no explanation, no code fence around the answer. A directive opens with `::name{attributes}` on its own line and closes with a line containing only `::`. There is no self-closing form. Quote any attribute value containing a space.',
-  'You will be given the section\'s text as an indexed list of blocks. Place each illustration with `after=N`, the index of the block it should follow; `after=-1` places it before every block; omitting `after` places it at the end of the section (the common case).',
+  // Deliberately phrased as an ADDRESS, not as "an indexed list of blocks"
+  // — the old wording named a thing, and a live run shipped a caption that
+  // described it to the reader. Anything the prompt hands the model that is
+  // not lesson content has to arrive labelled as machinery, and be
+  // explicitly out of bounds for a caption; stripPromptScaffolding enforces
+  // the same rule after the fact.
+  'Placement: each line of the section text below is preceded by a number in square brackets. That number is a placement address for the `after=` attribute and nothing else — it is not part of the lesson and the reader never sees it. `after=N` puts the illustration after the line addressed N; `after=-1` puts it before everything; omitting `after` puts it at the end of the section (the common case).',
+  'A caption is read by a learner who can see only the finished lesson. NEVER mention a line number, an index, a block, a list, an attribute name, or anything else from these instructions in a caption — a caption that does is describing this prompt instead of the music, and it ships to the reader exactly as you wrote it.',
   'Not every section needs an illustration. If nothing in this section\'s text would be clearer shown than described, return an EMPTY response — zero characters. Do not write the word "none" or "nothing"; an empty answer is a correct, expected outcome, not a failure.',
   'There is no fixed count. A section naming five pentatonic positions wants five diagrams; a section explaining a relationship or a reason wants zero. Decide by fit, never by habit or to fill a quota — see the guide below for what each type is for.',
   'If the section\'s text names an ordered chord progression — a chord sequence like G–C–D, or a Roman-numeral pattern like ii–V–I — illustrate it: emit ONE diagram PER chord in the progression, in the order named, not a single diagram or none at all.',
@@ -1536,6 +1903,7 @@ const ILLUSTRATION_SYSTEM = [
   'String indices everywhere: 0 = the HIGHEST-pitched string (high e), increasing toward the lowest (5 = low E). This is the opposite of most tab numbering. fret 0 = open.',
   'Set `src` on EVERY illustration you can: the exact id shown in [brackets] next to the source video whose material the illustration shows. Nearly every diagram in a section written from one source belongs to that source — omit `src` only when the illustration genuinely draws on no single one. Never invent or guess an id.',
   '`useParam` goes on a theory-mode diagram ONLY when the user prompt below says this lesson declares a reader-controlled key picker AND this diagram\'s root IS that key. A diagram of a different scale degree — the vi chord, the vii° — keeps its own fixed root and omits useParam, because the picker replaces the root outright and would leave the caption describing a chord that is no longer on screen. Always set `root` alongside it as the fallback.',
+  'A useParam diagram\'s CAPTION must survive being re-keyed too, so it may not name a note. "C, E and G — scale degrees 1, 3 and 5" stops being true the instant the reader picks G. Caption a useParam diagram in movable terms only — scale degrees, intervals, the shape, which finger goes where. If the point you want to make needs the actual note names, keep them and omit useParam: a fixed diagram that matches its caption beats a transposing one that does not.',
 ].join('\n');
 
 // Loaded once at module scope, lazily — see getOutlineSystemWithGuide's
@@ -1583,12 +1951,12 @@ function buildIllustrationPrompt(
   return [
     `Lesson: "${outline.title}" — ${outline.summary}`,
     outline.parameter
-      ? `This lesson declares a reader-controlled ${outline.parameter.label.toLowerCase()} picker, starting on ${outline.parameter.default}. A theory-mode diagram MAY set useParam: true to follow it — but ONLY if its own root is ${outline.parameter.default}. Any diagram rooted on a different note keeps useParam: false. Always set root either way.`
+      ? `This lesson declares a reader-controlled ${outline.parameter.label.toLowerCase()} picker, starting on ${outline.parameter.default}. A theory-mode diagram MAY set useParam: true to follow it — but ONLY if its own root is ${outline.parameter.default} AND its caption names no note at all (no "${outline.parameter.default}", no note letters, no note run). Any diagram rooted on a different note, or captioned with note names, keeps useParam: false. Always set root either way.`
       : 'This lesson declares NO reader-controlled parameter — set useParam: false on every illustration.',
     '',
     `Section: "${section.heading}" — ${section.goal}`,
     '',
-    "This section's finished text, indexed for you to anchor illustrations against:",
+    "This section's finished text. The bracketed number starting each line is a placement address for `after=` — it is not content, and must not appear in a caption:",
     blocksSummary,
     '',
     'Source videos (cite by the [bracketed] id if an illustration is drawn from one):',
@@ -2157,6 +2525,7 @@ export async function writeLesson(
     const section = outline.sections[index];
     let sectionBlocks: LessonBlock[] = [];
     let sectionDropped = 0;
+    let sectionUnsourced = 0;
 
     // Retrieved ONCE per section, not per attempt — BM25 is deterministic,
     // so a retry would get the identical passages; re-running it would only
@@ -2205,15 +2574,28 @@ export async function writeLesson(
           bareText: 'prose',
         });
         logParseIssues(topic, `section "${section.heading}"`, issues);
+        // The backstop truncation is a DROP like any other — it used to
+        // happen inside the argument list, logging nothing and counting
+        // nowhere, so a section that blew the backstop reported the same
+        // `dropped` as one that didn't.
+        const overBackstop = countBackstopOverflow(
+          topic,
+          `section "${section.heading}"`,
+          parsed.length,
+          SECTION_BLOCKS_BACKSTOP,
+        );
         // Local per-section ids — reassigned sequentially once the whole
         // lesson body (text + illustrations) is flattened in step 6.
-        const built = groundParsedBlocks(parsed.slice(0, SECTION_BLOCKS_BACKSTOP), ground).map(
-          (p) => p.block,
-        );
+        const grounded = groundParsedBlocks(parsed.slice(0, SECTION_BLOCKS_BACKSTOP), ground);
+        const built = grounded.items.map((p) => p.block);
 
         if (built.length > 0) {
           sectionBlocks = built;
-          sectionDropped = issues.filter((i) => i.severity === 'error').length;
+          sectionDropped =
+            issues.filter((i) => i.severity === 'error').length +
+            overBackstop +
+            grounded.stats.dropped;
+          sectionUnsourced = grounded.stats.unsourced;
           break;
         }
         // Zero usable blocks is treated the same as a failed call: retry
@@ -2269,6 +2651,7 @@ export async function writeLesson(
       logPhase(topic, `section "${section.heading}" ✓`, {
         blocks: sectionBlocks.length,
         dropped: sectionDropped,
+        unsourced: sectionUnsourced,
       });
       emit(onProgress, {
         type: 'section',
@@ -2278,10 +2661,34 @@ export async function writeLesson(
         blocks: sectionBlocks.length,
         passages: passages.length,
         dropped: sectionDropped,
+        unsourced: sectionUnsourced,
+      });
+      // An unlinked sourcing claim cannot be repaired here without guessing
+      // which video it came from, so it is surfaced instead — and `error`
+      // is the only frame the run log actually renders, so a count on the
+      // `section` event alone would be invisible. Non-fatal: the run
+      // continues and still saves.
+      if (sectionUnsourced > 0) {
+        emit(onProgress, {
+          type: 'error',
+          step: 'citation',
+          message: `Section "${section.heading}": ${sectionUnsourced} block${sectionUnsourced === 1 ? '' : 's'} name a source in the text but carry no citation. Check the lesson before trusting the attribution.`,
+        });
+      }
+    } else {
+      // A single-section failure is non-fatal — drop it and keep going.
+      // Only "every section failed" (checked below) fails the whole run.
+      // But it must not be SILENT: this branch used to emit nothing at
+      // all, so the UI showed a retry for the section and then simply
+      // moved on, and the reader watched a step it had been promised
+      // disappear with no explanation anywhere but the server log.
+      logPhase(topic, `section "${section.heading}" ✗ dropped — no usable blocks after retry`);
+      emit(onProgress, {
+        type: 'error',
+        step: 'section',
+        message: `Section "${section.heading}" produced no usable blocks after a retry — it was dropped, and the lesson is missing that step.`,
       });
     }
-    // else: single-section failure is non-fatal — drop it and keep going.
-    // Only "every section failed" (checked below) fails the whole run.
   }
 
   if (succeededSections === 0) {
@@ -2340,11 +2747,24 @@ export async function writeLesson(
             allowAfter: true,
           });
           logParseIssues(topic, `illustrate "${section.heading}"`, issues);
-          dropped = issues.filter((i) => i.severity === 'error').length;
-          illustrations = groundParsedBlocks(
+          const grounded = groundParsedBlocks(
             parsed.slice(0, ILLUSTRATIONS_PER_SECTION_BACKSTOP),
             ground,
-          ).map((p) => ({ anchorRequested: p.after ?? null, block: p.block }));
+          );
+          // Same silent-truncation fix as the write pass above.
+          dropped =
+            issues.filter((i) => i.severity === 'error').length +
+            countBackstopOverflow(
+              topic,
+              `illustrate "${section.heading}"`,
+              parsed.length,
+              ILLUSTRATIONS_PER_SECTION_BACKSTOP,
+            ) +
+            grounded.stats.dropped;
+          illustrations = grounded.items.map((p) => ({
+            anchorRequested: p.after ?? null,
+            block: p.block,
+          }));
           // Success even when illustrations.length === 0 — "nothing here
           // earns a diagram" is a valid, expected editorial outcome for
           // this pass, unlike the write pass's "zero usable blocks", which
@@ -2383,20 +2803,23 @@ export async function writeLesson(
   const illustratedSections: SectionResult[] = sectionResults.map((sr, index) => {
     const { illustrations, dropped } = illustrationOutcomes[index];
     const kept: typeof illustrations = [];
+    let overBudget = 0;
     for (const item of illustrations) {
       if (kept.length >= ILLUSTRATIONS_PER_SECTION_BACKSTOP || lessonDiagramBudget <= 0) {
         logPhase(topic, `illustrate "${sr.heading}" ⚠ dropped illustration — over the runaway backstop`, {
           perSection: ILLUSTRATIONS_PER_SECTION_BACKSTOP,
           lessonRemaining: lessonDiagramBudget,
         });
+        overBudget += 1;
         continue;
       }
       kept.push(item);
       lessonDiagramBudget -= 1;
     }
     const blocks = kept.length > 0 ? mergeIllustrations(sr.blocks, kept) : sr.blocks;
+    const droppedTotal = dropped + overBudget;
     if (sr.blocks.length > 0) {
-      logPhase(topic, `illustrate "${sr.heading}" ✓`, { diagrams: kept.length, dropped });
+      logPhase(topic, `illustrate "${sr.heading}" ✓`, { diagrams: kept.length, dropped: droppedTotal });
     }
     emit(onProgress, {
       type: 'illustrate',
@@ -2404,7 +2827,7 @@ export async function writeLesson(
       total: sectionResults.length,
       heading: sr.heading,
       diagrams: kept.length,
-      dropped,
+      dropped: droppedTotal,
     });
     return { heading: sr.heading, blocks };
   });
@@ -2439,6 +2862,29 @@ export async function writeLesson(
       block.id = blockId;
       body.push(block);
       blockId += 1;
+    }
+  }
+
+  // A key picker the reader can move that changes NOTHING on screen is the
+  // same silence wearing a different hat. `useParam` is the only consumer
+  // of the lesson parameter's value (diagram-params.ts reads it nowhere
+  // else), so a picker with no `useParam` diagram behind it is inert. That
+  // now happens honestly — every candidate diagram can have had its
+  // `useParam` switched off for naming a note in its caption — which is
+  // exactly why it has to be said out loud instead of shipped as a control
+  // that does nothing.
+  if (paramPickerSeen) {
+    const followers = body.filter((b) => b.useParam === true).length;
+    if (followers === 0) {
+      logPhase(topic, '⚠ the key picker is inert — no diagram follows it', {
+        parameter: outline.parameter?.label ?? null,
+      });
+      emit(onProgress, {
+        type: 'error',
+        step: 'param-picker',
+        message:
+          'The lesson has a key picker but no diagram that follows it — moving the picker will change nothing on screen.',
+      });
     }
   }
 

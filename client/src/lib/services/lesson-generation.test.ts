@@ -116,6 +116,7 @@ import {
   type LessonOutline,
   type LessonProgressEvent,
   type SourceVideo,
+  findKeyPinnedNote,
   type WriteLessonInput,
 } from './lesson-generation';
 import { z } from 'zod';
@@ -1880,5 +1881,439 @@ describe('outputSchema regression guard — Anthropic 16-union-parameter cap', (
       count,
       `${name} now uses ${count} of ${ANTHROPIC_UNION_PARAM_CAP} union-typed parameters, not ${expected}. If that is intentional, update this expectation AND the schema's own comment; if it is not, you just spent budget a future block type needs.`,
     ).toBe(expected);
+  });
+});
+
+// =============================================================================
+// Adversarial-review regressions
+// -----------------------------------------------------------------------------
+// Five defects found by running the real pipeline and reading the lessons it
+// produced, not by this suite — every one of them validated, typechecked and
+// passed the tests that existed at the time. They share a shape: content
+// that is quietly wrong, or a drop that is quietly invisible.
+// =============================================================================
+
+function systemPromptOf(callIndex: number): string {
+  const args = mockedChat.mock.calls[callIndex]?.[0] as
+    | { messages: Array<{ role: string; content: string }> }
+    | undefined;
+  return args?.messages.find((m) => m.role === 'system')?.content ?? '';
+}
+
+// -----------------------------------------------------------------------------
+// 1. A transposable diagram must not carry a caption pinned to one key.
+// -----------------------------------------------------------------------------
+
+describe('findKeyPinnedNote — captions that cannot survive being re-keyed', () => {
+  it.each([
+    ['C, E and G — scale degrees 1, 3 and 5', 'the shipped counter-example: a note run'],
+    ['The shape puts F# under your first finger', 'an accidental'],
+    ['Start from the root note G and climb', 'a note introduced as a root'],
+    ['A major triad, voiced on the top three strings', 'a note letter plus a quality'],
+    ['Am is the relative minor here', 'a chord name'],
+    ['Play it in the key of D', 'a note introduced as a key'],
+  ])('flags %j — %s', (caption) => {
+    expect(findKeyPinnedNote(caption)).not.toBeNull();
+  });
+
+  it.each([
+    // The caption the existing useParam test uses — a bare sentence-initial
+    // "A" is the English article far more often than the note, and demoting
+    // every diagram captioned like this would make the picker decorative.
+    'A movable major shape.',
+    // String names do not move when the key does.
+    'The low E string anchors the whole shape.',
+    'Root, third and fifth, on the e–B–G set.',
+    // Degrees and intervals are exactly how a transposable caption should
+    // be written — the guidance the prompt now gives.
+    'Scale degrees 1, 3 and 5, wherever you put the root.',
+    'Three frets up from the root, every time.',
+  ])('does not flag %j', (caption) => {
+    expect(findKeyPinnedNote(caption)).toBeNull();
+  });
+});
+
+describe('writeLesson — useParam vs. the caption', () => {
+  beforeEach(usePassageVideos);
+
+  const withKeyOfA = (sections = [OUTLINE.sections[0]]) =>
+    writeInput({ outline: { ...OUTLINE, parameter: KEY_PARAMETER, sections } });
+
+  /** A theory diagram rooted on the lesson key — the root check passes. */
+  const onKeyDiagram = (caption: string) =>
+    [
+      '::diagram{mode=theory instrument=guitar stringSet=e–B–G useParam root=A quality=major}',
+      caption,
+      '::',
+    ].join('\n');
+
+  // The live failure: root matched the lesson key, so honoursLessonParameter
+  // said yes, and the caption named the notes anyway. Move the picker to G
+  // and the diagram redraws while the caption still says A, C# and E.
+  it('switches useParam off when the caption names the notes, keeping diagram and caption in agreement', async () => {
+    mockedChat
+      .mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::')
+      .mockResolvedValueOnce(onKeyDiagram('A, C# and E — the three notes under your hand.'));
+
+    const result = await writeLesson(withKeyOfA());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const diagram = result.lesson.body.find((b) => b.__component === 'lesson.diagram');
+    expect(diagram).toBeDefined();
+    // Kept and still drawn — just no longer re-keyed under a caption that
+    // names three specific notes.
+    expect(diagram?.root).toBe('A');
+    expect(diagram?.useParam).toBe(false);
+  });
+
+  it('leaves useParam on when the caption is written in movable terms', async () => {
+    mockedChat
+      .mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::')
+      .mockResolvedValueOnce(onKeyDiagram('Scale degrees 1, 3 and 5, from whichever root you pick.'));
+
+    const result = await writeLesson(withKeyOfA());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.find((b) => b.__component === 'lesson.diagram')?.useParam).toBe(true);
+  });
+
+  it('tells the illustrate pass that a useParam caption may not name a note', async () => {
+    mockedChat.mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::');
+    await writeLesson(withKeyOfA());
+
+    // The user prompt carries the lesson's own key; the system prompt
+    // carries the rule. Both, because the model has been given the rule in
+    // only one place before and ignored it.
+    expect(systemPromptOf(1)).toMatch(/caption[^.]*may not name a note|must survive being re-keyed/i);
+    expect(userPromptOf(1)).toContain('caption names no note at all');
+  });
+
+  // Demoting every candidate diagram can leave a picker the reader can move
+  // that changes nothing — the same silence in another form.
+  it('reports a key picker that nothing follows', async () => {
+    mockedChat.mockResolvedValueOnce(
+      ['::param-picker{label="Try it in"}', '::', '', '::prose{src=yt-A}', 'No diagram follows.', '::'].join('\n'),
+    );
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(withKeyOfA(), onProgress);
+
+    expect(result.ok).toBe(true);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'error', step: 'param-picker' }),
+    );
+  });
+});
+
+// -----------------------------------------------------------------------------
+// 2. Prompt scaffolding must not reach the reader.
+// -----------------------------------------------------------------------------
+
+describe('writeLesson — prompt scaffolding never ships', () => {
+  beforeEach(usePassageVideos);
+
+  const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
+
+  // The shipped leak: the illustrate pass is handed the section's text as a
+  // numbered list so it can anchor `after=`, and it wrote a caption about
+  // the numbering.
+  it('strips a block index out of an illustration caption', async () => {
+    mockedChat
+      .mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::')
+      .mockResolvedValueOnce(
+        [
+          '::diagram{mode=theory instrument=guitar stringSet=e–B–G root=C quality=major}',
+          'Block [2] shows the shape your hand actually holds.',
+          '::',
+        ].join('\n'),
+      );
+
+    const result = await writeLesson(oneSection());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const caption = result.lesson.body.find((b) => b.__component === 'lesson.diagram')?.caption;
+    expect(caption).toBeDefined();
+    expect(caption).not.toMatch(/block/i);
+    expect(caption).not.toContain('[2]');
+    expect(caption).toBe('Shows the shape your hand actually holds.');
+  });
+
+  it('strips scaffolding out of prose the write pass produced', async () => {
+    mockedChat.mockResolvedValueOnce('As shown in block 1, the shape moves.');
+
+    const result = await writeLesson(oneSection());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.find((b) => b.__component === 'lesson.prose')?.body).toBe(
+      'The shape moves.',
+    );
+  });
+
+  it('strips a leaked placement attribute and placeholder id', async () => {
+    mockedChat.mockResolvedValueOnce('Place this after=2 and cite VIDEO_ID for the rest.');
+
+    const result = await writeLesson(oneSection());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const body = result.lesson.body.find((b) => b.__component === 'lesson.prose')?.body as string;
+    expect(body).not.toContain('after=2');
+    expect(body).not.toContain('VIDEO_ID');
+  });
+
+  it('no longer offers the illustrate pass a quotable name for the numbering', async () => {
+    mockedChat.mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::');
+    await writeLesson(oneSection());
+
+    const system = systemPromptOf(1);
+    // The exact phrase the shipped caption echoed.
+    expect(system).not.toContain('indexed list of blocks');
+    expect(system).toMatch(/never see|never sees/i);
+    expect(system).toMatch(/NEVER mention a line number/i);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// 3. Prose that names a source but carries no citation.
+// -----------------------------------------------------------------------------
+
+describe('writeLesson — unlinked sourcing claims', () => {
+  beforeEach(usePassageVideos);
+
+  const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
+
+  it('reports an uncited verbatim quotation, on the section event and as an error frame', async () => {
+    mockedChat.mockResolvedValueOnce(
+      'The rule is simple: "count frets, not notes, every single time".',
+    );
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(oneSection(), onProgress);
+
+    // Non-fatal: the lesson still generates and still saves.
+    expect(result.ok).toBe(true);
+    expect(events.find((e) => e.type === 'section')).toMatchObject({ unsourced: 1 });
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'error', step: 'citation' }),
+    );
+  });
+
+  it('reports an uncited attribution to a source video', async () => {
+    mockedChat.mockResolvedValueOnce('One video recommends starting from the fifth instead.');
+    const { events, onProgress } = collector();
+
+    await writeLesson(oneSection(), onProgress);
+
+    expect(events.find((e) => e.type === 'section')).toMatchObject({ unsourced: 1 });
+  });
+
+  it('does not flag the same claim once it carries a citation', async () => {
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::prose{src=yt-A}',
+        'One video recommends starting from the fifth instead.',
+        '::',
+      ].join('\n'),
+    );
+    const { events, onProgress } = collector();
+
+    await writeLesson(oneSection(), onProgress);
+
+    expect(events.find((e) => e.type === 'section')).toMatchObject({ unsourced: 0 });
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('does not flag ordinary uncited prose that claims no source', async () => {
+    mockedChat.mockResolvedValueOnce('A turnaround signals the loop back to the top of the form.');
+    const { events, onProgress } = collector();
+
+    await writeLesson(oneSection(), onProgress);
+
+    expect(events.find((e) => e.type === 'section')).toMatchObject({ unsourced: 0 });
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('asks the write pass for a citation on any block that names a source', async () => {
+    mockedChat.mockResolvedValueOnce('Plain prose.');
+    await writeLesson(oneSection());
+
+    expect(systemPromptOf(0)).toMatch(/names a source in its own words/i);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// 4. The runaway backstops truncated in silence.
+// -----------------------------------------------------------------------------
+
+describe('writeLesson — backstop truncation is reported, not silent', () => {
+  beforeEach(usePassageVideos);
+
+  const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
+
+  // SECTION_BLOCKS_BACKSTOP is 40 (module-private).
+  it('counts the write pass\'s truncated blocks toward `dropped`', async () => {
+    const paragraphs = Array.from({ length: 45 }, (_, i) => `Turnaround paragraph number ${i + 1}.`);
+    mockedChat.mockResolvedValueOnce(paragraphs.join('\n\n'));
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(oneSection(), onProgress);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // 40 kept + the injected heading.
+    expect(result.lesson.body.filter((b) => b.__component === 'lesson.prose')).toHaveLength(40);
+    expect(events.find((e) => e.type === 'section')).toMatchObject({ blocks: 40, dropped: 5 });
+  });
+
+  // ILLUSTRATIONS_PER_SECTION_BACKSTOP is 10 (module-private).
+  it('counts the illustrate pass\'s truncated diagrams toward `dropped`', async () => {
+    const diagrams = Array.from({ length: 12 }, (_, i) =>
+      [
+        '::diagram{mode=theory instrument=guitar stringSet=e–B–G root=C quality=major}',
+        `Shape number ${i + 1}, higher up the neck.`,
+        '::',
+      ].join('\n'),
+    );
+    mockedChat
+      .mockResolvedValueOnce('::prose{src=yt-A}\nFive shapes, one neck.\n::')
+      .mockResolvedValueOnce(diagrams.join('\n\n'));
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(oneSection(), onProgress);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.filter((b) => b.__component === 'lesson.diagram')).toHaveLength(10);
+    expect(events.find((e) => e.type === 'illustrate')).toMatchObject({ diagrams: 10, dropped: 2 });
+  });
+
+  it('counts blocks grounding threw away toward `dropped` as well', async () => {
+    // A video-ref naming a video outside the source set is dropped by
+    // grounding, not by the parser — it used to be logged and nothing else.
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::video-ref{videoId=yt-NOPE label="Watch this"}',
+        'The moment where the shape is shown.',
+        '::',
+        '',
+        'But this paragraph is fine.',
+      ].join('\n'),
+    );
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(oneSection(), onProgress);
+
+    expect(result.ok).toBe(true);
+    expect(events.find((e) => e.type === 'section')).toMatchObject({ blocks: 1, dropped: 1 });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// 5. A section that yields nothing after both attempts emitted no event.
+// -----------------------------------------------------------------------------
+
+describe('writeLesson — a dropped section says so', () => {
+  beforeEach(usePassageVideos);
+
+  it('emits an error event naming the section that produced nothing', async () => {
+    mockedChat
+      // Section 1: two attempts, both parse to nothing usable.
+      .mockResolvedValueOnce('::prose{}\n::')
+      .mockResolvedValueOnce('::prose{}\n::')
+      // Section 2 writes normally.
+      .mockResolvedValueOnce('Descend from V to IV to I.');
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(writeInput(), onProgress);
+
+    // The run survives — one section failing is not a failed lesson.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.map((b) => b.__component)).toEqual([
+      'lesson.heading',
+      'lesson.prose',
+    ]);
+
+    // The user saw a retry for section 1 and then, before this fix, nothing
+    // at all — the step simply vanished from the run log.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        step: 'section',
+        message: expect.stringContaining(OUTLINE.sections[0].heading),
+      }),
+    );
+    expect(events.filter((e) => e.type === 'section')).toHaveLength(1);
+  });
+
+  it('emits one error per dropped section when several fail', async () => {
+    mockedChat.mockResolvedValue('::prose{}\n::');
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(writeInput(), onProgress);
+
+    // Every section failed, so the run fails — but each dropped section is
+    // still announced individually before the terminal error.
+    expect(result.ok).toBe(false);
+    const sectionErrors = events.filter(
+      (e) => e.type === 'error' && e.step === 'section',
+    );
+    // Two dropped sections + the terminal "every section failed".
+    expect(sectionErrors).toHaveLength(3);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The key-pin detector, measured against real output.
+// -----------------------------------------------------------------------------
+//
+// Every caption below came out of one real frontier generation ("CAGED
+// System: Moving Chord Shapes Around the Neck", claude-sonnet-5, 16
+// captions across 12 illustrations). A detector that demotes half of these
+// would make the key picker decorative, which is its own silent failure —
+// so the false-positive rate is pinned here against real writing rather
+// than against captions invented to pass.
+describe('findKeyPinnedNote — measured against a real generated lesson', () => {
+  const REAL_CAPTIONS = [
+    'Fret 0 to 12 on the low E and A strings, with the two half-step pairs banded — the map this whole lesson climbs.',
+    'The musical alphabet cycle, letter to letter',
+    'Which string carries the root for each CAGED shape',
+    "The C shape's root sits on the A string, third fret — the middle finger anchors it.",
+    "The A shape's root is the open A string itself, right where the shape gets its name.",
+    "The G shape's root falls on the low E string, third fret, naming this shape.",
+    "The E shape's root is the open low E string — the whole shape hangs off it.",
+    "The D shape's root lands on the open D string, framed by the top three strings.",
+    'The three primary string pairs',
+    'Every future E-shape chord starts as this exact finger pattern — only its position on the neck will change.',
+    'One fret higher, the same three fingers now form a barre instead of relying on open strings — the note under your index finger names the new chord.',
+    "Match the fret under your index finger to one of these to find the chord's name.",
+    'Frets on the low E string and the chord you get by barring the E shape there',
+    "The root and the scale's seventh degree sit one fret apart on the low string — the same half step that closes the octave.",
+  ];
+
+  it.each(REAL_CAPTIONS)('leaves a real, movable caption alone: %j', (caption) => {
+    expect(findKeyPinnedNote(caption)).toBeNull();
+  });
+
+  // The two from that same lesson that DO pin themselves. Neither diagram
+  // set useParam, so neither shipped broken — but either would have.
+  it('flags the one real caption that names chord tones', () => {
+    const caption =
+      "The E-shape scale box built around that same root: the ringed notes are the anchor you'd barre for the chord; the light dots are the C–E–G chord tones sitting inside the full scale run.";
+    expect(findKeyPinnedNote(caption)).toMatchObject({ term: 'C–E' });
+  });
+
+  // Known, accepted imprecision: slash-separated string pairs that are not
+  // followed by the word "pair" read exactly like a chord-tone run. The
+  // cost is one diagram losing its picker and printing a warning that names
+  // the caption; the alternative — letting a genuine chord-tone run through
+  // — publishes a lesson that argues with itself.
+  it('is documented to over-flag bare string-pair shorthand', () => {
+    const caption = 'Carrying it from the E/A pair into D/G and on into B/e.';
+    expect(findKeyPinnedNote(caption)).not.toBeNull();
   });
 });
