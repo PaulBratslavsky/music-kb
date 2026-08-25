@@ -43,8 +43,17 @@ function LessonPage() {
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-8 sm:py-16">
       <header className="mb-12">
+        {/* `instrument` is omitted when it is `any` — the schema default,
+            and the value a lesson gets when the outline had no instrument
+            in mind, so printing it would add a word that means nothing.
+            Anything else belongs in the eyebrow: whether this is a guitar
+            or a piano lesson is the first thing a reader wants to know,
+            and until now the field was stored and shown nowhere. */}
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
           Lesson · {lesson.level}
+          {lesson.instrument && lesson.instrument !== 'any'
+            ? ` · ${lesson.instrument}`
+            : ''}
         </p>
         <h1 className="display-title mt-1 text-3xl text-[var(--ink)] sm:text-4xl">
           {lesson.title}

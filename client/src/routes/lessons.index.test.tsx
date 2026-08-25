@@ -44,7 +44,13 @@ vi.mock('#/lib/services/lesson-stream', () => ({
   streamLessonWriteSSE: (...args: unknown[]) => streamLessonWriteSSEMock(...args),
 }));
 
-import { StatusBadge, SourcesList, ProgressStepList, GenerateLessonPanel } from './lessons.index';
+import {
+  StatusBadge,
+  InstrumentBadge,
+  SourcesList,
+  ProgressStepList,
+  GenerateLessonPanel,
+} from './lessons.index';
 
 // RTL auto-cleanup only registers itself when vitest runs with `globals:
 // true`; this config does not, so without an explicit afterEach every
@@ -65,6 +71,22 @@ describe('StatusBadge', () => {
 
   it('renders nothing for status "published"', () => {
     const { container } = render(<StatusBadge status="published" />);
+    expect(container.textContent).toBe('');
+  });
+});
+
+describe('InstrumentBadge', () => {
+  // `Lesson.instrument` was generated, stored and rendered nowhere for the
+  // whole of this branch — see docs/lesson-generation-audit.md and the
+  // render-reachability guard that caught it. These are the assertions that
+  // make it stay rendered.
+  it('names the instrument a lesson is for', () => {
+    render(<InstrumentBadge instrument="piano" />);
+    expect(screen.getByText('piano')).toBeTruthy();
+  });
+
+  it('renders nothing for "any", the default that carries no information', () => {
+    const { container } = render(<InstrumentBadge instrument="any" />);
     expect(container.textContent).toBe('');
   });
 });
