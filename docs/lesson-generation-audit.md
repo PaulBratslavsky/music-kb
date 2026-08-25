@@ -13,16 +13,21 @@ Every real lesson in the KB, oldest pipeline to newest:
 | whole-steps-and-half-steps | 24 | 2 | 14 | 6 | pipeline, + diagrams |
 | how-to-write-a-melody-that-sticks | 54 | 10 | 20 | 9 | **Claude via MCP** |
 | pentatonic-shapes-mapping-the-whole-fretboard | 57 | 16 | 44 | 7 | pipeline, two-pass |
+| how-chords-come-from-scales | 70 | 22 | 43 | 10 | pipeline, + passages |
+| …-building-triads-by-stacking-thirds | 82 | 21 | 43 | 10 | pipeline, **markdown** |
 
 Two things stand out. The pipeline was **losing badly to Claude authoring over
 MCP** — and splitting writing from illustrating closed most of that gap in one
 change.
 
+Since then the pipeline has passed the MCP lesson on every column, and cause
+1 below is fixed rather than worked around.
+
 ## Root causes
 
 Ranked by how much they cost.
 
-### 1. Structured JSON output is a capability ceiling
+### 1. Structured JSON output is a capability ceiling — **fixed**
 
 Six Anthropic structured-output restrictions, every one discovered by a live
 400 rather than a test: `temperature` rejected, `minItems > 1`, `maxItems`,
@@ -35,6 +40,32 @@ parameters**, and every optional field is a union. To stay under it we cut
 
 Result: **the pipeline can emit 5 of 10 block types. Claude over MCP reaches
 all 10.** That gap is caused by the output format, not the model.
+
+**Fixed 2026-08-25** by making markdown the authoring format (Tier 1 item 1
+below). Both generation passes now answer in markdown with inline component
+directives and a parser converts to the same typed blocks; the only
+structured-output calls left are the coverage verdict and the outline, two
+small fixed records with no vocabulary problem. Measured on three live
+frontier runs:
+
+- `lesson.chord-diagram` (7, then 9), `lesson.neck-pattern` (4) and
+  `lesson.natural-notes` (1) appeared in generated lessons for the first
+  time — three block types that had a schema, a renderer and no way to be
+  reached.
+- Explicit-mode dots, the four dot styles, inversions, fret windows and
+  barres came back with them.
+- Same-topic comparison against the pre-change pipeline: 70 → 82 blocks, 22
+  → 21 visual, 43 → 43 cited, 10 → 10 types. Roughly a wash on the counting
+  metrics and a clear win on what is *in* them — a chord lesson now shows
+  chord boxes.
+
+What it cost: the schema's guarantees have to be earned at parse time
+instead. Three of the four things the first live runs got wrong were
+recoverable rather than fatal (an unclosed directive mid-answer, a
+`barreFret=0` at the nut, an over-long caption), and the fourth — bare
+markdown paragraphs carrying no citation — was a prompt default, not a
+format limit. All four are handled; see `client/src/lib/lesson/
+markdown-blocks.ts` and its tests.
 
 ### 2. The digest compresses away what sections need
 
@@ -65,7 +96,7 @@ generation fluke. The over-tuned guard shipped anyway and now refuses valid
 topics: five videos scoring 0.70–0.77 on "what I need to know as a beginner
 guitar student" were rejected as insufficient.
 
-### 5. The vocabulary is smaller than the widget set
+### 5. The vocabulary is smaller than the widget set — **fixed**
 
 Four widgets the hand-written `web/` lessons use have no block at all:
 `LessonChordDiagram`, `NaturalNotesStrings`, `NeckPatternPicker`, `MiniPush`
@@ -85,10 +116,17 @@ at render.
 
 ### Tier 1 — raises the ceiling
 
-1. **Markdown authoring, typed-block storage.** The model writes prose with
-   inline component directives; a parser converts to the existing blocks. Every
-   restriction in cause 1 disappears and all 10 block types become reachable.
-   Validation moves to parse time, including the resolve check.
+1. **Markdown authoring, typed-block storage.** Done (2026-08-25). The model
+   writes prose with inline component directives; a parser converts to the
+   existing blocks. Every restriction in cause 1 disappears and all 13 block
+   types are reachable. Validation moved to parse time, resolve check
+   included — it now runs the renderer's own `resolveDiagramDots` /
+   `resolveDiagramMarks` on every parsed diagram.
+
+   Still open from that brief: **the MCP write tools still take JSON**, not
+   markdown. Sharing one parser needs a package `client/` and `server/` can
+   both depend on, and they share nothing today — that is an ADR-level
+   decision, not a side effect of this change.
    *Briefed: `.superpowers/sdd/lesson-markdown/`.*
 2. **Feed sections real source material.** Use the digest for the outline where
    structure is what matters; give section calls actual transcript passages via
