@@ -795,8 +795,8 @@ export type LessonOutline = {
    * re-keyable content. This is what makes a `lesson.param-picker` block
    * render at all — LessonBody returns null for a picker on a lesson with
    * no parameter — so the write pass is only allowed to emit a picker (or
-   * a `useParam` diagram) when this is non-null. See `toLessonBlock`'s
-   * `param-picker` case.
+   * a `useParam` diagram) when this is non-null. Enforced in
+   * `groundParsedBlocks`, which drops both.
    */
   parameter: GeneratedLessonParameter | null;
   sections: Array<{ heading: string; goal: string }>;
@@ -1627,8 +1627,8 @@ function honoursLessonParameter(
 /**
  * Inserts illustration blocks into a section's text blocks at their
  * requested positions. `anchorRequested` is clamped to this section's
- * actual length here (not in toIllustrationBlock, which doesn't know it
- * yet): -1 stays -1 (before everything), null resolves to "after the last
+ * actual length here rather than at parse time, which doesn't know it
+ * yet: -1 stays -1 (before everything), null resolves to "after the last
  * block" (the common case), and anything else clamps into
  * [-1, sectionBlocks.length - 1]. Multiple illustrations anchored to the
  * same index are inserted together, in the order given.

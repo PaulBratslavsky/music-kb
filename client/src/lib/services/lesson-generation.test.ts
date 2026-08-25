@@ -1677,7 +1677,7 @@ describe('outputSchema regression guard — Anthropic-incompatible JSON Schema s
 
     if ('oneOf' in obj) {
       violations.push(
-        `${path}: schema has 'oneOf' — Anthropic rejects this JSON Schema type outright. A zod z.discriminatedUnion() compiles to this; flatten it into one object with nullable per-variant fields instead (see LessonBlockOutputSchema).`,
+        `${path}: schema has 'oneOf' — Anthropic rejects this JSON Schema type outright. A zod z.discriminatedUnion() compiles to this; flatten it into one object with nullable per-variant fields instead — or, better, do what the write and illustrate passes did and stop using structured output for it.`,
       );
     }
     if ('allOf' in obj) {
@@ -1685,7 +1685,7 @@ describe('outputSchema regression guard — Anthropic-incompatible JSON Schema s
     }
     if (typeof obj.maxItems === 'number') {
       violations.push(
-        `${path}: schema has maxItems (${obj.maxItems}) — Anthropic rejects array maxItems entirely (a zod array .max(n)). Drop it and enforce the real maximum in code after the call, the way sanitizeOutline/buildSectionBlocks/toLessonBlock's table+degree-chips cases do.`,
+        `${path}: schema has maxItems (${obj.maxItems}) — Anthropic rejects array maxItems entirely (a zod array .max(n)). Drop it and enforce the real maximum in code after the call, the way sanitizeOutline does for the outline's sections and markdown-blocks.ts does for tables and degree-chips.`,
       );
     }
     if (typeof obj.minItems === 'number' && obj.minItems > 1) {
