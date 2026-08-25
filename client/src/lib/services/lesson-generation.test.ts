@@ -101,6 +101,8 @@ vi.mock('./digest', async (importOriginal) => {
   };
 });
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { chat } from '@tanstack/ai';
 import { buildBM25Index, type TranscriptChunk } from './transcript';
 import type { StrapiVideo } from './videos';
@@ -110,9 +112,6 @@ import {
   writeLesson,
   CoverageVerdictSchema,
   LessonOutlineSchema,
-  SectionBlocksSchema,
-  IllustrationItemSchema,
-  SectionIllustrationsSchema,
   COVERAGE_SYSTEM,
   type LessonOutline,
   type LessonProgressEvent,
@@ -678,21 +677,20 @@ describe('writeLesson — input validation', () => {
 describe('writeLesson — happy path', () => {
   it('assembles blocks from the per-section calls, injecting headings deterministically', async () => {
     mockedChat
-      .mockResolvedValueOnce({
-        blocks: [
-          {
-            type: 'prose',
-            body: 'A turnaround signals the loop back to the top of the form.',
-            sourceVideoId: 'yt-A',
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        blocks: [
-          { type: 'step', number: 1, title: 'Play the V chord', lede: null, body: 'Start on the V.', sourceVideoId: null },
-          { type: 'degree-chips', degrees: ['V', 'IV', 'I'], size: 'md' },
-        ],
-      });
+      .mockResolvedValueOnce(
+        '::prose{src=yt-A}\nA turnaround signals the loop back to the top of the form.\n::',
+      )
+      .mockResolvedValueOnce(
+        [
+          '::step{title="Play the V chord"}',
+          'Start on the V.',
+          '::',
+          '',
+          '::degree-chips{}',
+          'V IV I',
+          '::',
+        ].join('\n'),
+      );
 
     const result = await writeLesson(writeInput());
 
@@ -724,9 +722,7 @@ describe('writeLesson — happy path', () => {
   });
 
   it('emits `section` and `grounding` progress events, then no `saved` event (persistence is the route\'s job)', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [{ type: 'prose', body: 'Content grounded in video A.', sourceVideoId: 'yt-A' }],
-    });
+    mockedChat.mockResolvedValueOnce('::prose{src=yt-A}\nContent grounded in video A.\n::');
     const { events, onProgress } = collector();
 
     const result = await writeLesson(
@@ -742,11 +738,9 @@ describe('writeLesson — happy path', () => {
 
 describe('writeLesson — model tier', () => {
   function oneSectionMock() {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'prose', body: 'blues turnarounds and shapes content for video A', sourceVideoId: 'yt-A' },
-      ],
-    });
+    mockedChat.mockResolvedValueOnce(
+      '::prose{src=yt-A}\nblues turnarounds and shapes content for video A\n::',
+    );
   }
   const oneSectionOutline = { ...OUTLINE, sections: [OUTLINE.sections[0]] };
 
@@ -800,12 +794,10 @@ describe('writeLesson — model tier', () => {
 describe('writeLesson — citation grounding', () => {
   const oneSectionOutline = { ...OUTLINE, sections: [OUTLINE.sections[0]] };
 
-  it('grounds a valid sourceVideoId to a real BM25 timecode from that video only', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'prose', body: 'blues turnarounds and shapes content for video A', sourceVideoId: 'yt-A' },
-      ],
-    });
+  it('grounds a valid src to a real BM25 timecode from that video only', async () => {
+    mockedChat.mockResolvedValueOnce(
+      '::prose{src=yt-A}\nblues turnarounds and shapes content for video A\n::',
+    );
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }));
 
@@ -818,9 +810,9 @@ describe('writeLesson — citation grounding', () => {
   });
 
   it('drops a citation naming a video outside the source set', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [{ type: 'prose', body: 'Content citing an unrelated video.', sourceVideoId: 'yt-not-in-the-set' }],
-    });
+    mockedChat.mockResolvedValueOnce(
+      '::prose{src=yt-not-in-the-set}\nContent citing an unrelated video.\n::',
+    );
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }));
 
@@ -830,32 +822,38 @@ describe('writeLesson — citation grounding', () => {
     expect(prose.source).toBeUndefined();
   });
 
-  it('never trusts a model-supplied timeSec — grounding decides it', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        {
-          type: 'prose',
-          body: 'blues turnarounds and shapes content for video A',
-          sourceVideoId: 'yt-A',
-          timeSec: 999999,
-        },
-      ],
-    });
+  // A timecode the model produced is not merely ignored — on a prose block
+  // it is not a legal attribute at all, so the whole block is rejected by
+  // name. Grounding decides `timeSec`, always.
+  it('never trusts a model-authored timeSec — the attribute is rejected and grounding decides', async () => {
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::prose{src=yt-A timeSec=999999}',
+        'A block that tried to author its own timecode.',
+        '::',
+        '',
+        '::prose{src=yt-A}',
+        'blues turnarounds and shapes content for video A',
+        '::',
+      ].join('\n'),
+    );
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
-    const source = prose.source as { videoId: string; timeSec?: number };
+    const prose = result.lesson.body.filter((b) => b.__component === 'lesson.prose');
+    expect(prose).toHaveLength(1);
+    expect(prose[0].body).toBe('blues turnarounds and shapes content for video A');
+    const source = prose[0].source as { videoId: string; timeSec?: number };
     expect(source.timeSec).not.toBe(999999);
     expect(source.timeSec).toBe(42);
   });
 
   it('yields videoId only, no timeSec, when grounding is weak', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [{ type: 'prose', body: 'completely unrelated words xylophone quokka zeppelin', sourceVideoId: 'yt-A' }],
-    });
+    mockedChat.mockResolvedValueOnce(
+      '::prose{src=yt-A}\ncompletely unrelated words xylophone quokka zeppelin\n::',
+    );
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }));
 
@@ -868,12 +866,17 @@ describe('writeLesson — citation grounding', () => {
   });
 
   it('reports grounding stats via the `grounding` progress event', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'prose', body: 'blues turnarounds and shapes content for video A', sourceVideoId: 'yt-A' },
-        { type: 'prose', body: 'completely unrelated words xylophone quokka zeppelin', sourceVideoId: 'yt-A' },
-      ],
-    });
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::prose{src=yt-A}',
+        'blues turnarounds and shapes content for video A',
+        '::',
+        '',
+        '::prose{src=yt-A}',
+        'completely unrelated words xylophone quokka zeppelin',
+        '::',
+      ].join('\n'),
+    );
     const { events, onProgress } = collector();
 
     await writeLesson(writeInput({ outline: oneSectionOutline }), onProgress);
@@ -886,18 +889,12 @@ describe('writeLesson — citation grounding', () => {
 describe('writeLesson — assembly fixes', () => {
   it('renumbers steps sequentially across sections instead of restarting per section', async () => {
     mockedChat
-      .mockResolvedValueOnce({
-        blocks: [
-          { type: 'step', number: 1, title: 'First step', lede: null, body: null, sourceVideoId: null },
-          { type: 'step', number: 2, title: 'Second step', lede: null, body: null, sourceVideoId: null },
-        ],
-      })
-      .mockResolvedValueOnce({
-        blocks: [
-          { type: 'step', number: 1, title: 'Third step', lede: null, body: null, sourceVideoId: null },
-          { type: 'step', number: 2, title: 'Fourth step', lede: null, body: null, sourceVideoId: null },
-        ],
-      });
+      .mockResolvedValueOnce(
+        '::step{title="First step"}\n::\n\n::step{title="Second step"}\n::',
+      )
+      .mockResolvedValueOnce(
+        '::step{title="Third step"}\n::\n\n::step{title="Fourth step"}\n::',
+      );
 
     const result = await writeLesson(writeInput());
 
@@ -908,9 +905,7 @@ describe('writeLesson — assembly fixes', () => {
   });
 
   it('strips a trailing colon and whitespace from step titles', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [{ type: 'step', number: 1, title: 'Identify the Root:  ', lede: null, body: null, sourceVideoId: null }],
-    });
+    mockedChat.mockResolvedValueOnce('::step{title="Identify the Root:  "}\n::');
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -920,13 +915,13 @@ describe('writeLesson — assembly fixes', () => {
     expect(step.title).toBe('Identify the Root');
   });
 
-  it('drops a model-emitted heading inside a section, keeping only the injected one', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'heading', text: 'A DIFFERENT drifted heading', level: 'h2' },
-        { type: 'prose', body: 'Section content.', sourceVideoId: null },
-      ],
-    });
+  // `::heading` is not in the write pass's directive set, so a model
+  // heading is now REJECTED by name at the offending line rather than
+  // dropped in silence the way buildSectionBlocks used to.
+  it('rejects a model-emitted heading inside a section, keeping only the injected one', async () => {
+    mockedChat.mockResolvedValueOnce(
+      '::heading{level=h2}\nA DIFFERENT drifted heading\n::\n\nSection content.',
+    );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -941,12 +936,16 @@ describe('writeLesson — assembly fixes', () => {
 
 describe('writeLesson — block validation', () => {
   it('drops a malformed block but keeps the rest of the section', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'prose' }, // missing required `body` — invalid
-        { type: 'callout', tone: 'tip', body: 'Turnarounds often use a chromatic walk-down.', sourceVideoId: null },
-      ],
-    });
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::prose{}', // empty body — a prose block that renders as nothing
+        '::',
+        '',
+        '::callout{tone=tip}',
+        'Turnarounds often use a chromatic walk-down.',
+        '::',
+      ].join('\n'),
+    );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -955,13 +954,16 @@ describe('writeLesson — block validation', () => {
     expect(result.lesson.body.map((b) => b.__component)).toEqual(['lesson.heading', 'lesson.callout']);
   });
 
-  it('drops a block of a disallowed type (e.g. diagram)', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'diagram', instrument: 'guitar', root: 'E', quality: 'maj' },
-        { type: 'prose', body: 'Turnarounds reset the harmonic loop.', sourceVideoId: null },
-      ],
-    });
+  it('drops a directive this pass may not emit (e.g. ::diagram)', async () => {
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::diagram{root=E quality=major stringSet=e–B–G}',
+        'A diagram the write pass may not draw.',
+        '::',
+        '',
+        'Turnarounds reset the harmonic loop.',
+      ].join('\n'),
+    );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -972,9 +974,9 @@ describe('writeLesson — block validation', () => {
 
   it('truncates an over-long table caption to 255 chars instead of failing', async () => {
     const longCaption = 'x'.repeat(300);
-    mockedChat.mockResolvedValueOnce({
-      blocks: [{ type: 'table', headers: ['Bar', 'Chord'], rows: [['11', 'V7']], caption: longCaption }],
-    });
+    mockedChat.mockResolvedValueOnce(
+      [`::table{caption="${longCaption}"}`, '| Bar | Chord |', '|---|---|', '| 11 | V7 |', '::'].join('\n'),
+    );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -986,17 +988,10 @@ describe('writeLesson — block validation', () => {
     expect((table!.caption as string).length).toBe(255);
   });
 
-  it('coerces non-string headers/rows/degrees with String()', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        {
-          type: 'table',
-          headers: ['Bar', 1 as unknown as string],
-          rows: [[11 as unknown as string, 'V7']],
-          caption: null,
-        },
-      ],
-    });
+  it('stores every table cell as a string — a markdown table has no other type', async () => {
+    mockedChat.mockResolvedValueOnce(
+      ['::table{}', '| Bar | 1 |', '|---|---|', '| 11 | V7 |', '::'].join('\n'),
+    );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -1005,6 +1000,46 @@ describe('writeLesson — block validation', () => {
     const table = result.lesson.body.find((b) => b.__component === 'lesson.table');
     expect(table!.headers).toEqual(['Bar', '1']);
     expect(table!.rows).toEqual([['11', 'V7']]);
+  });
+
+  // The markdown equivalent of the old schema's row/column mismatch check —
+  // enforced at parse time now, with the row's own line number.
+  it('drops a table whose row does not match the header count, keeping the rest', async () => {
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::table{}',
+        '| Bar | Chord |',
+        '|---|---|',
+        '| 11 |',
+        '::',
+        '',
+        'The turnaround still gets explained.',
+      ].join('\n'),
+    );
+
+    const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lesson.body.map((b) => b.__component)).toEqual(['lesson.heading', 'lesson.prose']);
+  });
+
+  // The parse-rejection count reaches the progress stream, not only the log:
+  // with the model authoring in markdown, a rejected block would otherwise
+  // show up as nothing but a slightly shorter lesson.
+  it('reports how many blocks the parser rejected, via the `section` progress event', async () => {
+    mockedChat.mockResolvedValueOnce(
+      ['::callout{tone=urgent}', 'Not a legal tone.', '::', '', 'But this paragraph is fine.'].join('\n'),
+    );
+    const { events, onProgress } = collector();
+
+    await writeLesson(
+      writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }),
+      onProgress,
+    );
+
+    const section = events.find((e) => e.type === 'section');
+    expect(section).toMatchObject({ type: 'section', blocks: 1, dropped: 1 });
   });
 });
 
@@ -1022,9 +1057,7 @@ describe('writeLesson — contradictions', () => {
         },
       ],
     };
-    mockedChat.mockResolvedValueOnce({
-      blocks: [{ type: 'prose', body: 'Baseline content.', sourceVideoId: null }],
-    });
+    mockedChat.mockResolvedValueOnce('Baseline content.');
 
     const result = await writeLesson(
       writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] }, digest: digestWithContradiction }),
@@ -1045,9 +1078,7 @@ describe('writeLesson — contradictions', () => {
   });
 
   it('adds no contradiction blocks when the digest has none', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [{ type: 'prose', body: 'Baseline content.', sourceVideoId: null }],
-    });
+    mockedChat.mockResolvedValueOnce('Baseline content.');
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -1062,10 +1093,8 @@ describe('writeLesson — section retry', () => {
 
   it('retries a failed section call once, then succeeds using the retry result', async () => {
     mockedChat
-      .mockRejectedValueOnce(new Error('model returned invalid json'))
-      .mockResolvedValueOnce({
-        blocks: [{ type: 'prose', body: 'Descend from V to IV to I.', sourceVideoId: null }],
-      });
+      .mockRejectedValueOnce(new Error('model call failed'))
+      .mockResolvedValueOnce('Descend from V to IV to I.');
     const { events, onProgress } = collector();
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }), onProgress);
@@ -1095,10 +1124,8 @@ describe('writeLesson — section retry', () => {
 
   it('retries a section that returns zero usable blocks once, then succeeds', async () => {
     mockedChat
-      .mockResolvedValueOnce({ blocks: [{ type: 'prose' }] }) // invalid — missing body
-      .mockResolvedValueOnce({
-        blocks: [{ type: 'prose', body: 'Now with a real block.', sourceVideoId: null }],
-      });
+      .mockResolvedValueOnce('::prose{}\n::') // empty body — nothing usable
+      .mockResolvedValueOnce('Now with a real block.');
     const { events, onProgress } = collector();
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }), onProgress);
@@ -1113,9 +1140,7 @@ describe('writeLesson — section retry', () => {
   });
 
   it('does NOT retry a thin (but non-empty) section — a single block is accept-and-log', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [{ type: 'prose', body: 'Just one block.', sourceVideoId: null }],
-    });
+    mockedChat.mockResolvedValueOnce('Just one block.');
     const { events, onProgress } = collector();
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }), onProgress);
@@ -1142,11 +1167,9 @@ describe('writeLesson — section retry', () => {
 
   it('skips a section whose every attempt fails and still returns a lesson from the rest', async () => {
     mockedChat
-      .mockRejectedValueOnce(new Error('model returned invalid json'))
-      .mockRejectedValueOnce(new Error('model returned invalid json'))
-      .mockResolvedValueOnce({
-        blocks: [{ type: 'prose', body: 'Descend from V to IV to I.', sourceVideoId: null }],
-      });
+      .mockRejectedValueOnce(new Error('model call failed'))
+      .mockRejectedValueOnce(new Error('model call failed'))
+      .mockResolvedValueOnce('Descend from V to IV to I.');
 
     const result = await writeLesson(writeInput());
 
@@ -1230,7 +1253,7 @@ function usePassageVideos() {
 describe('writeLesson — sections are written from transcript passages, not digest themes', () => {
   beforeEach(() => {
     usePassageVideos();
-    mockedChat.mockResolvedValue({ blocks: [{ type: 'prose', body: 'x', sourceVideoId: null }] });
+    mockedChat.mockResolvedValue('Passage-derived prose.');
   });
 
   const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
@@ -1356,12 +1379,16 @@ describe('writeLesson — param-picker', () => {
     writeInput({ outline: { ...OUTLINE, parameter: KEY_PARAMETER, sections } });
 
   it('emits a param-picker and persists the lesson parameter that makes it render', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'param-picker', label: 'Try it in', body: null, sourceVideoId: null },
-        { type: 'prose', body: 'Move the shape to any root.', sourceVideoId: 'yt-A' },
-      ],
-    });
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::param-picker{label="Try it in"}',
+        '::',
+        '',
+        '::prose{src=yt-A}',
+        'Move the shape to any root.',
+        '::',
+      ].join('\n'),
+    );
 
     const result = await writeLesson(withParameter());
 
@@ -1376,12 +1403,9 @@ describe('writeLesson — param-picker', () => {
   });
 
   it('drops a param-picker on a lesson that declares no parameter — it would render as nothing', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'param-picker', label: 'Key', body: null, sourceVideoId: null },
-        { type: 'prose', body: 'Still real content.', sourceVideoId: 'yt-A' },
-      ],
-    });
+    mockedChat.mockResolvedValueOnce(
+      ['::param-picker{label="Key"}', '::', '', '::prose{src=yt-A}', 'Still real content.', '::'].join('\n'),
+    );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -1394,12 +1418,8 @@ describe('writeLesson — param-picker', () => {
 
   it('keeps only the FIRST param-picker when independently-generated sections each emit one', async () => {
     mockedChat
-      .mockResolvedValueOnce({
-        blocks: [{ type: 'param-picker', label: 'First', body: null, sourceVideoId: null }],
-      })
-      .mockResolvedValueOnce({
-        blocks: [{ type: 'param-picker', label: 'Second', body: null, sourceVideoId: null }],
-      });
+      .mockResolvedValueOnce('::param-picker{label="First"}\n::')
+      .mockResolvedValueOnce('::param-picker{label="Second"}\n::');
 
     const result = await writeLesson(withParameter(OUTLINE.sections));
 
@@ -1410,38 +1430,19 @@ describe('writeLesson — param-picker', () => {
     expect(pickers[0].label).toBe('First');
   });
 
-  const diagramItem = (overrides: Record<string, unknown> = {}) => ({
-    type: 'diagram',
-    mode: 'theory',
-    afterBlockIndex: null,
-    sourceVideoId: null,
-    instrument: 'guitar',
-    root: 'A',
-    quality: 'major',
-    stringSet: 'e–B–G',
-    inversion: null,
-    fretWindow: null,
-    octaves: null,
-    dots: null,
-    marks: null,
-    useParam: true,
-    caption: 'A movable major shape.',
-    ...overrides,
-  });
+  /** One theory-mode diagram, as the illustrate pass now answers: markdown. */
+  const diagramMd = (attrs = 'root=A quality=major', caption = 'A movable major shape.') =>
+    [`::diagram{mode=theory instrument=guitar stringSet=e–B–G useParam ${attrs}}`, caption, '::'].join('\n');
 
   it('honours a diagram\'s useParam only when the lesson has a parameter', async () => {
-    const illustration = diagramItem();
-    const section = { blocks: [{ type: 'prose', body: 'The shape moves.', sourceVideoId: 'yt-A' }] };
+    const illustration = diagramMd();
+    const section = '::prose{src=yt-A}\nThe shape moves.\n::';
 
-    mockedChat
-      .mockResolvedValueOnce(section)
-      .mockResolvedValueOnce({ illustrations: [illustration] });
+    mockedChat.mockResolvedValueOnce(section).mockResolvedValueOnce(illustration);
     const withParam = await writeLesson(withParameter());
 
     mockedChat.mockReset();
-    mockedChat
-      .mockResolvedValueOnce(section)
-      .mockResolvedValueOnce({ illustrations: [illustration] });
+    mockedChat.mockResolvedValueOnce(section).mockResolvedValueOnce(illustration);
     const withoutParam = await writeLesson(
       writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }),
     );
@@ -1454,7 +1455,7 @@ describe('writeLesson — param-picker', () => {
     // silently redraw an A-major diagram in C.
     expect(
       withoutParam.lesson.body.find((b) => b.__component === 'lesson.diagram')?.useParam,
-    ).toBeUndefined();
+    ).toBe(false);
   });
 
   // Caught by a live frontier run, not by any of the above: the model set
@@ -1465,15 +1466,11 @@ describe('writeLesson — param-picker', () => {
   // `honoursLessonParameter`.
   it('ignores useParam on a diagram rooted somewhere other than the lesson key, keeping the fixed root', async () => {
     mockedChat
-      .mockResolvedValueOnce({
-        blocks: [{ type: 'prose', body: 'The seventh degree is diminished.', sourceVideoId: 'yt-A' }],
-      })
-      .mockResolvedValueOnce({
-        illustrations: [
-          // Lesson key is A (KEY_PARAMETER.default); this is the vii°.
-          diagramItem({ root: 'G', quality: 'diminished', caption: 'The vii° chord.' }),
-        ],
-      });
+      .mockResolvedValueOnce('::prose{src=yt-A}\nThe seventh degree is diminished.\n::')
+      .mockResolvedValueOnce(
+        // Lesson key is A (KEY_PARAMETER.default); this is the vii°.
+        diagramMd('root=G quality=diminished', 'The vii° chord.'),
+      );
 
     const result = await writeLesson(withParameter());
 
@@ -1484,7 +1481,7 @@ describe('writeLesson — param-picker', () => {
     // Still drawn — just fixed on its own root, which is what the caption
     // describes. Dropping the diagram would lose real content.
     expect(diagram?.root).toBe('G');
-    expect(diagram?.useParam).toBeUndefined();
+    expect(diagram?.useParam).toBe(false);
   });
 });
 
@@ -1494,20 +1491,15 @@ describe('writeLesson — video-ref', () => {
   const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
 
   it('emits a video-ref whose timeSec is BM25-grounded from the moment description, never taken from the model', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        {
-          type: 'video-ref',
-          sourceVideoId: 'yt-A',
-          label: 'Watch the turnaround demonstrated',
-          // Never rendered — this is the grounding query.
-          body: 'A turnaround signals the loop back to the top of the twelve bar blues form.',
-          // A model-supplied timecode is not even in the schema; if one
-          // arrives anyway it must be ignored.
-          timeSec: 999,
-        },
-      ],
-    });
+    mockedChat.mockResolvedValueOnce(
+      [
+        // The `timeSec` attribute is refused with a warning, not honoured.
+        '::video-ref{videoId=yt-A label="Watch the turnaround demonstrated" timeSec=999}',
+        // Never rendered — the body is the grounding query.
+        'A turnaround signals the loop back to the top of the twelve bar blues form.',
+        '::',
+      ].join('\n'),
+    );
 
     const result = await writeLesson(oneSection());
 
@@ -1524,12 +1516,17 @@ describe('writeLesson — video-ref', () => {
   });
 
   it('drops a video-ref naming a video outside the lesson\'s source set rather than shipping a dead link', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        { type: 'video-ref', sourceVideoId: 'yt-NOPE', label: 'Watch this', body: 'anything' },
-        { type: 'prose', body: 'Real content survives.', sourceVideoId: 'yt-A' },
-      ],
-    });
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::video-ref{videoId=yt-NOPE label="Watch this"}',
+        'anything',
+        '::',
+        '',
+        '::prose{src=yt-A}',
+        'Real content survives.',
+        '::',
+      ].join('\n'),
+    );
 
     const result = await writeLesson(oneSection());
 
@@ -1540,16 +1537,13 @@ describe('writeLesson — video-ref', () => {
   });
 
   it('falls back to the default link text rather than rendering an unlabelled link', async () => {
-    mockedChat.mockResolvedValueOnce({
-      blocks: [
-        {
-          type: 'video-ref',
-          sourceVideoId: 'yt-A',
-          label: null,
-          body: 'A turnaround signals the loop back to the top of the twelve bar blues form.',
-        },
-      ],
-    });
+    mockedChat.mockResolvedValueOnce(
+      [
+        '::video-ref{videoId=yt-A}',
+        'A turnaround signals the loop back to the top of the twelve bar blues form.',
+        '::',
+      ].join('\n'),
+    );
 
     const result = await writeLesson(oneSection());
 
@@ -1721,8 +1715,6 @@ describe('outputSchema regression guard — Anthropic-incompatible JSON Schema s
   it.each([
     ['CoverageVerdictSchema', CoverageVerdictSchema],
     ['LessonOutlineSchema', LessonOutlineSchema],
-    ['SectionBlocksSchema', SectionBlocksSchema],
-    ['SectionIllustrationsSchema', SectionIllustrationsSchema],
   ])('%s compiles to a JSON Schema with none of the four Anthropic-incompatible shapes', (name, schema) => {
     const jsonSchema = toDraft07JsonSchema(schema);
     const violations = findAnthropicViolations(jsonSchema, name);
@@ -1786,6 +1778,49 @@ describe('outputSchema regression guard — Anthropic-incompatible JSON Schema s
 // fields (e.g. inside an array's `items`) count against the same request
 // budget as a top-level one.
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Regression guard #3: the guards above only bind the schemas they are
+// HANDED. The failure they cannot see is a third `outputSchema` arriving in
+// this module and never being added to the lists — which is exactly how the
+// write and illustrate passes accumulated their restrictions in the first
+// place. So this reads lesson-generation.ts's own source and asserts that
+// the only schemas reaching `outputSchema:` are the two the lists above
+// cover. It is the same "grep the real thing, never an abstraction that
+// would prove the code agrees with itself" stance as
+// block-vocabulary.test.ts.
+//
+// Adding a third structured-output call is allowed — but it has to be a
+// deliberate edit here AND in both lists above, not a quiet addition that
+// passes green until a live 400.
+// -----------------------------------------------------------------------------
+describe('outputSchema regression guard — which calls use one at all', () => {
+  const SOURCE = readFileSync(
+    resolve(process.cwd(), 'src/lib/services/lesson-generation.ts'),
+    'utf8',
+  );
+  const GUARDED = ['CoverageVerdictSchema', 'LessonOutlineSchema'];
+
+  it('passes outputSchema only from the schemas the guards above cover', () => {
+    const used = [...SOURCE.matchAll(/outputSchema:\s*([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+    expect(used.length, 'no outputSchema call sites found — the regex broke, not the code').toBeGreaterThan(0);
+    const unguarded = [...new Set(used)].filter((name) => !GUARDED.includes(name));
+    expect(
+      unguarded,
+      `these schemas reach outputSchema but no Anthropic-compatibility guard covers them: ${unguarded.join(', ')}. Add them to both it.each lists above.`,
+    ).toEqual([]);
+  });
+
+  it('the write and illustrate passes ask for markdown, not structured output', () => {
+    // The single fact this whole change rests on. If either pass regains an
+    // outputSchema, every restriction in the guards above comes back with
+    // it — and so does the 16-union ceiling on the block vocabulary.
+    expect(SOURCE).toContain('allowed: WRITE_DIRECTIVES');
+    expect(SOURCE).toContain('allowed: ILLUSTRATE_DIRECTIVES');
+    expect(SOURCE).not.toContain('SectionBlocksSchema');
+    expect(SOURCE).not.toContain('SectionIllustrationsSchema');
+  });
+});
+
 describe('outputSchema regression guard — Anthropic 16-union-parameter cap', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function toDraft07JsonSchema(schema: any): unknown {
@@ -1813,8 +1848,6 @@ describe('outputSchema regression guard — Anthropic 16-union-parameter cap', (
   it.each([
     ['CoverageVerdictSchema', CoverageVerdictSchema],
     ['LessonOutlineSchema', LessonOutlineSchema],
-    ['SectionBlocksSchema', SectionBlocksSchema],
-    ['SectionIllustrationsSchema', SectionIllustrationsSchema],
   ])('%s stays at or under the 16 union-typed-parameter cap', (name, schema) => {
     const count = countUnionParams(toDraft07JsonSchema(schema));
     expect(count, `${name} has ${count} union-typed (anyOf) parameters — Anthropic rejects a structured-output request over ${ANTHROPIC_UNION_PARAM_CAP}`).toBeLessThanOrEqual(
@@ -1831,11 +1864,6 @@ describe('outputSchema regression guard — Anthropic 16-union-parameter cap', (
     expect(countUnionParams(toDraft07JsonSchema(tooMany))).toBe(17);
   });
 
-  it('IllustrationItemSchema alone (the richest single schema in this pipeline) also stays under the cap', () => {
-    const count = countUnionParams(toDraft07JsonSchema(IllustrationItemSchema));
-    expect(count).toBeLessThanOrEqual(ANTHROPIC_UNION_PARAM_CAP);
-  });
-
   // The ≤16 assertions above tell you a schema is legal. They do NOT tell
   // you how much room is left, which is the number that actually decides
   // whether the next block type can be added — `param-picker` and
@@ -1846,8 +1874,6 @@ describe('outputSchema regression guard — Anthropic 16-union-parameter cap', (
   it.each([
     ['CoverageVerdictSchema', CoverageVerdictSchema, 2],
     ['LessonOutlineSchema', LessonOutlineSchema, 3],
-    ['SectionBlocksSchema', SectionBlocksSchema, 11],
-    ['SectionIllustrationsSchema', SectionIllustrationsSchema, 12],
   ])('%s spends exactly the union budget it is documented to spend', (name, schema, expected) => {
     const count = countUnionParams(toDraft07JsonSchema(schema));
     expect(

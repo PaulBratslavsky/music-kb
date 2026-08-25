@@ -243,3 +243,55 @@ describe('lesson-authoring.md — stringSet en-dash fidelity', () => {
   // a single labeled counter-example elsewhere is documentation, not
   // drift.
 });
+
+// -----------------------------------------------------------------------------
+// 5. Directives, not just JSON field names.
+// -----------------------------------------------------------------------------
+//
+// The generator authors in markdown now, so "the guide documents this
+// block" is no longer satisfied by a field table alone — a model reading
+// the entry has to be able to WRITE the block. Every dynamic-zone
+// component therefore needs its directive form shown in its own entry, and
+// the syntax section both generation prompts inject has to exist.
+//
+// The stricter half of this check — that a directive's attribute names
+// really are the component's field names, in both directions — lives in
+// markdown-blocks.test.ts, against the parser itself. This one guards the
+// DOCUMENT, which is what actually reaches the model.
+describe('lesson-authoring.md — directive coverage', () => {
+  const dynamicZoneComponents: string[] = lessonSchema.attributes.body.components;
+
+  it('has the directive-syntax section both generation prompts inject', () => {
+    // authoring-guide.ts throws at generation time if this heading moves;
+    // failing here first turns that into a test failure instead of a
+    // half-written lesson prompt.
+    expect(guide).toContain('### Writing the body as markdown directives');
+    expect(guide).toContain('closes with a line containing **only `::`**');
+  });
+
+  it.each(dynamicZoneComponents.map((c): [string, string] => [c, c]))(
+    "%s's entry shows how to write it as a directive",
+    (_label, component) => {
+      const directive = `::${component.replace(/^lesson\./, '')}`;
+      const heading = `### \`${component}\``;
+      const start = guide.indexOf(heading);
+      expect(start, `no reference entry for ${component}`).toBeGreaterThan(-1);
+      // Up to the next same-or-shallower heading, the same slice
+      // authoring-guide.ts's extractSection() feeds into the prompt.
+      const rest = guide.slice(start + heading.length);
+      const nextIdx = rest.search(/\n#{1,3}\s/);
+      const section = nextIdx === -1 ? rest : rest.slice(0, nextIdx);
+      expect(
+        section.includes(directive),
+        `${component}'s guide entry never shows \`${directive}\` — a model reading it cannot write the block`,
+      ).toBe(true);
+    },
+  );
+
+  it('names the two attributes that are not fields, and only those', () => {
+    const start = guide.indexOf('### Writing the body as markdown directives');
+    const section = guide.slice(start, guide.indexOf('### `lesson.prose`'));
+    expect(section).toContain('`src=<youtubeVideoId>`');
+    expect(section).toContain('`after=<n>`');
+  });
+});

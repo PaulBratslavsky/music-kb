@@ -18,19 +18,28 @@
 //   3. context  — title + summary + musicExtraction per source video, plus
 //                 the digest's cross-video synthesis
 //   4. outline  — ONE chat() call → { title, summary, level, sections[] }
-//   5. sections (WRITE) — ONE chat() call PER section → text blocks only
-//                 (prose/callout/step/table/degree-chips, as many or as few
-//                 as the content needs) — no diagram type is even in this
-//                 call's schema; the section heading is injected
+//   5. sections (WRITE) — ONE chat() call PER section → MARKDOWN, parsed
+//                 into text blocks only (prose/callout/step/table/
+//                 degree-chips/video-ref/param-picker, as many or as few as
+//                 the content needs). No drawing directive is available to
+//                 this pass at all; the section heading is injected
 //                 deterministically, never trusted from the model
 //   5.5. illustrate — a SEPARATE chat() call PER section, run CONCURRENTLY
 //                 (each section's call is independent), given that
 //                 section's own finished text: decides what would be
-//                 clearer shown than described and returns diagram/
-//                 keyboard-diagram blocks plus where each belongs. Split
-//                 from step 5 on purpose — see that step's own comment.
+//                 clearer shown than described and answers in MARKDOWN with
+//                 the five drawing directives plus where each belongs.
+//                 Split from step 5 on purpose — see that step's comment.
 //   6. assemble — flatten to LessonBlock[], renumber steps + ids, append
 //                 contradiction callouts, drop anything invalid
+//
+// Steps 5 and 5.5 ask for MARKDOWN and parse it (see
+// client/src/lib/lesson/markdown-blocks.ts); steps 1.5 and 4 still use
+// structured output, because a coverage verdict and an outline are small
+// fixed records with no vocabulary problem. That split is why the
+// Anthropic schema-lint guard in lesson-generation.test.ts now covers two
+// schemas instead of four, and asserts that no third one has crept back
+// into a markdown pass.
 //
 // This mirrors the map-reduce shape in learning.ts (many small model calls,
 // one deterministic assembly step) and the structured-extraction shape in
@@ -84,14 +93,12 @@ import {
   getIllustrationGuideExcerpt,
 } from '#/lib/lesson/authoring-guide';
 import {
-  resolveDiagramDots,
-  resolveDiagramMarks,
-  type DiagramBlock,
-  type KeyboardDiagramBlock,
-  type NeckDotInput,
-  type KeyMarkInput,
-} from '#/lib/lesson/diagram-params';
-import { STRING_SETS } from '@music-kb/music/theory/triad-shapes';
+  formatIssues,
+  parseLessonMarkdown,
+  type LessonDirectiveName,
+  type ParsedBlock,
+  type ParseIssue,
+} from '#/lib/lesson/markdown-blocks';
 import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 import {
   DIGEST_MAX_VIDEOS,
@@ -128,7 +135,7 @@ import {
   listAllVideosForEmbeddingWithStatusService,
   type StrapiVideo,
 } from '#/lib/services/videos';
-import type { JsonValue, LessonBlock } from '#/lib/services/lessons';
+import type { LessonBlock } from '#/lib/services/lessons';
 
 // Translates a caught error's message through the tier-appropriate friendly
 // mapper. Frontier errors get the non-echoing Anthropic mapper (never
@@ -216,6 +223,14 @@ export type LessonProgressEvent =
        * prompt would then be inert with nothing to show for it.
        */
       passages?: number;
+      /**
+       * How many blocks the markdown parser REJECTED on this pass — a bad
+       * enum, an unknown directive, a diagram that would draw nothing.
+       * Reported rather than only logged: since the model now authors in
+       * markdown, a parse rejection is the one failure mode that would
+       * otherwise show up as nothing but a shorter lesson.
+       */
+      dropped?: number;
     }
   | {
       // The illustrate pass ticks off per section, same as 'section' above,
@@ -230,6 +245,14 @@ export type LessonProgressEvent =
       total: number;
       heading: string;
       diagrams: number;
+      /**
+       * How many blocks the markdown parser REJECTED on this pass — a bad
+       * enum, an unknown directive, a diagram that would draw nothing.
+       * Reported rather than only logged: since the model now authors in
+       * markdown, a parse rejection is the one failure mode that would
+       * otherwise show up as nothing but a shorter lesson.
+       */
+      dropped?: number;
     }
   | { type: 'grounding'; grounded: number; total: number }
   | {
@@ -469,14 +492,18 @@ async function rankVideosByTopic(topic: string): Promise<RankedVideo[]> {
 // failure), same as before; a `covered: false` verdict is a correct answer,
 // not an error, and re-asking the same question against the same sources
 // won't change it.
-// Exported (along with LessonOutlineSchema and SectionBlocksSchema below)
-// so lesson-generation.test.ts can walk every schema actually passed to
+// Exported (along with LessonOutlineSchema below) so
+// lesson-generation.test.ts can walk every schema actually passed to
 // `outputSchema` and assert none of them carries an array `.min(n)` with
 // n > 1 — Anthropic's structured-output validator 400s on that (see
 // LessonOutlineSchema's `sections` field comment for the exact error).
 // This schema itself has no arrays today, but it's exported alongside the
-// other two so the guard test enumerates "every outputSchema", not a
-// hand-picked subset that can silently miss the next one added here.
+// other one so the guard test enumerates "every outputSchema", not a
+// hand-picked subset that can silently miss the next one added here. These
+// two are now the ONLY structured-output calls in the pipeline — the write
+// and illustrate passes answer in markdown — and the guard test reads this
+// file's source to assert exactly that, so a third one cannot arrive
+// unguarded.
 export const CoverageVerdictSchema = z.object({
   covered: z
     .boolean()
@@ -885,205 +912,102 @@ function sanitizeOutline(raw: unknown): LessonOutline | null {
 }
 
 // -----------------------------------------------------------------------------
-// Step 5: sections — one small structured call PER section
+// Step 5: sections — one small MARKDOWN call PER section
 // -----------------------------------------------------------------------------
-
-// `heading` stays in the allowed `type` enum defensively (a local model
-// can ignore instructions) but the pipeline never trusts a model-emitted
-// heading — see `buildSectionBlocks` below, which drops any `type:
-// 'heading'` block a section call returns and injects the outline's
-// heading instead.
 //
-// NOT a z.discriminatedUnion here, even though the six block shapes really
-// are one — Anthropic's structured-output schema support rejects the
-// `oneOf` a discriminated union compiles to: a real run against the live
-// frontier tier 400'd every single section call with
-// `output_config.format.schema: Schema type 'oneOf' is not supported`,
-// caught only by exercising this against Anthropic for real (Ollama, the
-// local tier, accepts a discriminated union fine — another instance of the
-// pattern documented on LessonOutlineSchema's `sections` field above).
-// Flattened instead: one object with every field from every block type,
-// each nullable and `.describe()`d with which type(s) it belongs to.
-// `toLessonBlock` below already treats the model's response as fully
-// untrusted content — it reads fields off a `Record<string, unknown>` by
-// name per `type`, never assuming the schema's shape — so flattening this
-// costs nothing on the sanitization side; only the schema declaration
-// changes.
-// Reused, not re-typed: the theory layer (`@music-kb/music`) is the single
-// source of truth for the 4 guitar string-set names (with their EN DASH
-// separators) — see docs/lesson-authoring.md's `stringSet` field of
-// `lesson.diagram` for why byte-identical fidelity here matters: a
-// hyphenated string-set lookalike is a different (and empty-rendering)
-// value. Cast to a non-empty tuple only because zod's `.enum()` wants that
-// shape at the type level — the runtime values come straight from the
-// theory package, never hand-copied. (PITCH_CLASS_ENUM is declared much
-// further up, next to the outline schema, because the outline call needs
-// it too — see its own comment there.)
-const STRING_SET_ENUM = STRING_SETS.map((s) => s.name) as [string, ...string[]];
-// Triads only — the theory layer only voices triads, so a seventh-chord
-// quality can never be rendered. See docs/lesson-authoring.md's
-// `lesson.diagram.quality` row for why this specific four-value list is
-// the whole set, not an example of it.
-const TRIAD_QUALITY_ENUM = ['major', 'minor', 'augmented', 'diminished'] as const;
+// This pass used to ask for structured JSON against a flattened block
+// schema, and it is where every Anthropic structured-output restriction on
+// this branch was paid for: `oneOf` rejected (so the discriminated union
+// had to be flattened into one object of nullable fields), array
+// `minItems`/`maxItems` rejected, integer bounds rejected, and — the
+// expensive one — a hard cap of 16 union-typed parameters per request that
+// pinned the reachable vocabulary at 5 of 13 block types while Claude
+// authoring over MCP reached all 13.
+//
+// It now asks for MARKDOWN with inline component directives and parses the
+// answer. See client/src/lib/lesson/markdown-blocks.ts for the syntax and
+// for where the validation went — it MOVED to parse time, it did not
+// disappear. Nothing downstream changed: storage, renderer, MCP tools, the
+// videos relation and citations all still see the same typed blocks.
+//
+// `heading` is deliberately NOT in this pass's directive set. The section
+// heading is injected from the outline and never trusted from the model —
+// and the parser now says so out loud, with an error naming the line,
+// where `buildSectionBlocks` used to drop a model heading in silence.
 
-// Text blocks ONLY — no diagram type in this enum at all. Diagrams are the
-// separate ILLUSTRATE pass's job (see the schema and system prompt further
-// below), given this pass's finished text; see docs/lesson-authoring.md's
-// "Generation is two passes" note for why splitting frees up schema budget
-// (the combined schema used to sit at 15 union-typed/nullable fields, which
-// forced dropping inversion/fromFret/toFret/explicit-mode dots+marks and
-// locking generation to theory-mode-only diagrams — see
-// SectionIllustrationsSchema below for how much room a schema with no
-// prose fields has instead).
-// `param-picker` and `video-ref` are back in this enum as of the passage
-// change. They were cut when the combined write+illustrate schema sat at
-// the ceiling of Anthropic's 16 union-typed-parameter cap; the two-pass
-// split moved every diagram field out of this schema, and restoring both
-// costs exactly ONE new union-typed field (`label`) because `video-ref`
-// re-uses `sourceVideoId` for its target and `body` for its (never
-// rendered, grounding-only) moment description. Count after: 11 of 16 —
-// see lesson-generation.test.ts's union-cap guard, which asserts it.
-const LessonBlockOutputSchema = z.object({
-  type: z.enum(['prose', 'callout', 'step', 'table', 'degree-chips', 'param-picker', 'video-ref']),
-  // heading
-  body: z
-    .string()
-    .nullable()
-    .describe(
-      'prose/callout/step/video-ref: prose is markdown paragraph(s) (MAX 2000 chars), callout is one short aside (MAX 500 chars), step is optional detail markdown. On video-ref ONLY, this is NOT shown to the reader — it is a short description of the moment you are pointing at, in the source video\'s own words as far as you can recall them, used to locate the timecode. Null for heading/table/degree-chips/param-picker.',
-    ),
-  sourceVideoId: z
-    .string()
-    .nullable()
-    .describe(
-      'prose/callout/step/video-ref only: the youtubeVideoId (copied exactly from the [bracketed] id in the source list) that THIS content is drawn from — on video-ref, the video it links TO (REQUIRED there) — or null if it synthesizes multiple sources evenly. Never invent an id — only use one from the list. Copy this id into THIS field only, never into the block\'s own text (body/caption/label) — a reader-facing sentence must never contain a raw video id; refer to a source by its title or a natural phrase instead. Null for heading/table/degree-chips/param-picker.',
-    ),
-  // callout
-  tone: z
-    .enum(['note', 'tip', 'warning'])
-    .nullable()
-    .describe('callout only: the aside tone. Null for every other type.'),
-  // step. Plain z.number(), NOT .int() — zod compiles `.int()` to a JSON
-  // schema `{"type":"integer","minimum":...,"maximum":...}` with implicit
-  // safe-integer bounds (caught in a real run: Anthropic 400s with
-  // "output_config.format.schema: For 'integer' type, properties maximum,
-  // minimum are not supported" — the SAME "Anthropic rejects bounds on
-  // primitive schema types" pattern as the array minItems/maxItems bugs
-  // above, just on numbers instead of arrays). `toLessonBlock` below
-  // already coerces this to an integer >= 1 defensively regardless of what
-  // the schema declares, so dropping `.int()` here costs nothing at
-  // runtime.
-  number: z
-    .number()
-    .nullable()
-    .describe('step only: the step number, starting at 1. Null for every other type.'),
-  title: z
-    .string()
-    .nullable()
-    .describe('step only: verb-led short step title. MAX 120 characters. Null for every other type.'),
-  lede: z
-    .string()
-    .nullable()
-    .describe('step only: one-sentence lede, or null. Null for every other type.'),
-  // table
-  headers: z
-    .array(z.string())
-    .nullable()
-    .describe('table only: column headers. Null for every other type.'),
-  // NOT .max() on headers/rows/degrees below — Anthropic rejects `maxItems`
-  // on any array at all (see LessonOutlineSchema's `sections` comment for
-  // the exact error and where THAT was caught). TABLE_HEADERS_MAX /
-  // TABLE_ROWS_MAX / DEGREE_CHIPS_MAX enforce the caps in code instead, in
-  // toLessonBlock below.
-  rows: z
-    .array(z.array(z.string()))
-    .nullable()
-    .describe('table only: rows, each an array of cell strings. Null for every other type.'),
-  caption: z
-    .string()
-    .nullable()
-    .describe(
-      'table/diagram/keyboard-diagram only: MAX 255 characters, or null. On diagram/keyboard-diagram, a caption that adds information beyond "here is a diagram" — e.g. why the third\'s dot sits where it does, not just that it\'s a triad. Never a raw video id — refer to a source by title/natural phrase, the id belongs in sourceVideoId. Null for every other type.',
-    ),
-  // degree-chips
-  degrees: z
-    .array(z.string())
-    .nullable()
-    .describe('degree-chips only: scale degrees like "I", "ii", "IV", "V7". Null for every other type.'),
-  // param-picker / video-ref. ONE field for both, deliberately — it means
-  // the same thing on each (the visible text of the control/link) and a
-  // second nullable string would cost a second union-typed parameter for
-  // no gain. See this schema's own header comment on the 16-union cap.
-  label: z
-    .string()
-    .nullable()
-    .describe(
-      'param-picker/video-ref only: param-picker — the picker\'s label, or null to use the lesson parameter\'s own. video-ref — the link text, a short verb phrase naming what the reader will see there (e.g. "Watch the barre-chord demo"), MAX 120 characters. Null for every other type.',
-    ),
-}).strict();
-
-// Code-enforced maxima for the array fields Anthropic won't let the schema
-// cap (see the `table`/`degree-chips` schema comments above). Matches the
-// bounds the system prompt still asks for — these are backstops against a
-// model that ignores the prompt, not the primary control.
-const TABLE_HEADERS_MAX = 6;
-const TABLE_ROWS_MAX = 12;
-const DEGREE_CHIPS_MAX = 12;
-
-export const SectionBlocksSchema = z.object({
-  // NOT .min(2) AND NOT .max(4) here — same two Anthropic array-schema
-  // restrictions as LessonOutlineSchema's `sections` above (minItems other
-  // than 0/1 rejected; maxItems rejected outright). "A section with one
-  // block is thin" is tracked in code below via MIN_SECTION_BLOCKS
-  // (logged, reported via a `section` progress event); the upper bound is
-  // enforced by `buildSectionBlocks` slicing to SECTION_BLOCKS_BACKSTOP.
-  blocks: z.array(LessonBlockOutputSchema),
-}).strict();
+/**
+ * The directives the WRITE pass may emit — text only. Diagrams belong to
+ * the separate ILLUSTRATE pass (see its own header below); giving this
+ * call the diagram vocabulary is what made a diagram an afterthought.
+ */
+const WRITE_DIRECTIVES = [
+  'prose',
+  'callout',
+  'step',
+  'table',
+  'degree-chips',
+  'param-picker',
+  'video-ref',
+] as const satisfies readonly LessonDirectiveName[];
 
 // NOT a shaping cap — the brief this branch implements ("stop templating")
 // deleted the old MAX_SECTION_BLOCKS=4 shaping behaviour deliberately: a
 // section's real length should be decided by what it needs to teach, not a
 // constant invented up front. This is only a runaway backstop, an order of
-// magnitude above the old shaping cap, so a badly-behaved model can't emit
-// an unbounded array (Anthropic rejects a schema `maxItems`, so this has
-// to live in code either way — see the schema comment above).
+// magnitude above the old shaping cap.
 const SECTION_BLOCKS_BACKSTOP = 40;
 
-// The target "2 to 4 blocks" a section should contain — see the schema
-// comment above for why this can't live in the schema itself for the
-// frontier tier. A section with 0 usable blocks is retried once (see the
-// section loop in `writeLesson`); a section with 1..MIN_SECTION_BLOCKS-1
-// usable blocks stays accept-and-log — a thin-but-grounded section is real
-// content, and failing/retrying it over a 1-vs-2 block count would cost an
-// extra call for a quantity target, not a correctness one. Checked against
-// the SANITIZED block count (after toLessonBlock has dropped anything
-// invalid), not the raw model output count, so a section that named 3
-// blocks but had 2 rejected is correctly flagged thin.
+// The target a section should contain. A section with 0 usable blocks is
+// retried once (see the section loop in `writeLesson`); a section with
+// 1..MIN_SECTION_BLOCKS-1 stays accept-and-log — a thin-but-grounded
+// section is real content, and failing it over a 1-vs-2 block count would
+// cost an extra call for a quantity target, not a correctness one.
+// Checked AFTER parsing + grounding, so a section that wrote three blocks
+// and had two rejected is correctly flagged thin.
 const MIN_SECTION_BLOCKS = 2;
 
-// WRITE pass only — no diagram guidance here at all. This call never sees
-// the diagram vocabulary and its schema has no diagram fields (see
-// LessonBlockOutputSchema's comment above); the ILLUSTRATE pass further
-// below is given this pass's finished text and decides what earns a
-// diagram, entirely separately. Do not reintroduce diagram language here —
-// that reunites the two passes this branch split apart.
+// WRITE pass only — no diagram guidance here at all. Do not reintroduce
+// diagram language; that reunites the two passes this branch split apart.
 const SECTION_SYSTEM = [
-  'You write ONE section of a music lesson as short structured content blocks — as many as the content actually needs, not a fixed count.',
-  'Allowed block types: prose, callout, step, table, degree-chips, video-ref, param-picker. Never use any other type — diagrams are added separately, by a later pass, after this section\'s text is finished. Do not try to describe a diagram in prose either; if something would be clearer shown than described, say what it is and trust the illustration pass to show it.',
-  'Do NOT emit a `heading` block. The section heading is added automatically from the outline — start straight in with content.',
-  'Use `step` for sequenced instructions, `table` for comparisons, `degree-chips` for scale-degree sequences, `callout` for a short aside that carries one specific, checkable fact, `prose` for the reasoning that connects them — why, not just what.',
-  'Use `video-ref` when a source shows something a reader really should watch rather than read — a demonstration, a sound, a hand position. Set `sourceVideoId` to the video, `label` to the link text, and `body` to a short description of that exact moment (in the video\'s own words as best you recall them) — the `body` is never shown to the reader, it is what locates the timecode. At most one or two per section; it is a pointer, not a substitute for teaching the material.',
-  'Use `param-picker` ONLY if the user prompt below says this lesson declares a reader-controlled parameter. At most ONE per lesson, placed early in the section it belongs to. On a lesson with no parameter it renders as nothing at all, so never emit one speculatively.',
+  'You write ONE section of a music lesson as MARKDOWN.',
+  'Ordinary prose is ordinary markdown: write paragraphs and they become the lesson\'s prose. Anything richer is an inline component directive.',
+  'A directive opens with `::name{attributes}` on its own line and closes with a line containing only `::`. There is no self-closing form — every directive has a closing `::`, even one with an empty body. Quote any attribute value containing a space, e.g. title="Fret the root".',
+  '',
+  'Worked example of a section:',
+  '',
+  'The minor third sits three frets above the root, so on the low E string an open E puts it at fret 3.',
+  '',
+  '::callout{tone=tip src=VIDEO_ID}',
+  'Count frets, not notes: every fret is one half step, no exceptions anywhere on the neck.',
+  '::',
+  '',
+  '::step{title="Find the root"}',
+  'Fret the low E at 5 — that is A.',
+  '::',
+  '',
+  '::table{caption="Counting up from an open low E"}',
+  '| Interval | Half steps | Fret |',
+  '|---|---|---|',
+  '| Minor 3rd | 3 | 3 |',
+  '| Major 3rd | 4 | 4 |',
+  '::',
+  '',
+  'Available directives in THIS pass, and nothing else: ::prose, ::callout, ::step, ::table, ::degree-chips, ::video-ref, ::param-picker. Diagrams are added separately, by a later pass, after this section\'s text is finished. Do not describe a diagram in prose either; if something would be clearer shown than described, say what it is and trust the illustration pass to show it.',
+  'Do NOT write a heading — no `#` line and no ::heading. The section heading is added automatically from the outline; start straight in with content.',
+  'Directive reference: ::callout{tone=note|tip|warning src=…} with the aside as its body. ::step{title="…" lede="…" src=…} with optional markdown as its body. ::table{caption="…"} with a markdown table as its body — every row must have exactly as many cells as the header. ::degree-chips{size=sm|md} with the chips on one line, e.g. `I ii IV V7`. ::prose{src=…} when a paragraph needs a citation. ::video-ref{videoId=… label="…"}. ::param-picker{label="…"}.',
+  'Use `::step` for sequenced instructions, `::table` for comparisons, `::degree-chips` for scale-degree sequences, `::callout` for a short aside that carries one specific, checkable fact, and plain paragraphs for the reasoning that connects them — why, not just what.',
+  'Use `::video-ref` when a source shows something a reader really should watch rather than read — a demonstration, a sound, a hand position. Set `videoId` to the video, `label` to the link text, and the BODY to a short description of that exact moment (in the video\'s own words as best you recall them) — the body is never shown to the reader, it is what locates the timecode. At most one or two per section; it is a pointer, not a substitute for teaching the material.',
+  'Use `::param-picker` ONLY if the user prompt below says this lesson declares a reader-controlled parameter. At most ONE per lesson, placed early in the section it belongs to. On a lesson with no parameter it renders as nothing at all, so never emit one speculatively.',
   'Ground content in the PASSAGES quoted from the source transcripts below. They are the actual words of the videos — prefer their specifics (note names, fret numbers, chord names, the exact wording of a rule) over generalities. Do not invent chords, keys, techniques, or songs the passages and source list do not mention.',
   'Write what the passages actually say, concretely. "The minor third sits three frets up from the root" is a lesson; "focus on understanding the pattern" is filler. If a passage names a note, a fret, a string or a chord, name it too.',
-  'On every prose/callout/step/video-ref block, set `sourceVideoId` to the exact id shown in [brackets] next to the source video this content is drawn from, or null if the content blends several sources evenly. Copy the id exactly — never invent or guess one.',
-  'NEVER write a bare video id into a block\'s own text (body/label) — that id is for `sourceVideoId` only. Refer to a source in text by its title or a natural phrase ("one video recommends..."), never by the [bracketed] id itself.',
-  'The `[id @ m:ss]` header on each passage is metadata for you, not content: never copy a timecode or an id into a block\'s text. Timecodes are added automatically afterwards.',
-  'Every block shares one field set (each field belongs to only some block types — see each field\'s own description for which). Set every field that does not apply to this block\'s `type` to null; only fill in the fields that belong to the chosen type.',
+  'Cite with `src=` — the exact id shown in [brackets] next to the source video that content is drawn from. It belongs on ::prose, ::callout, ::step and (as `videoId`) ::video-ref. A paragraph that blends several sources evenly needs no citation and can stay plain markdown; a paragraph drawn from ONE source should be written as ::prose{src=…} so the citation survives.',
+  'NEVER write a bare video id into text a reader sees — that id is for `src` only. Refer to a source in text by its title or a natural phrase ("one video recommends…"), never by the [bracketed] id itself.',
+  'The `[id @ m:ss]` header on each passage is metadata for you, not content: never copy a timecode or an id into the lesson text. Timecodes are added automatically afterwards.',
+  'Output the markdown for this section and nothing else — no preamble, no code fence around the whole answer, no explanation of what you wrote.',
 ].join('\n');
 
 // Loaded once at module scope — see OUTLINE_GUIDE_EXCERPT's comment above.
-// The block-reference entries for exactly the text block types this call is
+// The directive-reference entries for exactly the block types this call is
 // allowed to emit, plus the judgment on what makes those blocks good rather
 // than generic (see getSectionBlockGuideExcerpt's own comment). Lazy for the
 // same reason as getOutlineSystemWithGuide above.
@@ -1270,16 +1194,9 @@ function buildSectionPrompt(
   return parts.join('\n');
 }
 
-// Truncate on a hard boundary (no ellipsis) — captions are short labels, not
-// prose, so an ellipsis reads oddly. Matches the brief's "truncate, don't
-// fail" rule for the 255-char Strapi `string` cap on `caption`.
-const CAPTION_MAX = 255;
-
-// `lesson.param-picker.label` / `lesson.video-ref.label` are Strapi
-// `string` columns (255) but are rendered as a control label and a link —
-// both want to stay on one line, so they're capped well below the column.
-const PARAM_PICKER_LABEL_MAX = 40;
-const VIDEO_REF_LABEL_MAX = 120;
+// The caption / label length caps that used to live here moved into
+// markdown-blocks.ts, alongside every other limit the output schema used to
+// carry — one place, applied to both authoring passes.
 
 // -----------------------------------------------------------------------------
 // Citation grounding — never trust a timecode the model produced. The model
@@ -1364,241 +1281,169 @@ function resolveBlockSource(
   return evidence ? { videoId, timeSec: evidence.timeSec } : { videoId };
 }
 
-// Validates + coerces ONE raw block from the model into a LessonBlock, or
-// drops it. Deliberately does NOT trust that `raw` matches
-// LessonBlockOutputSchema's inferred type — `chat()` only enforces that
-// against a live Ollama call; here we treat the value as fully untrusted
-// content (same stance as sanitizeMusicExtraction / sanitizeSummary).
-// Returns null for anything that fails validation, including block types
-// outside the seven this WRITE pass is allowed to emit — lesson.diagram /
-// lesson.keyboard-diagram are never in this call's schema at all, let alone
-// this function; see toIllustrationBlock further below for those two,
-// which is the separate ILLUSTRATE pass's equivalent of this function.
-// Never reads a model-supplied `timeSec` — there isn't one in the schema,
-// and even if a model emits an unrequested extra field, this function only
-// ever pulls known fields off `r`, so it's ignored by construction.
+// -----------------------------------------------------------------------------
+// From parsed blocks to grounded blocks
+// -----------------------------------------------------------------------------
+//
+// `parseLessonMarkdown` is pure: it validates shape, enforces every enum
+// and length rule, and drops anything the renderer could not draw. What it
+// cannot know is which videos THIS lesson may cite, whether the lesson
+// declares a parameter, and what a real timecode is. That is this
+// function's job — and it is shared by BOTH passes, which is why `src` is
+// one attribute across the whole directive vocabulary rather than two
+// spellings.
+//
+// Never reads a model-supplied `timeSec`: the parser refuses to carry one
+// at all (its `trustTimeSec` option is false everywhere in generation), and
+// WHEN in a video a block came from is decided here, by BM25 against that
+// video's real transcript chunks.
+
+/** Every reader-facing free-text field, read through sanitizeReaderText. */
+const READER_TEXT_FIELDS = ['body', 'title', 'lede', 'caption', 'label', 'text'] as const;
+
+/** The text a block is grounded BY — what BM25 matches against the transcript. */
+function groundingTextOf(block: LessonBlock): string {
+  switch (block.__component) {
+    case 'lesson.step':
+      return [block.title, block.lede, block.body]
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+        .join('. ');
+    case 'lesson.prose':
+    case 'lesson.callout':
+      return typeof block.body === 'string' ? block.body : '';
+    default:
+      return typeof block.caption === 'string' ? block.caption : '';
+  }
+}
+
 /**
- * Explicit-mode dots/marks come straight from the model, so every field is
- * re-derived rather than trusted. Returns null for anything unusable — the
- * resolve check downstream then drops the whole diagram if too little
- * survives. Shared by toIllustrationBlock below (the only caller now that
- * diagram fields are gone from the write pass's schema).
+ * Returns the SURVIVING parsed items, with their blocks grounded in place
+ * — not a bare `LessonBlock[]`. Dropping is part of this function's job, so
+ * a caller that needs a block's parse metadata (the illustrate pass needs
+ * its `after` anchor) would silently mis-pair by array index otherwise.
  */
-function normalizeNeckDot(raw: unknown): NeckDotInput | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const d = raw as Record<string, unknown>;
-  const string = Number(d.string);
-  const fret = Number(d.fret);
-  if (!Number.isFinite(string) || string < 0 || string > 5) return null;
-  if (!Number.isFinite(fret) || fret < 0) return null;
-  const out: NeckDotInput = { string: Math.floor(string), fret: Math.floor(fret) };
-  if (typeof d.label === 'string' && d.label.trim()) out.label = d.label.trim();
-  if (d.root === true) out.root = true;
-  if (d.dim === true) out.dim = true;
-  return out;
-}
+function groundParsedBlocks(parsed: ParsedBlock[], ground: GroundingContext): ParsedBlock[] {
+  const out: ParsedBlock[] = [];
+  for (const item of parsed) {
+    const block = item.block;
 
-function normalizeKeyMark(raw: unknown): KeyMarkInput | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const m = raw as Record<string, unknown>;
-  const pc = typeof m.pc === 'string' ? m.pc.trim() : '';
-  if (!pc) return null;
-  const out: KeyMarkInput = { pc: pc as KeyMarkInput['pc'] };
-  if (typeof m.label === 'string' && m.label.trim()) out.label = m.label.trim();
-  if (m.root === true) out.root = true;
-  if (m.flag === true) out.flag = true;
-  return out;
-}
-
-function toLessonBlock(raw: unknown, id: number, ground: GroundingContext): LessonBlock | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const type = typeof r.type === 'string' ? r.type : null;
-
-  switch (type) {
-    case 'heading': {
-      const text = typeof r.text === 'string' ? r.text.trim() : '';
-      if (!text) return null;
-      const level = r.level === 'h3' ? 'h3' : 'h2';
-      return { __component: 'lesson.heading', id, text, level };
+    // A param-picker on a lesson with no `parameter` renders as literally
+    // nothing (LessonBody returns null), so it is dropped rather than
+    // shipped as an invisible gap. The one-per-lesson rule is enforced at
+    // assembly, which is the only point that sees the whole body.
+    if (block.__component === 'lesson.param-picker' && !ground.parameter) {
+      ground.warn('param-picker on a lesson that declares no parameter', { line: item.line });
+      continue;
     }
 
-    case 'prose': {
-      const body = sanitizeReaderText(r.body, ground);
-      if (!body) return null;
-      const block: LessonBlock = { __component: 'lesson.prose', id, body };
-      const source = resolveBlockSource(r.sourceVideoId, body, ground);
-      if (source) block.source = source;
-      return block;
+    // `useParam` substitutes the reader's chosen key for the diagram's
+    // root, which is only meaningful when the root IS that key — see
+    // honoursLessonParameter for the live counter-example.
+    if (block.useParam === true && !honoursLessonParameter(block.root, ground.parameter)) {
+      ground.warn('useParam ignored — the diagram root does not match the lesson key', {
+        root: block.root ?? null,
+        parameterDefault: ground.parameter?.default ?? null,
+        line: item.line,
+      });
+      block.useParam = false;
     }
 
-    case 'callout': {
-      const body = sanitizeReaderText(r.body, ground);
-      if (!body) return null;
-      const tone = r.tone === 'tip' || r.tone === 'warning' ? r.tone : 'note';
-      const block: LessonBlock = { __component: 'lesson.callout', id, tone, body };
-      const source = resolveBlockSource(r.sourceVideoId, body, ground);
-      if (source) block.source = source;
-      return block;
+    // Reader-facing text must never contain a raw video id: a real run
+    // produced "One fix from PS54GhZoojo is octave displacement."
+    for (const field of READER_TEXT_FIELDS) {
+      const value = block[field];
+      if (typeof value === 'string') block[field] = sanitizeReaderText(value, ground);
+    }
+    if (
+      (block.__component === 'lesson.prose' || block.__component === 'lesson.callout') &&
+      !block.body
+    ) {
+      ground.warn('block dropped — its body was empty after sanitisation', {
+        component: block.__component,
+        line: item.line,
+      });
+      continue;
     }
 
-    case 'step': {
-      // Trailing colons are a common model tic ("Identify the Root:") —
-      // strip trailing `:`/whitespace so titles read as titles, not labels.
-      const title = sanitizeReaderText(r.title, ground).replace(/[\s:]+$/, '');
-      if (!title) return null;
-      const numberRaw = Number(r.number);
-      const number = Number.isFinite(numberRaw) && numberRaw >= 1 ? Math.floor(numberRaw) : 1;
-      const block: LessonBlock = { __component: 'lesson.step', id, number, title };
-      const lede = sanitizeReaderText(r.lede, ground);
-      if (lede) block.lede = lede;
-      const body = sanitizeReaderText(r.body, ground);
-      if (body) block.body = body;
-      const groundingText = [title, lede, body].filter(Boolean).join('. ');
-      const source = resolveBlockSource(r.sourceVideoId, groundingText, ground);
-      if (source) block.source = source;
-      return block;
-    }
-
-    case 'table': {
-      // .slice() caps below enforce TABLE_HEADERS_MAX/TABLE_ROWS_MAX in
-      // code — see SectionBlocksSchema's `table` field comment for why the
-      // schema itself can't (Anthropic rejects array `maxItems`).
-      const headers = Array.isArray(r.headers)
-        ? r.headers.slice(0, TABLE_HEADERS_MAX).map((h) => String(h))
-        : [];
-      const rowsRaw = Array.isArray(r.rows) ? r.rows.slice(0, TABLE_ROWS_MAX) : [];
-      const rows = rowsRaw
-        .filter((row): row is unknown[] => Array.isArray(row))
-        .map((row) => row.map((cell) => String(cell)));
-      if (headers.length === 0 || rows.length === 0) return null;
-      const block: LessonBlock = { __component: 'lesson.table', id, headers, rows };
-      const caption = sanitizeReaderText(r.caption, ground);
-      if (caption) block.caption = truncate(caption, CAPTION_MAX);
-      return block;
-    }
-
-    case 'degree-chips': {
-      // DEGREE_CHIPS_MAX enforced by .slice() — see the schema comment above.
-      const degrees = Array.isArray(r.degrees)
-        ? r.degrees.slice(0, DEGREE_CHIPS_MAX).map((d) => String(d))
-        : [];
-      if (degrees.length === 0) return null;
-      const block: LessonBlock = { __component: 'lesson.degree-chips', id, degrees };
-      if (r.size === 'sm' || r.size === 'md') block.size = r.size;
-      return block;
-    }
-
-    case 'param-picker': {
-      // Dropped outright on a lesson with no `parameter` — see
-      // GroundingContext.parameter. The one-per-lesson rule is NOT
-      // enforced here (this function sees one block, not the lesson);
-      // assembly in `writeLesson` keeps the first and drops the rest.
-      if (!ground.parameter) {
-        ground.warn('param-picker on a lesson that declares no parameter', {});
-        return null;
-      }
-      const block: LessonBlock = { __component: 'lesson.param-picker', id };
-      const label = sanitizeReaderText(r.label, ground);
-      if (label) block.label = truncate(label, PARAM_PICKER_LABEL_MAX);
-      return block;
-    }
-
-    case 'video-ref': {
-      // `videoId` is REQUIRED by the component (and by LessonBody, which
-      // renders nothing without it), so an unresolvable one drops the
-      // block rather than shipping a dead link.
-      const rawVideoId = typeof r.sourceVideoId === 'string' ? r.sourceVideoId.trim() : '';
-      if (!rawVideoId || !ground.validVideoIds.has(rawVideoId)) {
-        ground.warn('video-ref names a video outside this lesson\'s source set', {
-          sourceVideoId: rawVideoId,
+    if (block.__component === 'lesson.video-ref') {
+      // `videoId` is required by the component (LessonBody renders nothing
+      // without it), so an unresolvable one drops the block rather than
+      // shipping a dead link.
+      const videoId = typeof block.videoId === 'string' ? block.videoId : '';
+      if (!ground.validVideoIds.has(videoId)) {
+        ground.warn("video-ref names a video outside this lesson's source set", {
+          videoId,
+          line: item.line,
         });
-        return null;
+        continue;
       }
-      const label = sanitizeReaderText(r.label, ground);
-      // `body` on a video-ref is grounding material, never rendered: the
-      // model describes the moment it is pointing at, and BM25 turns that
-      // into the real caption-segment start. Same rule as every other
-      // timecode in this codebase — the model names WHICH video, code
-      // decides WHEN. Falls back to the label when body is missing (a
-      // weaker query, so more likely to yield a video-only link).
-      const momentText = sanitizeReaderText(r.body, ground) || label;
-      const resolved = resolveBlockSource(rawVideoId, momentText, ground);
-      if (!resolved) return null;
-      const block: LessonBlock = {
-        __component: 'lesson.video-ref',
-        id,
-        videoId: resolved.videoId,
-        // LessonBody defaults to "Watch this moment" when absent; set it
-        // explicitly so a generated lesson never leans on that fallback.
-        label: label ? truncate(label, VIDEO_REF_LABEL_MAX) : 'Watch this moment',
-      };
-      if (typeof resolved.timeSec === 'number') {
+      const momentText =
+        sanitizeReaderText(item.moment ?? '', ground) ||
+        (typeof block.label === 'string' ? block.label : '');
+      const resolved = resolveBlockSource(videoId, momentText, ground);
+      if (resolved && typeof resolved.timeSec === 'number') {
         block.timeSec = resolved.timeSec;
       } else {
         ground.warn('video-ref grounded to a video but not to a timecode — linking to 0:00', {
-          videoId: resolved.videoId,
+          videoId,
         });
       }
-      return block;
+      out.push(item);
+      continue;
     }
 
-    // Covers unknown/missing `type`, and any block outside the seven this
-    // WRITE pass is allowed to emit — including 'diagram'/'keyboard-diagram'
-    // if a model ignores the schema and emits one anyway (impossible under
-    // real structured-output decoding, but this stays defensive since `raw`
-    // is treated as fully untrusted content, not just an untrusted shape).
-    default:
-      return null;
+    if (item.src) {
+      const source = resolveBlockSource(item.src, groundingTextOf(block), ground);
+      if (source) block.source = source;
+      else
+        ground.warn("citation dropped — src names a video outside this lesson's source set", {
+          src: item.src,
+          line: item.line,
+        });
+    }
+    out.push(item);
   }
+  return out;
 }
 
-function isModelHeadingBlock(raw: unknown): boolean {
-  return !!raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'heading';
-}
-
-// Builds a section's content blocks from the model's raw `blocks` array,
-// WITHOUT committing them anywhere — the caller decides what to do with an
-// empty result (retry) vs a non-empty one (accept, possibly thin-and-logged).
-// No diagram budget here — the write pass never emits a diagram block at
-// all (see LessonBlockOutputSchema's comment); diagram budgeting happens in
-// mergeIllustrations further below, against the separate illustrate pass's
-// output.
-function buildSectionBlocks(
-  rawBlocks: unknown[],
-  startId: number,
-  ground: GroundingContext,
-): LessonBlock[] {
-  const blocks: LessonBlock[] = [];
-  let nextId = startId;
-  for (const rawBlock of rawBlocks) {
-    // SECTION_BLOCKS_BACKSTOP enforced here in code, not the schema — see
-    // SectionBlocksSchema's comment for why (Anthropic rejects array
-    // `maxItems`). Not a shaping cap — see the constant's own comment.
-    if (blocks.length >= SECTION_BLOCKS_BACKSTOP) break;
-    // The model is instructed not to emit a heading; if it does anyway,
-    // drop it — the outline's heading is injected separately, never this one.
-    if (isModelHeadingBlock(rawBlock)) continue;
-    const block = toLessonBlock(rawBlock, nextId, ground);
-    if (!block) continue;
-    blocks.push(block);
-    nextId += 1;
+/**
+ * Announces what the parser rejected or repaired. Dropping in silence is
+ * the failure this whole pipeline keeps guarding against — a parse error
+ * that only ever showed up as a shorter lesson would be the same class of
+ * bug as the four fields that reached production unrendered.
+ */
+function logParseIssues(topic: string, label: string, issues: ParseIssue[]) {
+  const errors = issues.filter((i) => i.severity === 'error');
+  const warnings = issues.filter((i) => i.severity === 'warning');
+  if (errors.length > 0) {
+    logPhase(topic, `${label} ⚠ parser rejected ${errors.length} block(s)`, {
+      detail: formatIssues(errors),
+    });
   }
-  return blocks;
+  if (warnings.length > 0) {
+    logPhase(topic, `${label} · ${warnings.length} parser warning(s)`, {
+      detail: formatIssues(warnings),
+    });
+  }
 }
 
 // -----------------------------------------------------------------------------
-// Step 5.5: illustrate — one small structured call PER SECTION, given that
+// Step 5.5: illustrate — one small MARKDOWN call PER SECTION, given that
 // section's OWN finished text (from step 5), answering a different question
 // than the write pass: "what here would be clearer shown than described?"
-// Returns diagram/keyboard-diagram blocks plus where each belongs in the
-// section. See docs/lesson-authoring.md's "Generation is two passes" note
-// for the full rationale; the short version: a combined write+illustrate
-// call makes a diagram an afterthought, AND its schema had to carry every
-// prose field alongside every diagram field in one request, which is what
-// forced dropping inversion/fromFret/toFret/explicit-mode dots+marks and
-// locking generation to theory-mode-only. An illustration-only schema
-// carries none of the prose fields, so the full vocabulary comes back.
+// Returns visual blocks plus where each belongs in the section. See
+// docs/lesson-authoring.md's "Generation is two passes" note for the full
+// rationale; the short version is that a combined write+illustrate call
+// makes a diagram an afterthought.
+//
+// This pass reaches the WHOLE visual vocabulary — all five drawing blocks,
+// explicit-mode dots and marks with the four style flags, inversions, fret
+// windows, barres, pattern sets. None of that was reachable while the
+// answer had to fit a structured-output schema: a request may carry at
+// most 16 union-typed parameters and every optional field is a union, so
+// the combined schema sat at the ceiling and the vocabulary was cut to
+// fit. Markdown has no such ceiling, and taking that is the point of this
+// change rather than a side effect of it.
 //
 // Run PER SECTION rather than once for the whole lesson — same "small,
 // independent calls" shape as the write pass, and, unlike the write pass,
@@ -1609,137 +1454,19 @@ function buildSectionBlocks(
 // generation time for no reason.
 // -----------------------------------------------------------------------------
 
-// Sub-components for explicit-mode positions. Fields that Half A documents
-// as optional (label/root/dim, label/root/flag) are declared here as
-// PLAIN, non-nullable types (string/boolean) rather than `.nullable()` —
-// unlike the top-level illustration fields, these never mean "does not
-// apply to this block's type," only "not meaningful for this one dot/mark"
-// (an empty label, a false flag), so a plain default-shaped value costs
-// nothing and keeps these two sub-schemas out of the union-parameter count
-// entirely (see IllustrationItemSchema's own comment on that count).
-const NeckDotOutputSchema = z.object({
-  string: z.number(),
-  fret: z.number(),
-  label: z.string(),
-  root: z.boolean(),
-  dim: z.boolean(),
-}).strict();
-
-const KeyMarkOutputSchema = z.object({
-  pc: z.enum(PITCH_CLASS_ENUM),
-  label: z.string(),
-  root: z.boolean(),
-  flag: z.boolean(),
-}).strict();
-
-// One flattened object covering BOTH lesson.diagram and lesson.keyboard-
-// diagram, same oneOf-avoidance reasoning as LessonBlockOutputSchema above
-// (Anthropic rejects the `oneOf` a discriminated union compiles to).
-//
-// Union-parameter count: 12 nullable (anyOf) fields at the top level
-// (afterBlockIndex, sourceVideoId, instrument, root, quality, stringSet,
-// inversion, fretWindow, octaves, dots, marks, caption) plus
-// `type`/`mode`/`useParam` as plain required enums/booleans — 12 total,
-// walking the WHOLE compiled request
-// schema recursively (including NeckDotOutputSchema/KeyMarkOutputSchema
-// nested inside `dots`/`marks`, which contribute zero more because their
-// own fields are plain, not nullable — see those schemas' comment). Well
-// under Anthropic's 16-union cap, with room to spare — see
-// lesson-generation.test.ts's schema-lint suite, which walks this exact
-// schema the same way.
-export const IllustrationItemSchema = z.object({
-  type: z.enum(['diagram', 'keyboard-diagram']),
-  mode: z.enum(['theory', 'explicit']),
-  afterBlockIndex: z
-    .number()
-    .nullable()
-    .describe(
-      'Where this illustration belongs, addressed by the [bracketed] index of the section-text block it should follow. -1 = before every block in the section. null = at the end of the section (the common case: the text describes something, then the diagram shows it).',
-    ),
-  sourceVideoId: z
-    .string()
-    .nullable()
-    .describe(
-      'The youtubeVideoId (copied exactly from the [bracketed] id in the source list) this illustration is drawn from, or null if it is not drawn from one specific source. Never invent an id.',
-    ),
-  instrument: z
-    .enum(['guitar', 'bass'])
-    .nullable()
-    .describe('diagram only: which fretboard this depicts. Null for keyboard-diagram (no strings).'),
-  root: z
-    .enum(PITCH_CLASS_ENUM)
-    .nullable()
-    .describe(
-      'mode="theory" only: the chord root, one of the 12 sharps-only pitch classes (no flats). REQUIRED together with quality (and stringSet, on diagram) in theory mode. Null in explicit mode.',
-    ),
-  quality: z
-    .enum(TRIAD_QUALITY_ENUM)
-    .nullable()
-    .describe(
-      'mode="theory" only: TRIADS ONLY (major/minor/augmented/diminished) — never a seventh-chord quality. REQUIRED together with root (and stringSet, on diagram) in theory mode. Null in explicit mode.',
-    ),
-  stringSet: z
-    .enum(STRING_SET_ENUM)
-    .nullable()
-    .describe(
-      'diagram mode="theory" only: one of these four EXACT strings, using an EN DASH (–, U+2013) between letters, NOT a hyphen — a hyphenated lookalike silently renders an empty diagram. REQUIRED together with root+quality in theory mode. Null otherwise, including on keyboard-diagram.',
-    ),
-  inversion: z
-    .number()
-    .nullable()
-    .describe('diagram mode="theory" only: 0 = root position, 1 = first inversion, 2 = second. Null otherwise.'),
-  fretWindow: z
-    .array(z.number())
-    .nullable()
-    .describe('diagram only: [fromFret, toFret] to constrain the fret window shown, or null to let it be inferred. Null for keyboard-diagram.'),
-  octaves: z
-    .number()
-    .nullable()
-    .describe('keyboard-diagram only: how many octaves the keyboard spans, 1-3. Null for diagram.'),
-  // Plain required boolean, NOT nullable — it means the same thing on both
-  // diagram types and in both modes ("does the reader's key drive this"),
-  // never "does not apply", so it costs zero union-typed parameters
-  // (same reasoning as NeckDotOutputSchema's fields — see its comment).
-  useParam: z
-    .boolean()
-    .describe(
-      'mode="theory" only: true if this diagram should follow the reader\'s chosen key from the lesson\'s key picker instead of its own fixed root. ONLY allowed when the user prompt says this lesson declares a parameter, AND this diagram\'s `root` is that same key — a chord on some OTHER scale degree (the vi, the vii°) must set false, or the picker would slide it away from what the caption says it is. Still set `root` when true: it is the fallback, and a diagram with no root draws nothing. When true, do not name the specific root in the caption; it changes.',
-    ),
-  dots: z
-    .array(NeckDotOutputSchema)
-    .nullable()
-    .describe(
-      'diagram mode="explicit" only: hand-placed dots. string: 0 = highest-pitched string (high e), increasing toward the lowest. fret: 0 = open string. Set label/root/dim to "" / false when not meaningful for a given dot, never omit them. Null unless mode="explicit".',
-    ),
-  marks: z
-    .array(KeyMarkOutputSchema)
-    .nullable()
-    .describe(
-      'keyboard-diagram mode="explicit" only: hand-placed marks. Set label/root/flag to "" / false when not meaningful for a given mark, never omit them. Null unless mode="explicit".',
-    ),
-  caption: z
-    .string()
-    .nullable()
-    .describe(
-      'MAX 255 characters, or null. A caption that adds information beyond "here is a diagram" — e.g. why the third\'s dot sits where it does, not just that it\'s a triad. Never a raw video id — the id belongs in sourceVideoId.',
-    ),
-}).strict();
-
-export const SectionIllustrationsSchema = z.object({
-  // NOT .max() here — same Anthropic array-schema restriction as every
-  // other array in this pipeline (see LessonOutlineSchema's `sections`
-  // comment). ILLUSTRATIONS_PER_SECTION_BACKSTOP enforces a generous
-  // runaway cap in code instead, below.
-  illustrations: z.array(IllustrationItemSchema),
-}).strict();
-
-// A triad has 3 notes; 6 gives room for a doubled note or two without
-// letting an explicit-mode diagram/keyboard-diagram sprawl. Correctness
-// limit, not a shaping cap — kept exactly as it was before this branch's
-// write/illustrate split (see docs/lesson-authoring.md's "Keep every
-// correctness limit" framing in the brief this branch implements).
-const MAX_DIAGRAM_DOTS = 6;
-const MAX_KEYBOARD_MARKS = 6;
+/**
+ * The directives the ILLUSTRATE pass may emit — the five that draw
+ * something, and nothing else. The write pass owns the words; a prose
+ * directive here would be this pass rewriting a section it was explicitly
+ * told is finished, so the parser rejects it by name.
+ */
+const ILLUSTRATE_DIRECTIVES = [
+  'diagram',
+  'keyboard-diagram',
+  'chord-diagram',
+  'neck-pattern',
+  'natural-notes',
+] as const satisfies readonly LessonDirectiveName[];
 
 // Runaway backstops, NOT shaping caps — see SECTION_BLOCKS_BACKSTOP's
 // comment for why this branch treats the two differently from the old
@@ -1753,15 +1480,61 @@ const ILLUSTRATIONS_PER_LESSON_BACKSTOP = 40;
 
 const ILLUSTRATION_SYSTEM = [
   'You are the ILLUSTRATE pass for one already-written section of a music lesson. The section\'s text is finished — you do not write or edit it. Your only job: decide what in it would be clearer SHOWN than described, and emit the diagram(s) for that.',
-  'You will be given the section\'s text as an indexed list of blocks. For each illustration, set `afterBlockIndex` to the index of the block it should follow, -1 to place it before every block, or leave it null to place it at the end of the section (the common case).',
-  'Not every section needs an illustration. If nothing in this section\'s text would be clearer shown than described, return an EMPTY `illustrations` array — that is a correct, expected answer, not a failure.',
-  'There is no fixed count. A section naming five pentatonic positions wants five diagrams; a section explaining a relationship or a reason wants zero. Decide by fit, never by habit or to fill a quota — see the guide below for what each diagram type is for.',
+  'Answer in MARKDOWN, using ONLY component directives — no prose, no preamble, no explanation, no code fence around the answer. A directive opens with `::name{attributes}` on its own line and closes with a line containing only `::`. There is no self-closing form. Quote any attribute value containing a space.',
+  'You will be given the section\'s text as an indexed list of blocks. Place each illustration with `after=N`, the index of the block it should follow; `after=-1` places it before every block; omitting `after` places it at the end of the section (the common case).',
+  'Not every section needs an illustration. If nothing in this section\'s text would be clearer shown than described, answer with NOTHING AT ALL — an empty answer is a correct, expected outcome, not a failure.',
+  'There is no fixed count. A section naming five pentatonic positions wants five diagrams; a section explaining a relationship or a reason wants zero. Decide by fit, never by habit or to fill a quota — see the guide below for what each type is for.',
   'If the section\'s text names an ordered chord progression — a chord sequence like G–C–D, or a Roman-numeral pattern like ii–V–I — illustrate it: emit ONE diagram PER chord in the progression, in the order named, not a single diagram or none at all.',
-  'PREFER mode="theory" (root+quality, and stringSet on diagram) over mode="explicit" (hand-placed dots/marks) — theory mode cannot be musically wrong the way hand-placed positions can. Use explicit mode only when theory mode genuinely cannot express the shape (e.g. a specific fret window, or a voicing that is not a plain triad).',
-  'quality is TRIADS ONLY: major, minor, augmented, or diminished — never a seventh-chord quality. stringSet on a theory-mode diagram MUST use an EN DASH (–) between letters, e.g. "e–B–G", never a hyphen — a hyphenated lookalike silently renders an empty diagram.',
-  'Set `sourceVideoId` to the exact id shown in [brackets] next to the source video an illustration is drawn from, or null if it is not drawn from one specific source. Never invent or guess one.',
-  '`useParam` is false unless the user prompt below explicitly says this lesson declares a reader-controlled key picker AND this diagram\'s root IS that key. A diagram of a different scale degree — the vi chord, the vii° — keeps its own fixed root and sets useParam: false, because the picker replaces the root outright and would leave the caption describing a chord that is no longer on screen. Always set `root` alongside useParam as the fallback — a diagram with no root draws nothing.',
-  'Every illustration shares one field set (each field belongs to only some type/mode combination — see each field\'s own description). Set every field that does not apply to null; for the small dots/marks sub-object fields specifically (label/root/dim/flag), use "" / false rather than omitting them.',
+  '',
+  'The five directives available here, and nothing else:',
+  '',
+  '::diagram{after=2 instrument=guitar mode=theory root=C quality=major stringSet="e–B–G" inversion=0 fromFret=3 toFret=8 src=VIDEO_ID}',
+  'The caption goes in the body — say why the shape sits where it does, not that it is a triad.',
+  '::',
+  '',
+  '::diagram{mode=explicit fromFret=5 toFret=8}',
+  'Chord tones (light) inside the scale shape (hollow); the notes your hand actually holds are ringed.',
+  '- string=5 fret=5 label=A root ringed',
+  '- string=4 fret=7 label=E light',
+  '- string=3 fret=5 hollow',
+  '::',
+  '',
+  '::chord-diagram{barreFret=1 barreFromString=0 barreToString=5}',
+  'F major — the barre does the work of the nut.',
+  '- string=0 state=fretted fret=1',
+  '- string=1 state=fretted fret=1',
+  '- string=2 state=fretted fret=2',
+  '- string=3 state=fretted fret=3',
+  '- string=4 state=fretted fret=3',
+  '- string=5 state=fretted fret=1 root',
+  '::',
+  '',
+  '::neck-pattern{fromFret=0 toFret=15}',
+  'The five boxes, on one neck, climbing.',
+  '- label="Box 1" sub="E minor pentatonic · frets 0–3"',
+  '  - string=5 fret=0 label=E root',
+  '  - string=5 fret=3 label=G',
+  '- label="Box 2"',
+  '  - string=5 fret=3 label=G',
+  '  - string=5 fret=5 label=A',
+  '::',
+  '',
+  '::keyboard-diagram{mode=explicit octaves=1}',
+  'E–F and B–C are the two white pairs with no black key between them.',
+  '- pc=E label=E flag',
+  '- pc=F label=F flag',
+  '::',
+  '',
+  '::natural-notes{}',
+  'Every sharp and flat is one fret from one of these fourteen notes.',
+  '::',
+  '',
+  'Which to reach for: ::diagram is a stretch of neck — "where do these notes live". ::chord-diagram is the songbook chord box — "how do I hold this chord", and ANY lesson naming a chord the reader is meant to play should show one. ::neck-pattern is several shapes over ONE neck, for a system that spans it (five pentatonic boxes, seven three-note-per-string shapes) — two or more patterns, never one. ::natural-notes is a fixed reference strip, used ONCE, where a lesson first asks the reader to locate a root by name. ::keyboard-diagram is pitch-class addressed, for a piano.',
+  'PREFER mode="theory" (root+quality, and stringSet on ::diagram) over mode="explicit" — theory mode cannot be musically wrong the way hand-placed dots can. Use explicit mode when theory mode genuinely cannot express the shape: a scale box, a specific fret window, a voicing that is not a plain triad. In explicit mode the four dot styles are what turn one diagram into two layers — `hollow` for background scale tones (omit their label), `light` for the foreground chord tones, `ringed` for the notes the hand actually holds, `dim` to fade the rest of the scale right back. A diagram where every dot is plain is usually a diagram that could have taught more.',
+  'quality is TRIADS ONLY: major, minor, augmented, or diminished — never a seventh-chord quality. stringSet MUST use an EN DASH (–) between letters, e.g. "e–B–G", never a hyphen — a hyphenated lookalike is rejected.',
+  'String indices everywhere: 0 = the HIGHEST-pitched string (high e), increasing toward the lowest (5 = low E). This is the opposite of most tab numbering. fret 0 = open.',
+  'Set `src` to the exact id shown in [brackets] next to the source video an illustration is drawn from, or omit it when it is not drawn from one specific source. Never invent or guess one.',
+  '`useParam` goes on a theory-mode diagram ONLY when the user prompt below says this lesson declares a reader-controlled key picker AND this diagram\'s root IS that key. A diagram of a different scale degree — the vi chord, the vii° — keeps its own fixed root and omits useParam, because the picker replaces the root outright and would leave the caption describing a chord that is no longer on screen. Always set `root` alongside it as the fallback.',
 ].join('\n');
 
 // Loaded once at module scope, lazily — see getOutlineSystemWithGuide's
@@ -1823,15 +1596,6 @@ function buildIllustrationPrompt(
 }
 
 /**
- * Converts one raw illustration item into a diagram/keyboard-diagram
- * LessonBlock plus its REQUESTED anchor (not yet clamped to a section's
- * actual length — the caller does that once it knows how many text blocks
- * the section has). Returns null for anything unusable, INCLUDING a
- * diagram that resolves to zero dots/marks — same non-negotiable resolve
- * check as toLessonBlock's old diagram/keyboard-diagram cases, run against
- * the exact renderer function, not just schema validity.
- */
-/**
  * Whether a theory-mode diagram may follow the lesson's key picker.
  *
  * `useParam` substitutes the reader's chosen key for the diagram's ROOT,
@@ -1858,119 +1622,6 @@ function honoursLessonParameter(
   return typeof root === 'string' && root.trim() === parameter.default;
 }
 
-function toIllustrationBlock(
-  raw: unknown,
-  ground: GroundingContext,
-): { anchorRequested: number | null; block: LessonBlock } | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const type = r.type === 'keyboard-diagram' ? 'keyboard-diagram' : r.type === 'diagram' ? 'diagram' : null;
-  if (!type) return null;
-
-  const anchorRaw = r.afterBlockIndex;
-  const anchorRequested =
-    typeof anchorRaw === 'number' && Number.isFinite(anchorRaw) ? Math.floor(anchorRaw) : null;
-
-  const mode = r.mode === 'explicit' ? 'explicit' : 'theory';
-
-  if (type === 'diagram') {
-    const block: LessonBlock = {
-      __component: 'lesson.diagram',
-      id: 0, // reassigned sequentially once the whole lesson body is flattened
-      instrument: r.instrument === 'bass' ? 'bass' : 'guitar',
-      mode,
-    };
-    for (const key of ['root', 'quality', 'stringSet'] as const) {
-      const v = r[key];
-      if (typeof v === 'string' && v.trim()) block[key] = v.trim();
-    }
-    // Only honoured on a lesson that declares a parameter AND when the
-    // diagram's own root matches it — see `honoursLessonParameter`.
-    if (mode === 'theory' && r.useParam === true) {
-      if (honoursLessonParameter(block.root, ground.parameter)) {
-        block.useParam = true;
-      } else {
-        ground.warn('illustration useParam ignored — root does not match the lesson key', {
-          root: block.root,
-          parameterDefault: ground.parameter?.default ?? null,
-        });
-      }
-    }
-    const inv = Number(r.inversion);
-    if (Number.isFinite(inv) && inv >= 0) block.inversion = Math.floor(inv);
-    if (Array.isArray(r.fretWindow) && r.fretWindow.length === 2) {
-      const from = Number(r.fretWindow[0]);
-      const to = Number(r.fretWindow[1]);
-      if (Number.isFinite(from) && from >= 0) block.fromFret = Math.floor(from);
-      if (Number.isFinite(to) && to >= 0) block.toFret = Math.floor(to);
-    }
-    if (mode === 'explicit' && Array.isArray(r.dots)) {
-      const dots = r.dots
-        .slice(0, MAX_DIAGRAM_DOTS)
-        .map((d) => normalizeNeckDot(d))
-        .filter((d): d is NeckDotInput => d !== null);
-      if (dots.length) block.dots = dots as unknown as JsonValue;
-    }
-    const caption = sanitizeReaderText(r.caption, ground);
-    if (caption) block.caption = truncate(caption, CAPTION_MAX);
-
-    // THE check. See toLessonBlock's old comment (now here): a diagram
-    // that draws nothing is worse than no diagram, because it renders as
-    // an invisible gap with no error anywhere. Schema-valid is not the bar.
-    if (resolveDiagramDots(block as unknown as DiagramBlock).length === 0) {
-      ground.warn('illustration diagram resolves to zero dots', {
-        mode,
-        root: block.root,
-        quality: block.quality,
-        stringSet: block.stringSet,
-      });
-      return null;
-    }
-    const source = resolveBlockSource(r.sourceVideoId, caption, ground);
-    if (source) block.source = source;
-    return { anchorRequested, block };
-  }
-
-  // type === 'keyboard-diagram'
-  const block: LessonBlock = { __component: 'lesson.keyboard-diagram', id: 0, mode };
-  for (const key of ['root', 'quality'] as const) {
-    const v = r[key];
-    if (typeof v === 'string' && v.trim()) block[key] = v.trim();
-  }
-  if (mode === 'theory' && r.useParam === true) {
-    if (honoursLessonParameter(block.root, ground.parameter)) {
-      block.useParam = true;
-    } else {
-      ground.warn('illustration useParam ignored — root does not match the lesson key', {
-        root: block.root,
-        parameterDefault: ground.parameter?.default ?? null,
-      });
-    }
-  }
-  const oct = Number(r.octaves);
-  if (Number.isFinite(oct) && oct >= 1) block.octaves = Math.floor(oct);
-  if (mode === 'explicit' && Array.isArray(r.marks)) {
-    const marks = r.marks
-      .slice(0, MAX_KEYBOARD_MARKS)
-      .map((m) => normalizeKeyMark(m))
-      .filter((m): m is KeyMarkInput => m !== null);
-    if (marks.length) block.marks = marks as unknown as JsonValue;
-  }
-  const caption = sanitizeReaderText(r.caption, ground);
-  if (caption) block.caption = truncate(caption, CAPTION_MAX);
-
-  if (resolveDiagramMarks(block as unknown as KeyboardDiagramBlock).length === 0) {
-    ground.warn('illustration keyboard-diagram resolves to zero marks', {
-      mode,
-      root: block.root,
-      quality: block.quality,
-    });
-    return null;
-  }
-  const source = resolveBlockSource(r.sourceVideoId, caption, ground);
-  if (source) block.source = source;
-  return { anchorRequested, block };
-}
 
 /**
  * Inserts illustration blocks into a section's text blocks at their
@@ -2504,6 +2155,7 @@ export async function writeLesson(
   for (let index = 0; index < totalSections; index++) {
     const section = outline.sections[index];
     let sectionBlocks: LessonBlock[] = [];
+    let sectionDropped = 0;
 
     // Retrieved ONCE per section, not per attempt — BM25 is deterministic,
     // so a retry would get the identical passages; re-running it would only
@@ -2538,31 +2190,43 @@ export async function writeLesson(
               ),
             },
           ] as never,
-          outputSchema: SectionBlocksSchema,
+          // No structured output here — this pass answers in markdown.
+          // Every Anthropic structured-output restriction on this branch
+          // was found at this call site, and none of them applies to a
+          // text response. See the step-5 header and markdown-blocks.ts.
+          stream: false,
           modelOptions: buildModelOptions(lessonModel, 0.4),
         });
 
-        const rawBlocks = Array.isArray((raw as { blocks?: unknown })?.blocks)
-          ? (raw as { blocks: unknown[] }).blocks
-          : [];
+        const markdown = typeof raw === 'string' ? raw : '';
+        const { blocks: parsed, issues } = parseLessonMarkdown(markdown, {
+          allowed: WRITE_DIRECTIVES,
+          bareText: 'prose',
+        });
+        logParseIssues(topic, `section "${section.heading}"`, issues);
         // Local per-section ids — reassigned sequentially once the whole
         // lesson body (text + illustrations) is flattened in step 6.
-        const built = buildSectionBlocks(rawBlocks, 1, ground);
+        const built = groundParsedBlocks(parsed.slice(0, SECTION_BLOCKS_BACKSTOP), ground).map(
+          (p) => p.block,
+        );
 
         if (built.length > 0) {
           sectionBlocks = built;
+          sectionDropped = issues.filter((i) => i.severity === 'error').length;
           break;
         }
         // Zero usable blocks is treated the same as a failed call: retry
         // once before giving up on the section.
         if (isLastAttempt) {
           logPhase(topic, `section "${section.heading}" ⚠ too few usable blocks after retry, dropping`, {
-            rawCount: rawBlocks.length,
+            parsed: parsed.length,
+            chars: markdown.length,
           });
           break;
         }
         logPhase(topic, `section "${section.heading}" ⚠ zero usable blocks (attempt ${attempt}) — retrying once`, {
-          rawCount: rawBlocks.length,
+          parsed: parsed.length,
+          chars: markdown.length,
         });
         emit(onProgress, {
           type: 'retry',
@@ -2601,7 +2265,10 @@ export async function writeLesson(
         );
       }
       succeededSections += 1;
-      logPhase(topic, `section "${section.heading}" ✓`, { blocks: sectionBlocks.length });
+      logPhase(topic, `section "${section.heading}" ✓`, {
+        blocks: sectionBlocks.length,
+        dropped: sectionDropped,
+      });
       emit(onProgress, {
         type: 'section',
         index,
@@ -2609,6 +2276,7 @@ export async function writeLesson(
         heading: section.heading,
         blocks: sectionBlocks.length,
         passages: passages.length,
+        dropped: sectionDropped,
       });
     }
     // else: single-section failure is non-fatal — drop it and keep going.
@@ -2630,11 +2298,16 @@ export async function writeLesson(
   //          each section's diagrams are known. ----------------------------
   const illustrationOutcomes = await Promise.all(
     sectionResults.map(async (sr, index) => {
-      if (sr.blocks.length === 0) return { illustrations: [] as Array<{ anchorRequested: number | null; block: LessonBlock }> };
+      if (sr.blocks.length === 0)
+        return {
+          illustrations: [] as Array<{ anchorRequested: number | null; block: LessonBlock }>,
+          dropped: 0,
+        };
 
       const blocksSummary = summarizeSectionBlocksForIllustration(sr.blocks);
       const section = outline.sections[index];
       let illustrations: Array<{ anchorRequested: number | null; block: LessonBlock }> = [];
+      let dropped = 0;
 
       for (let attempt = 1; attempt <= 2; attempt++) {
         const isLastAttempt = attempt === 2;
@@ -2648,18 +2321,29 @@ export async function writeLesson(
                 content: buildIllustrationPrompt(outline, section, blocksSummary, contextText),
               },
             ] as never,
-            outputSchema: SectionIllustrationsSchema,
+            // Markdown, same as the write pass — which is what makes the
+            // whole visual vocabulary reachable here: chord boxes, pattern
+            // pickers, explicit dots with all four style flags, inversions
+            // and fret windows were all cut to stay under the 16-union cap
+            // a structured schema imposed.
+            stream: false,
             modelOptions: buildModelOptions(lessonModel, 0.3),
           });
-          const rawItems = Array.isArray((raw as { illustrations?: unknown })?.illustrations)
-            ? (raw as { illustrations: unknown[] }).illustrations
-            : [];
-          illustrations = rawItems
-            .slice(0, ILLUSTRATIONS_PER_SECTION_BACKSTOP)
-            .map((item) => toIllustrationBlock(item, ground))
-            .filter(
-              (x): x is { anchorRequested: number | null; block: LessonBlock } => x !== null,
-            );
+          const markdown = typeof raw === 'string' ? raw : '';
+          const { blocks: parsed, issues } = parseLessonMarkdown(markdown, {
+            allowed: ILLUSTRATE_DIRECTIVES,
+            // The illustrate pass must not write. Bare markdown here is a
+            // model narrating its answer, not content — reported, never
+            // turned into prose.
+            bareText: 'ignore',
+            allowAfter: true,
+          });
+          logParseIssues(topic, `illustrate "${section.heading}"`, issues);
+          dropped = issues.filter((i) => i.severity === 'error').length;
+          illustrations = groundParsedBlocks(
+            parsed.slice(0, ILLUSTRATIONS_PER_SECTION_BACKSTOP),
+            ground,
+          ).map((p) => ({ anchorRequested: p.after ?? null, block: p.block }));
           // Success even when illustrations.length === 0 — "nothing here
           // earns a diagram" is a valid, expected editorial outcome for
           // this pass, unlike the write pass's "zero usable blocks", which
@@ -2686,7 +2370,7 @@ export async function writeLesson(
         }
       }
 
-      return { illustrations };
+      return { illustrations, dropped };
     }),
   );
 
@@ -2696,7 +2380,7 @@ export async function writeLesson(
   // shared budget rather than a race between concurrent sections.
   let lessonDiagramBudget = ILLUSTRATIONS_PER_LESSON_BACKSTOP;
   const illustratedSections: SectionResult[] = sectionResults.map((sr, index) => {
-    const { illustrations } = illustrationOutcomes[index];
+    const { illustrations, dropped } = illustrationOutcomes[index];
     const kept: typeof illustrations = [];
     for (const item of illustrations) {
       if (kept.length >= ILLUSTRATIONS_PER_SECTION_BACKSTOP || lessonDiagramBudget <= 0) {
@@ -2711,7 +2395,7 @@ export async function writeLesson(
     }
     const blocks = kept.length > 0 ? mergeIllustrations(sr.blocks, kept) : sr.blocks;
     if (sr.blocks.length > 0) {
-      logPhase(topic, `illustrate "${sr.heading}" ✓`, { diagrams: kept.length });
+      logPhase(topic, `illustrate "${sr.heading}" ✓`, { diagrams: kept.length, dropped });
     }
     emit(onProgress, {
       type: 'illustrate',
@@ -2719,6 +2403,7 @@ export async function writeLesson(
       total: sectionResults.length,
       heading: sr.heading,
       diagrams: kept.length,
+      dropped,
     });
     return { heading: sr.heading, blocks };
   });

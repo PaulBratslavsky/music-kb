@@ -99,6 +99,127 @@ C, C#, D, D#, E, F, F#, G, G#, A, A#, B
 `Eb`, `Bb`, `Db`, etc. are not legal values anywhere in this schema, even
 though they're valid music theory — the enum is closed to sharps.
 
+### Writing the body as markdown directives
+
+There are two ways a lesson body reaches Strapi, and they use different
+input formats for the *same* thirteen blocks:
+
+- **The in-app generator writes MARKDOWN** with inline component
+  directives, and a parser
+  (`client/src/lib/lesson/markdown-blocks.ts`) converts it to the typed
+  blocks below.
+- **The MCP write tools (`createLesson` / `updateLesson`) take the typed
+  blocks directly**, as JSON, validated by `server/src/mcp/tools/
+  lesson-blocks.ts`.
+
+The field reference below is the source of truth for both. Every directive
+attribute is that block's own field name, so one entry documents both
+forms.
+
+**Why markdown at all.** Anthropic's structured-output mode rejects
+`oneOf`, array `minItems > 1`, array `maxItems`, and integer bounds — and
+caps a request at **16 union-typed parameters**, which every optional field
+counts against. Under that ceiling the generator could reach 5 of the 13
+block types while Claude over MCP reached all 13. None of those
+restrictions apply to a text answer. The trade is that validation happens
+at parse time instead: an unknown directive, an illegal enum, a malformed
+table, a diagram that would draw nothing — each fails with the line number,
+and the block is dropped rather than shipped as a silent gap.
+
+#### The syntax
+
+```
+Ordinary prose is ordinary markdown. Paragraphs become lesson.prose.
+
+::callout{tone=tip src=dQw4w9WgXcQ}
+One fret is one half step, everywhere on the neck.
+::
+```
+
+- A directive opens with `::name{attributes}` **alone on its line** and
+  closes with a line containing **only `::`**. There is no self-closing
+  form: a directive with no body still needs its closing `::`. An unclosed
+  directive is an error naming the opening line — it never swallows the
+  rest of the section.
+- The directive **name** is the component name without the `lesson.`
+  prefix: `::prose` is `lesson.prose`. There are no aliases.
+- Directive **attributes** are that component's own field names, spelled
+  exactly (`stringSet`, `fromFret`, `barreFromString`). Exactly two
+  attributes are not fields:
+  - `src=<youtubeVideoId>` — shorthand for `source.videoId`, which is a
+    nested component and cannot be written flat. Only on blocks that have
+    a `source` field (so: not `table`, not `degree-chips`, not
+    `param-picker`).
+  - `after=<n>` — placement, used only by the illustrate pass, never
+    stored.
+- `key=value` for a simple value, `key="value with spaces"` when it
+  contains a space, and a **bare word for a boolean** — `useParam`,
+  `root`, `hollow` are true just by appearing.
+- An unknown attribute is an **error**, not a silent strip. `boxy` where
+  you meant `body` has to fail here or it becomes an invisible gap later.
+
+#### What goes in the body
+
+| Directive | Body |
+|---|---|
+| `prose`, `step` | markdown |
+| `callout`, `heading` | plain text |
+| `table` | a markdown table — header row, `\|---\|` separator, then rows |
+| `degree-chips` | the chips on one line, e.g. `I ii IV V7` |
+| `param-picker` | nothing |
+| `video-ref` | a description of the moment being pointed at — **never rendered**, it is what locates the timecode |
+| `diagram`, `keyboard-diagram`, `chord-diagram`, `neck-pattern` | lines starting with `-` are structured entries (one dot, mark, string or pattern); every other line is the **caption** |
+
+That last rule is the only one worth memorising: inside a drawing
+directive, `-` means "an entry", anything else means "the caption".
+`neck-pattern` nests one level deeper — a top-level `-` starts a pattern
+and **indented** `-` lines are that pattern's dots.
+
+A `caption="…"` attribute works too, and wins if you give both.
+
+#### A whole section
+
+```
+The minor third sits three frets above the root. On an open low E that
+puts it at fret 3.
+
+::callout{tone=tip src=dQw4w9WgXcQ}
+Count frets, not notes — every fret is one half step, with no exceptions.
+::
+
+::table{caption="Counting up from an open low E"}
+| Interval | Half steps | Fret |
+|---|---|---|
+| Minor 3rd | 3 | 3 |
+| Major 3rd | 4 | 4 |
+::
+
+::diagram{root=C quality=major stringSet=e–B–G}
+The third is the middle dot — two frets above the root, not three.
+::
+```
+
+#### What the parser refuses
+
+Each of these drops the one block and names the line; the rest of the
+lesson survives.
+
+| Refused | Why it matters |
+|---|---|
+| unknown directive / unknown attribute | a typo would otherwise become an invisible gap |
+| an illegal enum value | a hyphenated `stringSet` lookalike is named with its en-dash fix |
+| a theory diagram missing `root`/`quality`/`stringSet` | `resolveDiagramDots()` returns `[]` — an empty diagram, no error |
+| an explicit diagram or keyboard with no entries | same |
+| a chord box missing one of its six strings, or `state=fretted` with no `fret` | a missing string renders **muted** — a different chord, silently |
+| a partial barre (one or two of the three barre fields) | no bar is drawn and nothing complains |
+| a `neck-pattern` with fewer than two patterns, or only one of `fromFret`/`toFret` | a one-pill picker draws nothing; a half window re-crops each pattern |
+| a table row whose cell count differs from the header | |
+| an authored `timeSec` | timecodes are BM25-derived from the transcript, never authored — see "Citing sources" |
+
+An over-length `caption` is **truncated, not rejected** (with a warning
+naming the line): losing a whole diagram over 20 surplus characters would
+cost more than it saves.
+
 ### `lesson.prose`
 
 Markdown body copy: paragraphs, lists, inline headings.
@@ -107,6 +228,16 @@ Markdown body copy: paragraphs, lists, inline headings.
 |---|---|---|
 | `body` | richtext, required | markdown. Along with `lesson.step.body`, this is one of only two block fields rendered through a markdown parser (`ReactMarkdown` + GFM) — every other text field in every block (callout body, step lede, table cells, captions) is plain text. Markdown syntax typed into a plain-text field renders as literal asterisks and backticks, not formatting. |
 | `source` | component | see `lesson.source` above |
+
+**As a directive.** Plain markdown paragraphs already become
+`lesson.prose` — the directive form exists to carry a citation.
+
+```
+::prose{src=dQw4w9WgXcQ}
+The minor third sits **three frets** above the root. One fret is one half
+step, so three half steps up from an open low E lands on fret 3.
+::
+```
 
 ### `lesson.heading`
 
@@ -118,6 +249,16 @@ A standalone heading *between* blocks — not a substitute for a markdown
 | `text` | string, required | |
 | `level` | enum, required, default `h2` | `h2` or `h3` only — no `h1` (the lesson title already is one) and no `h4`+ |
 
+**As a directive.** `::heading{level=h2}` with the text as its body. The
+in-app generator never emits one — section headings come from the outline
+and the write pass rejects a `::heading` by name.
+
+```
+::heading{level=h3}
+Where the root lives
+::
+```
+
 ### `lesson.callout`
 
 A short aside, rendered as a colored box with a tone label.
@@ -127,6 +268,15 @@ A short aside, rendered as a colored box with a tone label.
 | `tone` | enum, required, default `note` | `note`, `tip`, `warning` |
 | `body` | text, required | **plain text, not markdown** — see `lesson.prose` above |
 | `source` | component | see `lesson.source` above |
+
+**As a directive.**
+
+```
+::callout{tone=warning src=dQw4w9WgXcQ}
+The fifth-fret tuning trick fails between G and B — there the match is at
+fret 4.
+::
+```
 
 ### `lesson.step`
 
@@ -139,6 +289,16 @@ One numbered step in a sequence.
 | `lede` | text | plain text, one line, shown above the body |
 | `body` | richtext | markdown — rendered the same way as `lesson.prose.body` |
 | `source` | component | see `lesson.source` above |
+
+**As a directive.** `number` may be omitted: the parser numbers steps in
+the order they appear, and the generator renumbers the whole lesson after
+assembly anyway.
+
+```
+::step{title="Find the root" lede="Low E, fifth fret." src=dQw4w9WgXcQ}
+Fret the low E at 5 and let it ring — that is A.
+::
+```
 
 ### `lesson.diagram`
 
@@ -174,12 +334,14 @@ block rather than an `instrument: "piano"` option here.
 missing any one of the three makes `resolveDiagramDots()` return `[]`,
 which renders as a completely empty diagram with **no error anywhere** —
 not a validation failure, not a console warning outside dev mode, just a
-gap where a chord shape should be. The MCP path catches this with a
-`superRefine` that names the missing field; the in-app generator never
-emits `lesson.diagram` at all (see Half B's scope note), so this trap is
-almost entirely an MCP-authoring concern — but it's the single most common
-way a hand-composed diagram block goes silently wrong, so it's called out
-here rather than left to be discovered by a blank render.
+gap where a chord shape should be. Both authoring paths catch it, and
+neither by schema validity: the MCP path with a `superRefine` naming the
+missing field, and the markdown parser by running the renderer's own
+`resolveDiagramDots()` on every parsed diagram and dropping any that
+resolves to nothing, with the line number and the three field values. It
+is the single most common way a diagram block goes silently wrong, which
+is why it is checked by executing the resolver rather than by inspecting
+the shape.
 
 **"Instrument" means two different things depending on which object you're
 looking at.** The lesson record's own `instrument` field (`guitar`,
@@ -196,6 +358,27 @@ the chord is built on. On `lesson.neck-dot`/`lesson.key-mark`, `root` is a
 *boolean flag* — whether this one hand-placed dot happens to be the chord's
 root note, so it renders distinctly from the other dots. Same field name,
 unrelated types, unrelated meaning.
+
+**As a directive.** Theory mode carries everything in attributes and uses
+the body as the caption:
+
+```
+::diagram{root=C quality=major stringSet=e–B–G inversion=0 fromFret=3 toFret=8}
+The third is the middle dot — two frets above the root, not three.
+::
+```
+
+Explicit mode adds one `-` line per dot (see `lesson.neck-dot` below);
+non-`-` lines are still the caption:
+
+```
+::diagram{mode=explicit instrument=guitar fromFret=5 toFret=8}
+Chord tones inside the scale shape, with the fretted notes ringed.
+- string=5 fret=5 label=A root ringed
+- string=4 fret=7 label=E light
+- string=3 fret=5 hollow
+::
+```
 
 ### `lesson.neck-dot` (used inside `lesson.diagram.dots`)
 
@@ -242,6 +425,14 @@ tones; add `ringed` on the four your hand is actually holding and the same
 diagram now says three things. A diagram where every dot is plain is
 usually a diagram that could have taught more.
 
+**As a directive entry.** One `-` line inside a `::diagram{mode=explicit}`
+or under a `::neck-pattern` pattern. The four style flags are bare words:
+
+```
+- string=5 fret=5 label=A root ringed
+- string=3 fret=5 hollow
+```
+
 ### `lesson.keyboard-diagram`
 
 A piano/keyboard diagram, pitch-class addressed rather than
@@ -260,6 +451,16 @@ of it.
 | `caption` | string | max 255 chars, same hard cap as `lesson.diagram.caption` |
 | `source` | component | see `lesson.source` above |
 
+**As a directive.**
+
+```
+::keyboard-diagram{mode=explicit octaves=1}
+E–F and B–C are the two white pairs with no black key between them.
+- pc=E label=E flag
+- pc=F label=F flag
+::
+```
+
 ### `lesson.key-mark` (used inside `lesson.keyboard-diagram.marks`)
 
 One hand-placed mark on a keyboard, for `mode: "explicit"`.
@@ -270,6 +471,14 @@ One hand-placed mark on a keyboard, for `mode: "explicit"`.
 | `label` | string | max 8 chars |
 | `root` | boolean, default `false` | see the "root" disambiguation above |
 | `flag` | boolean, default `false` | visually flags the key — used for landmark/teaching marks, e.g. the two "no black key between them" pairs (E–F, B–C) in the half-step lesson's opening diagram |
+
+**As a directive entry.** One `-` line inside a
+`::keyboard-diagram{mode=explicit}`:
+
+```
+- pc=C label=R root
+- pc=E label=3
+```
 
 ### `lesson.chord-diagram`
 
@@ -300,6 +509,21 @@ asked.
 dropped at render — no bar drawn, no error. The MCP path rejects a partial
 barre and names the fix.
 
+**As a directive.** All six strings, one `-` line each; the caption is the
+non-`-` line.
+
+```
+::chord-diagram{barreFret=1 barreFromString=0 barreToString=5 fretCount=5}
+F major — the barre does the work of the nut.
+- string=0 state=fretted fret=1
+- string=1 state=fretted fret=1
+- string=2 state=fretted fret=2
+- string=3 state=fretted fret=3
+- string=4 state=fretted fret=3
+- string=5 state=fretted fret=1 root
+::
+```
+
 ### `lesson.chord-string` (used inside `lesson.chord-diagram.strings`)
 
 One string's state in a chord box.
@@ -310,6 +534,16 @@ One string's state in a chord box.
 | `state` | enum, required, default `muted` | `fretted` — a finger at `fret`. `open` — played unfretted, drawn as `O` above the nut. `muted` — not played, drawn as `×`. |
 | `fret` | integer, min 1 | absolute fret. **Required when `state` is `fretted`**, ignored otherwise. Never `0` — an unfretted string is `state: "open"`, not fret 0. (The renderer forgives a `fretted` entry at fret 0 by reading it as open, but the MCP path rejects a `fretted` entry with no `fret` at all, because that one renders as a muted string — a wrong chord with no error.) |
 | `root` | boolean, default `false` | true if this fretted note is the chord's root — drawn in the accent colour so the shape's anchor is obvious |
+
+**As a directive entry.** `state` is required explicitly — a string with no
+state renders muted, which is a different chord with no error, so the
+parser refuses to guess.
+
+```
+- string=0 state=open
+- string=3 state=fretted fret=2 root
+- string=5 state=muted
+```
 
 ### `lesson.neck-pattern`
 
@@ -362,6 +596,21 @@ Do **not** give a pattern an `id`. Patterns are identified by their
 position in the array, and `id` is a reserved Strapi field the write tools
 reject (see "field naming trap: block `id`" below).
 
+**As a directive.** A top-level `-` starts a pattern; **indented** `-`
+lines are that pattern's dots.
+
+```
+::neck-pattern{instrument=guitar fromFret=0 toFret=15}
+The five boxes, on one neck, climbing.
+- label="Box 1" sub="E minor pentatonic · frets 0–3"
+  - string=5 fret=0 label=E root
+  - string=5 fret=3 label=G
+- label="Box 2"
+  - string=5 fret=3 label=G
+  - string=5 fret=5 label=A
+::
+```
+
 ### `lesson.natural-notes`
 
 A fixed reference strip of the natural notes on the low E and A strings,
@@ -380,6 +629,15 @@ adds nothing.
 | `caption` | string | max 255 chars — the only thing you can vary |
 | `source` | component | see `lesson.source` above |
 
+**As a directive.** No attributes worth setting beyond the caption, which
+is simply the body.
+
+```
+::natural-notes{}
+Every sharp and flat is one fret away from one of these fourteen notes.
+::
+```
+
 ### `lesson.degree-chips`
 
 A row of scale-degree chips, e.g. `1 2 3 4 5 6 7` or `R ♭3 5`.
@@ -388,6 +646,14 @@ A row of scale-degree chips, e.g. `1 2 3 4 5 6 7` or `R ♭3 5`.
 |---|---|---|
 | `degrees` | JSON array of strings, required | in order, e.g. `["1","2","3","4","5","6","7"]` or `["I","ii","IV","V7"]` — the field is a bare JSON array, not an enum, so any string is schema-legal; keep them short and consistent within one lesson (don't mix Arabic scale degrees and Roman-numeral chord functions in the same chip row) |
 | `size` | enum, default `md` | `sm`, `md` |
+
+**As a directive.** The chips go on one line, separated by spaces.
+
+```
+::degree-chips{size=md}
+I ii iii IV V vi vii°
+::
+```
 
 ### `lesson.table`
 
@@ -408,6 +674,18 @@ attribute was removed. Do not emit `useParam` on a table block; it is not
 in the schema and will be rejected by the MCP tool's `.strict()` schema
 (or, on any path that doesn't validate, silently dropped).
 
+**As a directive.** The body is a markdown table; the caption is an
+attribute, since the body is already spoken for.
+
+```
+::table{caption="Counting up from an open low E"}
+| Interval | Half steps | Fret |
+|---|---|---|
+| Minor 3rd | 3 | 3 |
+| Major 3rd | 4 | 4 |
+::
+```
+
 ### `lesson.param-picker`
 
 Renders the control for the lesson-level `parameter` (a key selector,
@@ -419,6 +697,13 @@ actually sets `parameter`.
 |---|---|---|
 | `label` | string | overrides the parameter's own label. Omit to use the parameter's default label. |
 
+**As a directive.** No body.
+
+```
+::param-picker{label="Try it in"}
+::
+```
+
 ### `lesson.video-ref`
 
 A link into a library video at a timecode.
@@ -428,6 +713,16 @@ A link into a library video at a timecode.
 | `videoId` | string, required | max 32 chars — the `youtubeVideoId` (**not** a Strapi `documentId`) |
 | `timeSec` | integer, min 0 | same grounding rule as `lesson.source.timeSec` — never invented |
 | `label` | string | link text. Defaults to "Watch this moment" if omitted. |
+
+**As a directive.** The body is the moment description — never rendered,
+used only to locate the timecode. Do **not** write `timeSec`: the parser
+refuses an authored one.
+
+```
+::video-ref{videoId=dQw4w9WgXcQ label="Watch the barre demonstrated"}
+He barres the first fret and rolls the finger back onto its side.
+::
+```
 
 ### One more field-naming trap: block `id`
 
@@ -506,25 +801,30 @@ actually two sections, not a sign to trim it back to a target count.
 ### Generation is two passes: write, then illustrate
 
 The in-app pipeline (`lesson-generation.ts`) splits each section into two
-independent model calls, not one: a **write** pass emits
-prose/callout/step/table/degree-chips only — no diagram type is even in
-that call's schema — and a separate **illustrate** pass, given the
-finished section text, decides what would be clearer shown than described
-and returns diagram/keyboard-diagram blocks plus where each belongs in
-the section. The two passes run per section, and every section's
-illustrate call is independent of every other section's, so the pipeline
-runs them concurrently rather than one at a time.
+independent model calls, not one: a **write** pass emits text only —
+prose, callout, step, table, degree-chips, video-ref, param-picker; no
+drawing directive is even available to it — and a separate **illustrate**
+pass, given the finished section text, decides what would be clearer shown
+than described and answers with the five drawing directives plus where
+each belongs in the section (`after=N`). The two passes run per section,
+and every section's illustrate call is independent of every other
+section's, so the pipeline runs them concurrently rather than one at a
+time.
 
 This split exists because a combined write+illustrate call makes a
 diagram an afterthought — the model is mid-explanation when it has to
-also pick a diagram, and it shows. It also matters for schema budget: a
-combined schema carries every prose field AND every diagram field in one
-request, which is what forced earlier versions of this schema to drop
-`inversion`, `fromFret`/`toFret`, and explicit-mode `dots`/`marks`, and to
-lock generation to `mode: "theory"` only. An illustration-only call
-carries none of the prose fields, so the full diagram vocabulary is
-available to it — explicit dots and marks, inversions, fret windows,
-octaves, all of it.
+also pick a diagram, and it shows.
+
+It used to matter for a second reason that no longer applies: when both
+passes emitted structured JSON, a combined schema carried every prose
+field AND every diagram field in one request, which pushed it into
+Anthropic's 16-union-typed-parameter cap and forced dropping `inversion`,
+`fromFret`/`toFret`, explicit-mode `dots`/`marks`, `param-picker` and
+`video-ref`, and locking generation to `mode: "theory"`. Both passes now
+author in markdown, so there is no cap and nothing is cut: the illustrate
+pass reaches all five drawing blocks, both modes, and every field on each.
+The split survives on the editorial argument alone, which was always the
+better one.
 
 Composing a lesson by hand via MCP has no such split — one sitting does
 both — but the same judgment applies: write the section first, then look

@@ -68,21 +68,32 @@ function extractSection(markdown: string, heading: string): string {
   return lines.slice(startIdx, endIdx).join('\n').trim();
 }
 
+// The syntax section every generation prompt needs now that both passes
+// author in MARKDOWN rather than structured JSON: what a directive looks
+// like, that an attribute name IS the component's field name, and what the
+// parser refuses. Without it a per-block reference entry is a list of
+// fields with no way to write them down.
+//
+// Injected into BOTH pass excerpts. It is the one part of Half A that is
+// not per-block, so it cannot ride along on a `### \`lesson.X\`` heading
+// the way the directive examples do.
+const DIRECTIVE_SYNTAX_HEADING = '### Writing the body as markdown directives';
+
 // The block types the in-app WRITE pass (SECTION_SYSTEM in
 // lesson-generation.ts) is allowed to emit. Deliberately a SUBSET of the
 // dynamic-zone components — no heading (injected deterministically from
 // the outline, never model-emitted), and — since the write/illustrate
-// split — no diagram/keyboard-diagram either. Those two are emitted by the
-// separate ILLUSTRATE pass below, given the write pass's finished text,
-// not by this one; see docs/lesson-authoring.md's "Generation is two
-// passes" note for why.
+// split — nothing that draws. Those are emitted by the separate
+// ILLUSTRATE pass below, given the write pass's finished text, not by this
+// one; see docs/lesson-authoring.md's "Generation is two passes" note.
 //
 // param-picker and video-ref rejoined this list once the write/illustrate
-// split freed room under Anthropic's 16-union-typed-parameter cap (see
-// LessonBlockOutputSchema's own comment). Their guide entries matter as
-// much as the rest: param-picker's says it renders as nothing on a lesson
-// with no `parameter`, and video-ref's says a `timeSec` is grounded and
-// never invented — both rules the write pass enforces in code too.
+// split freed room under Anthropic's 16-union-typed-parameter cap — a cap
+// that no longer applies at all now the pass authors in markdown. Their
+// guide entries matter as much as the rest: param-picker's says it renders
+// as nothing on a lesson with no `parameter`, and video-ref's says a
+// `timeSec` is grounded and never invented — both rules the write pass
+// still enforces in code too.
 const SECTION_BLOCK_TYPES = [
   'lesson.prose',
   'lesson.callout',
@@ -93,22 +104,38 @@ const SECTION_BLOCK_TYPES = [
   'lesson.video-ref',
 ] as const;
 
-// The block types the in-app ILLUSTRATE pass is allowed to emit — the two
-// diagram-shaped components the write pass above deliberately excludes.
-const ILLUSTRATION_BLOCK_TYPES = ['lesson.diagram', 'lesson.keyboard-diagram'] as const;
+// The block types the in-app ILLUSTRATE pass is allowed to emit — the five
+// that draw something, which the write pass above deliberately excludes.
+//
+// It was two until this branch. chord-diagram, neck-pattern and
+// natural-notes existed in the schema and in LessonBody with nothing able
+// to reach them from generation: the combined write+illustrate schema sat
+// at Anthropic's 16-union-typed-parameter ceiling, so there was no room to
+// declare them. Authoring in markdown removes the ceiling, and this list
+// is where that unlock actually lands — miss it and the widened vocabulary
+// stays theoretical.
+const ILLUSTRATION_BLOCK_TYPES = [
+  'lesson.diagram',
+  'lesson.keyboard-diagram',
+  'lesson.chord-diagram',
+  'lesson.neck-pattern',
+  'lesson.natural-notes',
+] as const;
 
-// lesson.neck-dot / lesson.key-mark are sub-components (used inside
-// lesson.diagram.dots / lesson.keyboard-diagram.marks for explicit-mode
-// dots), not top-level dynamic-zone blocks, so they aren't in
-// ILLUSTRATION_BLOCK_TYPES above — but a model composing an explicit-mode
-// diagram needs their field rules (string-index convention, fret, label
-// length) just as much as the parent block's. Their headings carry a
-// parenthetical suffix in the guide, so they can't reuse the
-// `### \`${component}\`` template the block-type loops use; extracted by
-// literal heading text instead.
+// The entry shapes that live INSIDE an illustration block's body — one
+// dot, one keyboard mark, one chord-box string, one pattern. None is a
+// top-level dynamic-zone block, so none is in ILLUSTRATION_BLOCK_TYPES
+// above; but a model writing `- string=5 fret=5 label=A root ringed` needs
+// their field rules (the string-index convention, the required `state`,
+// the four style flags) exactly as much as the parent block's. Their
+// headings carry a parenthetical suffix in the guide, so they can't reuse
+// the `### \`${component}\`` template the block-type loops use; extracted
+// by literal heading text instead.
 const SUB_COMPONENT_HEADINGS = [
   '### `lesson.neck-dot` (used inside `lesson.diagram.dots`)',
   '### `lesson.key-mark` (used inside `lesson.keyboard-diagram.marks`)',
+  '### `lesson.chord-string` (used inside `lesson.chord-diagram.strings`)',
+  '#### The pattern shape (entries in `lesson.neck-pattern.patterns`)',
 ] as const;
 
 /**
@@ -128,15 +155,16 @@ export function getOutlineGuideExcerpt(): string {
 }
 
 /**
- * Excerpt for the per-section WRITE call: the block reference entries for
- * exactly the block types that call is allowed to emit, plus the
- * judgment sections most directly about what those blocks should contain.
- * No diagram vocabulary and no "when a diagram earns its place" judgment
- * here — this call never emits a diagram, see ILLUSTRATION_BLOCK_TYPES
- * above.
+ * Excerpt for the per-section WRITE call: the directive syntax, the block
+ * reference entries for exactly the block types that call is allowed to
+ * emit, plus the judgment sections most directly about what those blocks
+ * should contain. No diagram vocabulary and no "when a diagram earns its
+ * place" judgment here — this call never emits a diagram, see
+ * ILLUSTRATION_BLOCK_TYPES above.
  */
 export function getSectionBlockGuideExcerpt(): string {
   const guide = loadAuthoringGuide();
+  const syntax = extractSection(guide, DIRECTIVE_SYNTAX_HEADING);
   const blockReference = SECTION_BLOCK_TYPES.map((component) =>
     // Headings in the guide wrap the component name in backticks, e.g.
     // "### `lesson.prose`" — match that exactly.
@@ -147,18 +175,20 @@ export function getSectionBlockGuideExcerpt(): string {
     extractSection(guide, '#### Prose: name the note, not the shape'),
     extractSection(guide, '### Citing sources'),
   ];
-  return [...blockReference, ...judgment].join('\n\n');
+  return [syntax, ...blockReference, ...judgment].join('\n\n');
 }
 
 /**
- * Excerpt for the per-section ILLUSTRATE call: the block reference entries
- * for diagram/keyboard-diagram (and their neck-dot/key-mark sub-components,
- * needed for explicit-mode positions), plus the judgment on when a diagram
- * earns its place — including the progression guidance — and the citation
- * rule (illustrations carry `source` too, same as write-pass blocks).
+ * Excerpt for the per-section ILLUSTRATE call: the directive syntax, the
+ * block reference entries for all five drawing blocks (and the four entry
+ * shapes that live inside their bodies), plus the judgment on when a
+ * diagram earns its place — including the progression guidance — and the
+ * citation rule (illustrations carry `source` too, same as write-pass
+ * blocks).
  */
 export function getIllustrationGuideExcerpt(): string {
   const guide = loadAuthoringGuide();
+  const syntax = extractSection(guide, DIRECTIVE_SYNTAX_HEADING);
   const blockReference = ILLUSTRATION_BLOCK_TYPES.map((component) =>
     extractSection(guide, `### \`${component}\``),
   );
@@ -169,5 +199,5 @@ export function getIllustrationGuideExcerpt(): string {
     extractSection(guide, '### When a diagram earns its place versus when prose is clearer'),
     extractSection(guide, '### Citing sources'),
   ];
-  return [...blockReference, ...subComponentReference, ...judgment].join('\n\n');
+  return [syntax, ...blockReference, ...subComponentReference, ...judgment].join('\n\n');
 }

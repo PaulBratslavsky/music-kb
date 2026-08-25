@@ -155,6 +155,20 @@ export function ProgressStepList({ events }: { events: LessonProgressEvent[] }) 
   );
 }
 
+// The model authors in markdown now, so a block the parser rejected — a bad
+// enum, an unknown directive, a diagram that would draw nothing — would
+// otherwise show up as nothing but a slightly shorter lesson. The count is
+// already on the wire (`dropped`); this puts it on the page.
+function RejectedBlocks({ count }: Readonly<{ count?: number }>) {
+  if (!count) return null;
+  return (
+    <span className="text-[var(--ink-muted)]">
+      {' '}
+      {count} block{count === 1 ? '' : 's'} rejected by the parser.
+    </span>
+  );
+}
+
 function renderProgressEvent(event: LessonProgressEvent) {
   switch (event.type) {
     case 'tier':
@@ -225,6 +239,7 @@ function renderProgressEvent(event: LessonProgressEvent) {
               ? ', from the source summaries (no transcript passages matched).'
               : ` from ${event.passages} transcript passage${event.passages === 1 ? '' : 's'}.`
             : '.'}
+          <RejectedBlocks count={event.dropped} />
         </span>
       );
     case 'illustrate':
@@ -234,6 +249,7 @@ function renderProgressEvent(event: LessonProgressEvent) {
           {event.diagrams === 0
             ? 'nothing needed a diagram.'
             : `${event.diagrams} diagram${event.diagrams === 1 ? '' : 's'} added.`}
+          <RejectedBlocks count={event.dropped} />
         </span>
       );
     case 'grounding':
