@@ -138,9 +138,10 @@ One fret is one half step, everywhere on the neck.
 
 - A directive opens with `::name{attributes}` **alone on its line** and
   closes with a line containing **only `::`**. There is no self-closing
-  form: a directive with no body still needs its closing `::`. An unclosed
-  directive is an error naming the opening line — it never swallows the
-  rest of the section.
+  form: a directive with no body still needs its closing `::`. A missing
+  close never swallows the rest — the body stops at the next directive —
+  but it is always reported, and if it runs to the end of the answer the
+  block is dropped (the answer may have been truncated). Close them.
 - The directive **name** is the component name without the `lesson.`
   prefix: `::prose` is `lesson.prose`. There are no aliases.
 - Directive **attributes** are that component's own field names, spelled
@@ -218,7 +219,9 @@ lesson survives.
 
 An over-length `caption` is **truncated, not rejected** (with a warning
 naming the line): losing a whole diagram over 20 surplus characters would
-cost more than it saves.
+cost more than it saves. A directive left unclosed *mid-answer* is
+likewise recovered with a warning rather than dropped — its body plainly
+ended where the next directive began.
 
 ### `lesson.prose`
 

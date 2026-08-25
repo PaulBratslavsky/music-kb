@@ -383,15 +383,29 @@ describe('validation failures name the offending line', () => {
     expect(errorsOf(issues)[0].message).toContain('no chips');
   });
 
-  it('an unclosed directive fails loudly and does not swallow the rest', () => {
+  // Two live sections lost a whole paragraph each to a missing `::`, so
+  // the two cases are split by what the missing close actually means.
+  it('recovers an unclosed directive whose body plainly ended at the next one, with a warning', () => {
     const { blocks, issues } = parseLessonMarkdown(
       ['::callout{tone=tip}', 'A tip with no close.', '', '::prose{}', 'This still survives.', '::'].join('\n'),
     );
+    expect(componentsOf(blocks)).toEqual(['lesson.callout', 'lesson.prose']);
+    expect(String(blocks[0].block.body)).toBe('A tip with no close.');
+    expect(String(blocks[1].block.body)).toBe('This still survives.');
+    expect(errorsOf(issues)).toEqual([]);
+    const warn = issues.find((i) => i.severity === 'warning');
+    expect(warn?.line).toBe(1);
+    expect(warn?.message).toContain('Recovered');
+  });
+
+  it('drops an unclosed directive that runs to the end of the answer — it may be truncated', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      ['::prose{}', 'Real content.', '::', '', '::callout{tone=tip}', 'A tip that never end'].join('\n'),
+    );
     expect(componentsOf(blocks)).toEqual(['lesson.prose']);
-    expect(String(blocks[0].block.body)).toBe('This still survives.');
     const err = errorsOf(issues)[0];
-    expect(err.line).toBe(1);
-    expect(err.message).toContain('never closed');
+    expect(err.line).toBe(5);
+    expect(err.message).toContain('never closed and the answer ends');
   });
 
   it('an unterminated attribute quote', () => {
@@ -764,3 +778,57 @@ function probeEnum(component: string, field: string, value: string): string | nu
       return null;
   }
 }
+
+// =============================================================================
+// Repairs found by running it for real
+// =============================================================================
+
+describe('repairs a live run turned up', () => {
+  const sixOpen = (extra = '') =>
+    [
+      `::chord-diagram{${extra}}`,
+      ...Array.from({ length: 6 }, (_, s) => `- string=${s} state=${s === 0 ? 'fretted fret=2' : 'open'}`),
+      '::',
+    ].join('\n');
+
+  // The frontier tier emitted `barreFret=0` twice in one section, reading
+  // fret 0 as "at the nut". That is an open chord, not a barre — dropping
+  // the barre keeps a correct diagram, where rejecting the block lost the
+  // whole chord.
+  it('reads barreFret=0 as "no barre" and keeps the chord box', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      sixOpen('barreFret=0 barreFromString=0 barreToString=5'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(componentsOf(blocks)).toEqual(['lesson.chord-diagram']);
+    expect(blocks[0].block.barreFret).toBeUndefined();
+    expect(blocks[0].block.barreFromString).toBeUndefined();
+    const warn = issues.find((i) => i.severity === 'warning');
+    expect(warn?.line).toBe(1);
+    expect(warn?.message).toContain('the nut, not a barre');
+  });
+
+  it('still rejects a genuinely partial barre', () => {
+    const { blocks, issues } = parseLessonMarkdown(sixOpen('barreFret=3'));
+    expect(blocks).toHaveLength(0);
+    expect(errorsOf(issues)[0].message).toContain('all three of barreFret');
+  });
+
+  // Raised from 6/12 once the schema stopped being what enforced them: the
+  // model twice wrote an 8-column table that meant all 8 columns.
+  it('keeps an 8-column table rather than silently dropping two columns', () => {
+    const cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::table{}',
+        `| ${cols.join(' | ')} |`,
+        `|${cols.map(() => '---').join('|')}|`,
+        `| ${cols.map((_, i) => i).join(' | ')} |`,
+        '::',
+      ].join('\n'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(blocks[0].block.headers).toEqual(cols);
+    expect((blocks[0].block.rows as string[][])[0]).toHaveLength(8);
+  });
+});

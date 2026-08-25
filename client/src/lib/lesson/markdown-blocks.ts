@@ -43,8 +43,12 @@
 //
 //   * Every directive CLOSES with a line containing only `::`. There is no
 //     self-closing form: a leaf-looking directive with no body still ends
-//     with `::`. An unclosed directive is an error naming the opening
-//     line, not a swallowed remainder.
+//     with `::`. A directive whose close is missing never swallows the
+//     rest — its body stops at the next directive, and that is reported.
+//     Whether the block survives depends on WHY the body ended: at the
+//     next directive it is recovered with a warning (the author plainly
+//     finished and moved on), at end-of-answer it is dropped as an error
+//     (the response may have been truncated mid-thought).
 //   * A directive's NAME is its Strapi component name minus the `lesson.`
 //     prefix — `::prose` is `lesson.prose`. No aliases, no second
 //     vocabulary to keep in sync.
@@ -277,8 +281,16 @@ export const VISUAL_DIRECTIVES = [
 
 /** Strapi `string` column. Over-length captions are truncated + warned. */
 export const CAPTION_MAX = 255;
-const TABLE_HEADERS_MAX = 6;
-const TABLE_ROWS_MAX = 12;
+// Runaway backstops, not shaping caps. These were 6 and 12 when the block
+// schema could not express `maxItems` and the numbers had to double as a
+// hint to a model that might ignore the prompt. A markdown table is
+// explicit authoring, and a live run hit the 6-column cap twice on tables
+// that meant all 8 columns — silently losing two columns of real content
+// is a worse failure than a wide table. Raised to genuine runaway levels;
+// the row/column consistency check below is what actually guards
+// correctness.
+const TABLE_HEADERS_MAX = 12;
+const TABLE_ROWS_MAX = 24;
 const DEGREE_CHIPS_MAX = 12;
 const DOT_LABEL_MAX = 8;
 /** A triad has 3 notes; 6 leaves room for a doubled note or two. */
@@ -890,7 +902,23 @@ function buildChordDiagram(ctx: BuildContext, a: AttrReader): Built {
   const err = (message: string) =>
     issues.push({ line, severity: 'error', message: `::chord-diagram: ${message}` });
 
-  const barreFret = a.int('barreFret', { min: 1 });
+  // Read without the min-1 bound so `barreFret=0` can be REPAIRED rather
+  // than rejected. A live run lost two whole chord boxes to it: the model
+  // reads fret 0 as "at the nut", which is not a barre, it is an open
+  // chord. Dropping the barre keeps a correct diagram; dropping the block
+  // loses the chord entirely.
+  let barreFret = a.int('barreFret', { min: 0 });
+  let barreDroppedAtNut = false;
+  if (barreFret === 0) {
+    issues.push({
+      line,
+      severity: 'warning',
+      message:
+        '::chord-diagram: `barreFret=0` is the nut, not a barre — the barre is dropped and the chord drawn without one. Omit the barre fields for an open chord.',
+    });
+    barreFret = undefined;
+    barreDroppedAtNut = true;
+  }
   const barreFromString = a.int('barreFromString', { min: 0, max: 5 });
   const barreToString = a.int('barreToString', { min: 0, max: 5 });
   const fretCount = a.int('fretCount', { min: 3, max: 6 });
@@ -959,7 +987,10 @@ function buildChordDiagram(ctx: BuildContext, a: AttrReader): Built {
   }
 
   const barreGiven = [barreFret, barreFromString, barreToString].filter((v) => v !== undefined).length;
-  if (barreGiven > 0 && barreGiven < 3) {
+  // A partial barre is an error because the author MEANT a barre and left
+  // it half-written. A barre repaired away at the nut is not partial — the
+  // whole barre is gone on purpose, and the string indices with it.
+  if (barreGiven > 0 && barreGiven < 3 && !barreDroppedAtNut) {
     err(
       'a barre needs all three of barreFret, barreFromString and barreToString. A partial barre draws no bar and raises no error. Dropped.',
     );
@@ -977,7 +1008,7 @@ function buildChordDiagram(ctx: BuildContext, a: AttrReader): Built {
     strings: strings as unknown as JsonValue,
     orientation,
   };
-  if (barreGiven === 3) {
+  if (barreGiven === 3 && !barreDroppedAtNut) {
     block.barreFret = barreFret as number;
     block.barreFromString = barreFromString as number;
     block.barreToString = barreToString as number;
@@ -1350,14 +1381,31 @@ export function parseLessonMarkdown(markdown: string, options: ParseOptions = {}
       body.push(lines[j]);
     }
 
+    // An unclosed directive, split by WHY the body ended.
+    //
+    // Ended at the next directive: the author finished this block and moved
+    // on, they just left off the `::`. The body is complete, so the block is
+    // RECOVERED with a warning — a live run lost two whole paragraphs this
+    // way, and dropping content that is demonstrably intact is the wrong
+    // trade. Nothing is swallowed either way: the body still ends exactly
+    // where the next directive begins.
+    //
+    // Ended at EOF: the answer may have been truncated mid-thought, and a
+    // half-sentence is not content. That stays an error, and the block is
+    // dropped.
     if (!closed) {
+      const atEof = j >= lines.length;
       issues.push({
         line: current.line,
-        severity: 'error',
-        message: `::${name} opened here was never closed — every directive ends with a line containing only \`::\`. Block dropped.`,
+        severity: atEof ? 'error' : 'warning',
+        message: atEof
+          ? `::${name} opened here was never closed and the answer ends — every directive ends with a line containing only \`::\`. Block dropped, since a truncated body cannot be trusted.`
+          : `::${name} opened here was never closed — every directive ends with a line containing only \`::\`. Recovered: the body ends where the next directive begins.`,
       });
-      i = j;
-      continue;
+      if (atEof) {
+        i = j;
+        continue;
+      }
     }
 
     const directive = name as LessonDirectiveName;
@@ -1367,7 +1415,7 @@ export function parseLessonMarkdown(markdown: string, options: ParseOptions = {}
         severity: 'error',
         message: `unknown directive \`::${name}\`. Legal directives: ${DIRECTIVE_NAMES.map((n) => `::${n}`).join(', ')}.`,
       });
-      i = j + 1;
+      i = closed ? j + 1 : j;
       continue;
     }
     if (!allowed.includes(directive)) {
@@ -1376,7 +1424,7 @@ export function parseLessonMarkdown(markdown: string, options: ParseOptions = {}
         severity: 'error',
         message: `\`::${name}\` is not available in this pass. Available here: ${allowed.map((n) => `::${n}`).join(', ')}.`,
       });
-      i = j + 1;
+      i = closed ? j + 1 : j;
       continue;
     }
 
@@ -1424,7 +1472,7 @@ export function parseLessonMarkdown(markdown: string, options: ParseOptions = {}
     if (built && errorsAfter === errorsBefore) {
       blocks.push({ ...built, line: current.line, after });
     }
-    i = j + 1;
+    i = closed ? j + 1 : j;
   }
   flushPending();
 
