@@ -232,6 +232,19 @@ export type LessonProgressEvent =
        */
       dropped?: number;
       /**
+       * How many blocks in this section were REPAIRED rather than dropped —
+       * most often a diagram whose fret window would have hidden its own
+       * dots, widened to fit them. Reported separately from `dropped`
+       * because the block survives: conflating the two would inflate a
+       * counter that means "content you asked for is not here".
+       *
+       * Worth surfacing at all because a repair is evidence the model got
+       * something wrong in a way that WOULD have been invisible — a
+       * window-clipped diagram renders as a blank fretboard, not an error.
+       * A run with a high repair count is a run whose prompt needs work.
+       */
+      repaired?: number;
+      /**
        * How many blocks in this section NAME a source in their own text —
        * an attribution, a verbatim quotation, a source video's title —
        * while carrying no `src` citation. Reported because an unlinked
@@ -264,6 +277,19 @@ export type LessonProgressEvent =
        * otherwise show up as nothing but a shorter lesson.
        */
       dropped?: number;
+      /**
+       * How many blocks in this section were REPAIRED rather than dropped —
+       * most often a diagram whose fret window would have hidden its own
+       * dots, widened to fit them. Reported separately from `dropped`
+       * because the block survives: conflating the two would inflate a
+       * counter that means "content you asked for is not here".
+       *
+       * Worth surfacing at all because a repair is evidence the model got
+       * something wrong in a way that WOULD have been invisible — a
+       * window-clipped diagram renders as a blank fretboard, not an error.
+       * A run with a high repair count is a run whose prompt needs work.
+       */
+      repaired?: number;
     }
   | { type: 'grounding'; grounded: number; total: number }
   | {
@@ -2525,6 +2551,7 @@ export async function writeLesson(
     const section = outline.sections[index];
     let sectionBlocks: LessonBlock[] = [];
     let sectionDropped = 0;
+    let sectionRepaired = 0;
     let sectionUnsourced = 0;
 
     // Retrieved ONCE per section, not per attempt — BM25 is deterministic,
@@ -2595,6 +2622,10 @@ export async function writeLesson(
             issues.filter((i) => i.severity === 'error').length +
             overBackstop +
             grounded.stats.dropped;
+          // Warnings are repairs, not losses — the block is still in the
+          // lesson. Counted so a window-clipped diagram stops being a
+          // server-log-only event.
+          sectionRepaired = issues.filter((i) => i.severity === 'warning').length;
           sectionUnsourced = grounded.stats.unsourced;
           break;
         }
@@ -2651,6 +2682,7 @@ export async function writeLesson(
       logPhase(topic, `section "${section.heading}" ✓`, {
         blocks: sectionBlocks.length,
         dropped: sectionDropped,
+        repaired: sectionRepaired,
         unsourced: sectionUnsourced,
       });
       emit(onProgress, {
@@ -2661,6 +2693,7 @@ export async function writeLesson(
         blocks: sectionBlocks.length,
         passages: passages.length,
         dropped: sectionDropped,
+        repaired: sectionRepaired,
         unsourced: sectionUnsourced,
       });
       // An unlinked sourcing claim cannot be repaired here without guessing

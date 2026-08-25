@@ -185,12 +185,23 @@ export function ProgressStepList({ events }: { events: LessonProgressEvent[] }) 
 // enum, an unknown directive, a diagram that would draw nothing — would
 // otherwise show up as nothing but a slightly shorter lesson. The count is
 // already on the wire (`dropped`); this puts it on the page.
-function RejectedBlocks({ count }: Readonly<{ count?: number }>) {
-  if (!count) return null;
+function RejectedBlocks({
+  count,
+  repaired,
+}: Readonly<{ count?: number; repaired?: number }>) {
+  if (!count && !repaired) return null;
   return (
     <span className="text-[var(--ink-muted)]">
-      {' '}
-      {count} block{count === 1 ? '' : 's'} rejected by the parser.
+      {count ? ` ${count} block${count === 1 ? '' : 's'} rejected by the parser.` : ''}
+      {/* A repair is not a loss — the block is still in the lesson — but it
+          IS evidence the model produced something that would have failed
+          invisibly. The case that motivated this: a diagram whose own fret
+          window hid its own dots, which renders as a blank fretboard rather
+          than an error. Four of those were already sitting in published
+          lessons before anything reported them. */}
+      {repaired
+        ? ` ${repaired} repaired (e.g. a diagram whose fret window hid its own notes).`
+        : ''}
     </span>
   );
 }
@@ -265,7 +276,7 @@ function renderProgressEvent(event: LessonProgressEvent) {
               ? ', from the source summaries (no transcript passages matched).'
               : ` from ${event.passages} transcript passage${event.passages === 1 ? '' : 's'}.`
             : '.'}
-          <RejectedBlocks count={event.dropped} />
+          <RejectedBlocks count={event.dropped} repaired={event.repaired} />
         </span>
       );
     case 'illustrate':
@@ -275,7 +286,7 @@ function renderProgressEvent(event: LessonProgressEvent) {
           {event.diagrams === 0
             ? 'nothing needed a diagram.'
             : `${event.diagrams} diagram${event.diagrams === 1 ? '' : 's'} added.`}
-          <RejectedBlocks count={event.dropped} />
+          <RejectedBlocks count={event.dropped} repaired={event.repaired} />
         </span>
       );
     case 'grounding':
