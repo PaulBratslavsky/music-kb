@@ -1,12 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { chat, toServerSentEventsResponse } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { getSkill } from '#/lib/skills';
 import { prepareChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
-import { OLLAMA_HOST, OLLAMA_CHAT_MODEL as CHAT_MODEL } from '#/lib/env';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
+import { resolveModel } from '#/lib/services/model-policy';
 
 // Streaming chat endpoint (TanStack AI migration).
 //
@@ -157,7 +155,7 @@ export const Route = createFileRoute('/api/chat')({
           },
         );
 
-        const adapter = createOllamaChat(CHAT_MODEL, OLLAMA_HOST);
+        const model = resolveModel('video-chat');
         // 0.6.6 silently dropped `systemPrompts` in its chatStream
         // implementation, so we pass the system turn as the first message —
         // Ollama natively accepts `{ role: 'system', ... }`. 0.9 supports
@@ -167,7 +165,7 @@ export const Route = createFileRoute('/api/chat')({
           ...expanded,
         ];
         const stream = chat({
-          adapter,
+          adapter: model.adapter,
           // `as never` because TanStack AI's ConstrainedModelMessage union
           // excludes 'system' role, but the Ollama adapter passes role
           // straight through and Ollama accepts it.
@@ -185,7 +183,7 @@ export const Route = createFileRoute('/api/chat')({
           // `[{"tool_name":"web_search",...}]` as ordinary prose: the tool
           // never ran, and the surrounding invented text reached the user
           // looking like a real result.
-          modelOptions: samplingOptions(CHAT_MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         });
 
         return toServerSentEventsResponse(stream);

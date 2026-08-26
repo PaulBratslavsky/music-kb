@@ -16,7 +16,6 @@
 //    never fetches from YouTube.
 
 import { chat } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import { z } from 'zod';
 import {
   fetchTranscriptByVideoIdService,
@@ -31,16 +30,13 @@ import {
   type BM25Index,
 } from '#/lib/services/transcript';
 import { withRetry } from '#/lib/retry';
-import { OLLAMA_HOST, OLLAMA_MODEL as SUMMARY_MODEL } from '#/lib/env';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
+import { modelIdFor, resolveModel } from '#/lib/services/model-policy';
 
 export const MUSIC_EXTRACTION_VERSION = 1;
 
 type ServiceResult<T> =
   | { success: true; data: T }
   | { success: false; error: string };
-
-const ollamaAdapter = createOllamaChat(SUMMARY_MODEL, OLLAMA_HOST);
 
 // -----------------------------------------------------------------------------
 // Status (invalidation) — mirrors passageStatus semantics.
@@ -50,7 +46,11 @@ export type MusicExtractionStatus = 'current' | 'stale' | 'missing';
 
 export function musicExtractionStatus(
   blob: ExtractedMusicData | null | undefined,
-  currentModel: string = SUMMARY_MODEL,
+  // `modelIdFor` is the PURE sibling of `resolveModel`: same id, no adapter
+  // constructed, cannot throw. That matters — this default is evaluated on
+  // every call and `data/server-functions/videos.ts` calls this in a loop
+  // over the whole library. It must never build an Ollama client.
+  currentModel: string = modelIdFor('music-extraction'),
 ): MusicExtractionStatus {
   if (!blob || typeof blob !== 'object') return 'missing';
   if (typeof blob.version !== 'number' || !Array.isArray(blob.chords)) {
@@ -323,22 +323,26 @@ export async function extractMusicForVideo(
 
   const started = performance.now();
   logPhase(videoId, 'extract → start', {
-    model: SUMMARY_MODEL,
+    model: modelIdFor('music-extraction'),
     transcriptChars: cleaned.length,
   });
 
   let object: MusicExtractionOutput;
   try {
+    // Resolved inside the try: constructing the adapter runs `new URL(host)`
+    // and throws on a malformed OLLAMA_BASE_URL, and this runs
+    // fire-and-forget after summary generation.
+    const model = resolveModel('music-extraction');
     object = (await withRetry(
       () =>
         chat({
-          adapter: ollamaAdapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: EXTRACTION_SYSTEM },
             { role: 'user', content: userPrompt },
           ] as never,
           outputSchema: MusicExtractionOutputSchema,
-          modelOptions: samplingOptions(SUMMARY_MODEL, 0.2),
+          modelOptions: model.modelOptions(0.2),
         }),
       {
         attempts: 2,
@@ -368,7 +372,9 @@ export async function extractMusicForVideo(
   const stored = loadStoredIndex(video.transcriptSegments);
   const grounded: ExtractedMusicData = {
     version: MUSIC_EXTRACTION_VERSION,
-    model: SUMMARY_MODEL,
+    // Must agree with `musicExtractionStatus`'s default or every stored blob
+    // reads back as stale. Both go through modelIdFor for that reason.
+    model: modelIdFor('music-extraction'),
     generatedAt: new Date().toISOString(),
     key: sanitized.key,
     chords: stored ? groundMusicExtraction(sanitized.chords, stored.bm25) : sanitized.chords,

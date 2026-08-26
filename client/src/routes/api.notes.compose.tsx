@@ -1,17 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { chat, toServerSentEventsResponse } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import {
   fetchVideoByVideoIdService,
   fetchTranscriptByVideoIdService,
 } from '#/lib/services/videos';
 import { cleanTranscript } from '#/lib/services/transcript';
 import { getSkill } from '#/lib/skills';
-import {
-  OLLAMA_HOST,
-  OLLAMA_SYNTHESIS_MODEL,
-} from '#/lib/env';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
+import { resolveModel } from '#/lib/services/model-policy';
 
 function formatTimecode(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -189,14 +184,16 @@ export const Route = createFileRoute('/api/notes/compose')({
           `[${new Date().toISOString().slice(11, 23)}] [notes/compose ${body.videoId}/${skill.slug}${currentContent ? ' · refine' : ' · new'}] "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}"`,
         );
 
-        const adapter = createOllamaChat(OLLAMA_SYNTHESIS_MODEL, OLLAMA_HOST);
+        // 'note-compose' → OLLAMA_SYNTHESIS_MODEL. Deliberately a different
+        // surface key from notes.ts's 'note-summarize' (OLLAMA_MODEL).
+        const model = resolveModel('note-compose');
         const stream = chat({
-          adapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: skill.composerPrompt },
             { role: 'user', content: userPrompt },
           ] as never,
-          modelOptions: samplingOptions(OLLAMA_SYNTHESIS_MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         });
 
         return toServerSentEventsResponse(stream);

@@ -150,6 +150,14 @@ function parseSseEventBlock(block: string): StreamEvent | null {
       // first and fall back, so neither dialect degrades to the generic
       // message — that string is what reaches the user, and losing the
       // real one costs them the Ollama recovery hint.
+      //
+      // Hardcoding the LOCAL mapper here is correct BY CONSTRUCTION, not by
+      // luck: every streaming surface that reaches this parser (/api/chat,
+      // /api/ask, /api/digest-chat, /api/notes/compose) is a `LocalSurface`
+      // in model-policy.ts, and `resolveModel`'s return type cannot be
+      // frontier — so a RUN_ERROR crossing this wire is always Ollama text.
+      // If a frontier surface ever streams through here, this line becomes
+      // wrong and needs a tier on the wire; nothing else would notice.
       const raw =
         (typeof event.message === 'string' && event.message) ||
         (typeof event.error?.message === 'string' && event.error.message) ||

@@ -13,6 +13,7 @@ import {
 } from './music-extraction';
 import { buildBM25Index, type TranscriptChunk } from './transcript';
 import { OLLAMA_MODEL } from '#/lib/env';
+import { modelIdFor } from './model-policy';
 import type { ExtractedMusicData } from './videos';
 
 function rawOutput(
@@ -190,6 +191,16 @@ describe('looksLikeMusicInstruction', () => {
 });
 
 describe('musicExtractionStatus', () => {
+  // The surface-key indirection must not move this model. Every stored
+  // `Video.musicExtraction` blob carries the model it was produced with, and
+  // `musicExtractionStatus` compares against this default — if the two ever
+  // disagree, the whole library reads back as `stale` and silently re-burns
+  // an Ollama call per video. That is what makes the rest of this describe
+  // block the de-facto local-first pin for this surface.
+  it('the surface key resolves to the same model the stored blobs are stamped with', () => {
+    expect(modelIdFor('music-extraction')).toBe(OLLAMA_MODEL);
+  });
+
   const current: ExtractedMusicData = {
     version: MUSIC_EXTRACTION_VERSION,
     model: OLLAMA_MODEL,

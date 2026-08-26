@@ -2,9 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the Ollama-facing surfaces at module level. `chat` is the only
 // network-touching call inside the module under test; mocking it lets us
-// drive rewrite scenarios deterministically. `createOllamaChat` is mocked
-// because it's invoked at module load — without the stub the test would
-// either need a live Ollama or import-time failure handling.
+// drive rewrite scenarios deterministically.
+//
+// `createOllamaChat` is mocked because `rewriteQuery` resolves its model
+// per call (via model-policy.ts's `resolveModel('query-rewrite')`) — it used
+// to be invoked at module load, which is what this comment used to say.
+// The mock is module-graph-wide either way, so it still intercepts; only
+// the reason changed. Nothing here needs a live Ollama.
 vi.mock('@tanstack/ai', () => ({
   chat: vi.fn(),
 }));
@@ -13,6 +17,8 @@ vi.mock('@tanstack/ai-ollama', () => ({
 }));
 
 import { chat } from '@tanstack/ai';
+import { createOllamaChat } from '@tanstack/ai-ollama';
+import { OLLAMA_CHAT_MODEL, OLLAMA_HOST } from '#/lib/env';
 import {
   buildBM25Index,
   type BM25Index,
@@ -26,9 +32,11 @@ import {
 import type { StrapiVideo } from './videos';
 
 const mockedChat = vi.mocked(chat);
+const mockedCreateOllamaChat = vi.mocked(createOllamaChat);
 
 beforeEach(() => {
   mockedChat.mockReset();
+  mockedCreateOllamaChat.mockClear();
 });
 
 // BM25 has a `BM25_MIN_QUERY_IDF = 1.5` query-term floor (transcript.ts).
@@ -72,6 +80,23 @@ describe('rewriteQuery', () => {
     const result = await rewriteQuery('vid', long);
     expect(result).toEqual([long]);
     expect(mockedChat).not.toHaveBeenCalled();
+  });
+
+  // Neither of these was pinned before the per-surface refactor. Both are
+  // load-bearing: the first is this leg's slice of the local-first policy
+  // (query rewriting must never be promoted to a frontier model by an env
+  // flip), the second is the deliberate absence of sampling — adding a
+  // temperature here would be a generation-quality change, not a refactor.
+  it('binds the local OLLAMA_CHAT_MODEL adapter, resolved per call', async () => {
+    mockedChat.mockResolvedValueOnce('one\ntwo');
+    await rewriteQuery('vid', 'what is the MCP server');
+    expect(mockedCreateOllamaChat).toHaveBeenCalledWith(OLLAMA_CHAT_MODEL, OLLAMA_HOST);
+  });
+
+  it('passes NO modelOptions — runs at Ollama\'s default temperature', async () => {
+    mockedChat.mockResolvedValueOnce('one\ntwo');
+    await rewriteQuery('vid', 'what is the MCP server');
+    expect(mockedChat.mock.calls[0][0]).not.toHaveProperty('modelOptions');
   });
 
   it('returns original + parsed rewrites on success', async () => {
