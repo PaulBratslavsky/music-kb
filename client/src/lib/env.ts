@@ -61,7 +61,12 @@ const OLLAMA_EMBEDDING_MODEL =
 // v3 — (music-kb) text-builder appends the AI music-extraction block
 //      (key, chords, techniques, referenced songs) so cross-video semantic
 //      search answers "videos in E minor" / "videos teaching travis
-//      picking". Mirror the bump in server/src/mcp/utils/embeddings.ts.
+//      picking".
+//
+// Mirror the bump in server/src/mcp/utils/embeddings.ts — both are source
+// literals and neither is env-configurable, so they can only be changed
+// together. Pinned, along with the text-builder itself, by
+// client/src/lib/services/embeddings.parity.test.ts.
 const EMBEDDING_VERSION = 3;
 
 // Separate invalidation key for passage embeddings (Tier 2 moment search).
