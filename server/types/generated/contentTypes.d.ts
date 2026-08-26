@@ -548,6 +548,81 @@ export interface ApiDigestDigest extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiLessonLesson extends Struct.CollectionTypeSchema {
+  collectionName: 'lessons';
+  info: {
+    description: 'A music lesson composed of blocks. Replaces the hardcoded routes under client/src/routes/lessons.*. See docs/superpowers/specs/2026-08-20-strapi-lessons-design.md.';
+    displayName: 'Lesson';
+    pluralName: 'lessons';
+    singularName: 'lesson';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    body: Schema.Attribute.DynamicZone<
+      [
+        'lesson.prose',
+        'lesson.heading',
+        'lesson.callout',
+        'lesson.step',
+        'lesson.diagram',
+        'lesson.keyboard-diagram',
+        'lesson.chord-diagram',
+        'lesson.neck-pattern',
+        'lesson.natural-notes',
+        'lesson.degree-chips',
+        'lesson.table',
+        'lesson.param-picker',
+        'lesson.video-ref',
+      ]
+    >;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    duration: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 40;
+      }>;
+    instrument: Schema.Attribute.Enumeration<
+      ['guitar', 'piano', 'push', 'any']
+    > &
+      Schema.Attribute.DefaultTo<'any'>;
+    level: Schema.Attribute.Enumeration<
+      ['beginner', 'intermediate', 'advanced']
+    > &
+      Schema.Attribute.DefaultTo<'beginner'>;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::lesson.lesson'
+    > &
+      Schema.Attribute.Private;
+    order: Schema.Attribute.Integer & Schema.Attribute.DefaultTo<0>;
+    parameter: Schema.Attribute.Component<'lesson.parameter', false>;
+    publishedAt: Schema.Attribute.DateTime;
+    slug: Schema.Attribute.UID<'title'> & Schema.Attribute.Required;
+    status: Schema.Attribute.Enumeration<
+      ['draft', 'published', 'ai-generated']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'draft'>;
+    summary: Schema.Attribute.Text &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 400;
+      }>;
+    title: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 160;
+      }>;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    videos: Schema.Attribute.Relation<'manyToMany', 'api::video.video'>;
+  };
+}
+
 export interface ApiLoopLoop extends Struct.CollectionTypeSchema {
   collectionName: 'loops';
   info: {
@@ -1454,6 +1529,7 @@ declare module '@strapi/strapi' {
       'admin::user': AdminUser;
       'api::composition.composition': ApiCompositionComposition;
       'api::digest.digest': ApiDigestDigest;
+      'api::lesson.lesson': ApiLessonLesson;
       'api::loop.loop': ApiLoopLoop;
       'api::note.note': ApiNoteNote;
       'api::progression.progression': ApiProgressionProgression;

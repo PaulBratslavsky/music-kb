@@ -7,11 +7,12 @@ The in-app chat path stays local-first (Ollama, BM25 grounding); MCP is
 the bridge for when you want more power than a local model can provide.
 
 Served by the **official Strapi MCP server** (built into Strapi 5.47+).
-Our 24 domain tools are registered on it from `server/src/index.ts` via
-the adapter in `server/src/mcp/` (`adapter.ts` + `catalog.ts`); the tool
-bodies live in `server/src/mcp/tools/`. See [ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md)
-for why we retired the previous hand-rolled server (which served
-`/api/mcp` — **that endpoint no longer exists**).
+Our 29 domain tools are registered on it from `server/src/index.ts` via
+the adapter in `server/src/mcp/` (`adapter.ts` + `catalog.ts` +
+`permissions.ts`); the tool bodies live in `server/src/mcp/tools/`. See
+[ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md) for why we
+retired the previous hand-rolled server (which served `/api/mcp` — **that
+endpoint no longer exists**).
 
 ## Endpoint
 
@@ -26,22 +27,49 @@ Streamable HTTP transport, enabled by `server.mcp.enabled` in
 
 The official server authenticates **admin API tokens** (not content API
 tokens). A token must be `kind: 'admin'`, owned by an active admin user,
-and carry the admin permissions that gate the tools it should see. We
-expose three custom actions (a token sees only the tools its permissions
-allow):
+and carry the admin permissions that gate the tools it should see.
 
-- `api::music-kb-mcp.read` — the 16 read tools.
-- `api::music-kb-mcp.write` — ordinary data mutations: `saveSummary`,
-  `tagVideo`, `untagVideo`, `saveNote`.
-- `api::music-kb-mcp.maintenance` — the expensive / external-side-effect /
-  hard-to-undo tools: `addVideo` and `fetchTranscript` (hit YouTube),
-  `reindexEmbeddings` (long Ollama run), `generateDigest` (LLM cost).
+**One permission per tool.** Every tool has its own admin action:
 
-Mix to taste: read-only for a safe browsing token; read + write for
-browse-and-annotate (can't trigger reindexes or YouTube fetches);
-all three for a full-power token. (To also expose the built-in
-per-content-type CRUD tools, additionally grant the relevant
-`content-manager` permissions.)
+```
+api::music-kb-mcp.tool.<tool-name-in-kebab-case>
+```
+
+`getVideo` → `api::music-kb-mcp.tool.get-video`, `createLesson` →
+`api::music-kb-mcp.tool.create-lesson`, and so on. A token sees exactly the
+tools whose actions it holds — nothing else. (Kebab-case because Strapi's
+action registry only accepts lowercase letters, dots and hyphens in a
+permission uid; the ids are still derived one-to-one from the tool names,
+never from their display titles.)
+
+In the admin UI (Settings → Roles / API Tokens) the checkboxes are grouped
+under an **MCP** category with three sub-headings, each with a "Select all":
+
+- **read tools** (19) — no mutation.
+- **write tools** (6) — ordinary data mutations: `saveSummary`, `tagVideo`,
+  `untagVideo`, `saveNote`, `createLesson`, `updateLesson`.
+- **maintenance tools** (4) — expensive / external side effects / hard to
+  undo: `addVideo` and `fetchTranscript` (hit YouTube), `reindexEmbeddings`
+  (long Ollama run), `generateDigest` (LLM cost).
+
+Those three groups are **presentation only** — there is no `read` /
+`write` / `maintenance` permission any more, only the per-tool ones. That
+matters because the two cannot coexist: Strapi enables a tool when *any* of
+its policies passes, so a surviving tier grant would re-expose every tool in
+its group no matter what the per-tool boxes said. Scoping is now genuinely
+per tool — "let this client author lessons" no longer also means "let it
+overwrite video summaries".
+
+> **Existing tokens keep working.** Tokens minted against the old
+> `api::music-kb-mcp.read` / `.write` / `.maintenance` actions are upgraded
+> in place on the next boot: each is granted every per-tool action its tier
+> covered, and the dead tier grant is retired. The boot log says exactly what
+> it did (`[music-kb mcp] Migrated apiToken "…": api::music-kb-mcp.read → 19
+> per-tool action(s)`), and shouts if it could not grant something. The
+> migration runs once per token — after it, unchecking a tool sticks.
+
+(To also expose the built-in per-content-type CRUD tools, additionally grant
+the relevant `content-manager` permissions.)
 
 > A plain content-API "Full access" token from Settings → API Tokens is
 > **rejected** — it isn't `kind: 'admin'`. Use the mint below.
@@ -49,18 +77,33 @@ per-content-type CRUD tools, additionally grant the relevant
 ### Mint an admin token (canonical, console)
 
 The reliable, version-proof way is the admin-token service via
-`strapi console`. Stop the dev server first (SQLite single-writer), then:
+`strapi console`. Stop the dev server first (SQLite single-writer), then —
+for a **full-power** token, which asks the running app for the action list
+rather than repeating 29 ids here:
 
 ```bash
 cd server
 printf '%s\n' \
-  "const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'claude-'+Date.now(), description:'MCP', lifespan:null, adminUserOwner:u.id, adminPermissions:[{action:'api::music-kb-mcp.read'},{action:'api::music-kb-mcp.write'},{action:'api::music-kb-mcp.maintenance'}]}, u); console.log('TOKEN='+t.accessKey);" \
+  "const P='api::music-kb-mcp.tool.'; const acts=strapi.service('admin::permission').actionProvider.keys().filter(a=>a.startsWith(P)); const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'claude-'+Date.now(), description:'MCP', lifespan:null, adminUserOwner:u.id, adminPermissions:acts.map(action=>({action}))}, u); console.log('TOKEN='+t.accessKey); console.log('GRANTED='+acts.length);" \
   ".exit" | npx strapi console
 ```
 
-Copy the `TOKEN=` value (shown once). The snippet grants all three tiers
-(full power); drop `.maintenance` for browse-and-annotate, or keep only
-`.read` for a read-only token. Restart the dev server afterwards.
+Copy the `TOKEN=` value (shown once); `GRANTED=` should read 29. Restart the
+dev server afterwards.
+
+For a **narrow** token, list the tools instead of taking them all — this one
+can read the library and author lessons, and cannot touch a video summary:
+
+```bash
+cd server
+printf '%s\n' \
+  "const acts=['list-videos','get-video','search-videos','get-transcript','search-transcript','list-lessons','get-lesson','get-lesson-authoring-guide','create-lesson','update-lesson'].map(n=>({action:'api::music-kb-mcp.tool.'+n})); const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'lesson-author-'+Date.now(), description:'MCP (lesson authoring)', lifespan:null, adminUserOwner:u.id, adminPermissions:acts}, u); console.log('TOKEN='+t.accessKey);" \
+  ".exit" | npx strapi console
+```
+
+An unknown action id is rejected at mint time (`Unknown admin action: …`),
+so a typo fails loudly instead of quietly producing a token that sees fewer
+tools than you meant.
 
 Every request to `/mcp` must carry:
 
@@ -73,9 +116,12 @@ Rotate by minting a new token and revoking the old one
 
 ## Tools
 
-24 tools across three permission tiers — 16 read, 4 write, 4 maintenance:
+29 tools, each with its own permission, grouped into three safety tiers —
+19 read, 6 write, 4 maintenance. The **Group** column is the sub-heading the
+tool's checkbox sits under; the permission itself is always
+`api::music-kb-mcp.tool.<kebab-name>`.
 
-| Tool | Tier | Purpose |
+| Tool | Group | Purpose |
 |---|---|---|
 | `libraryStats` | read | High-level KB stats: video count, summary-status breakdown, top tags, top channels, monthly ingestion buckets |
 | `listVideos` | read | Paged video catalog (filter by status / verdict / tag) |
@@ -93,9 +139,14 @@ Rotate by minting a new token and revoking the old one
 | `listUntagged` | read | List videos with zero tags + enough context to suggest tags |
 | `listTags` | read | List existing tags |
 | `verifyCitations` | read | BM25-ground `[mm:ss]` citations in a draft text against a video's transcript; rewrites drifted ones, reports ungrounded ones |
+| `listLessons` | read | Paged catalog of lessons (slug, title, status, level, instrument) |
+| `getLesson` | read | Fetch one lesson with its full block body, by slug |
+| `getLessonAuthoringGuide` | read | The block vocabulary + house rules an agent needs before calling `createLesson` |
 | `saveSummary` | write | Persist a frontier-model-generated summary to a Video |
 | `tagVideo` / `untagVideo` | write | Add / remove a tag on a video |
 | `saveNote` | write | Attach a short note to a video |
+| `createLesson` | write | Create a lesson from typed blocks — never overwrites; appends `-2`, `-3`, … on a slug collision |
+| `updateLesson` | write | Update an existing lesson by `documentId` |
 | `addVideo` | maintenance | Ingest a YouTube URL (creates Video + fetches transcript) |
 | `fetchTranscript` | maintenance | Fetch from YouTube + upsert; acts as "regenerate" with `force=true` |
 | `reindexEmbeddings` | maintenance | Backfill / refresh topical embeddings (`missing` / `stale` / `all`); serial Ollama run |
@@ -113,7 +164,8 @@ claude mcp add music-kb --transport http http://localhost:1350/mcp \
 ```
 
 Then `claude mcp list` / restart Claude Code; the `music-kb` server should
-list its tools (24 custom + any built-ins the token's permissions expose).
+list its tools (up to 29 custom, whichever the token's per-tool permissions
+allow, plus any built-ins it can reach).
 
 ## Claude Desktop
 
@@ -212,10 +264,21 @@ fetchTranscript(videoId: <id>, force: true)
   grounding for a Claude-generated summary, regenerate from the app UI
   afterwards.
 - Adding a tool: author a `ToolDef` in `server/src/mcp/tools/` — importing
-  `z` from `@strapi/utils`, **not** from `zod` — then add a one-line entry
+  `z` from the app's own top-level `zod` dependency, **not** the `z`
+  re-exported from `@strapi/utils` — then add a one-line entry
   (`{ tool, title, access }`) to `server/src/mcp/catalog.ts`. Registration
-  is automatic.
+  **and its permission** are automatic: `server/src/mcp/permissions.ts`
+  derives one admin action per catalog entry, so there is no second list to
+  keep in step. Existing tokens do NOT get the new tool — grant it
+  deliberately. `client/src/lib/mcp-tool-permissions.test.ts` asserts both
+  directions (every tool has an action, every action has a tool) and that
+  each derived uid is one Strapi will actually accept. Name it **camelCase**: Strapi's content-manager plugin
+  derives its own built-in per-content-type tools as `{verb}_${slug}`
+  (`create_video`, `get_lesson`, …) and registers them unconditionally at
+  boot; a name collision there throws outside this adapter's per-tool
+  try/catch and crashes the whole Strapi boot, not just that one
+  registration.
 - The input schema is declared **once**, on the tool. Its `.describe()` text
   is what MCP clients read to decide how to call the tool, so write it for an
-  agent. See ADR 0008 for why `@strapi/utils`' `z` is required and why the
-  schemas are no longer declared twice.
+  agent. See ADR 0008 for why the app's own `zod` import is required (not
+  `@strapi/utils`'s) and why the schemas are no longer declared twice.

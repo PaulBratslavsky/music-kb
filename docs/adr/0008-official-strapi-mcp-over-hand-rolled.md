@@ -29,16 +29,50 @@ official server instead, at the app level.**
 - **Enable** the official server: `server.mcp.enabled` in
   `config/server.ts` (env `MCP_ENABLED`, default on).
 - **Register** the 24 tools in `src/index.ts` `register()` via
-  `strapi.ai.mcp.registerTool`, behind three custom admin permissions so a
-  token's scope decides which tools it sees: `api::music-kb-mcp.read` (16
-  read tools), `.write` (ordinary mutations — saveSummary, tag/untag,
-  saveNote), and `.maintenance` (the expensive / external-side-effect /
-  hard-to-undo tools — addVideo, fetchTranscript, reindexEmbeddings,
-  generateDigest). The maintenance tier exists so a browse-and-annotate
-  token can't trigger a reindex, a YouTube fetch, or an LLM digest. Code
-  lives in `src/mcp/` (permissions, adapter, catalog) alongside the tool
-  bodies. (Originally a separate `src/mcp-official/`; consolidated into
-  `src/mcp/` 2026-06 once the hand-rolled host was gone — see note below.)
+  `strapi.ai.mcp.registerTool`, behind ~~three custom admin permissions~~
+  **one custom admin permission per tool** (superseded 2026-08-25 — see the
+  note at the end of this section) so a token's scope decides which tools it
+  sees. Code lives in `src/mcp/` (permissions, adapter, catalog) alongside
+  the tool bodies. (Originally a separate `src/mcp-official/`; consolidated
+  into `src/mcp/` 2026-06 once the hand-rolled host was gone — see note
+  below.)
+
+  > **2026-08-25 — the three permission tiers were replaced by one action
+  > per tool.** They were `api::music-kb-mcp.read` / `.write` /
+  > `.maintenance`, and the problem was that "let this client author
+  > lessons" also meant "let it overwrite video summaries". That is not
+  > hypothetical: `server/scripts/test-mcp.mjs` was run with `RUN_WRITES=1`
+  > and `saveSummary` destroyed a real video's summary (*WRITE A GREAT
+  > MELODY with this Formula*, `ucNWbawSiZM`) — it still reads "MCP harness
+  > test summary — DELETE ME". A per-tool grant would have let that token
+  > hold `createLesson` and not `saveSummary`.
+  >
+  > Each tool is now gated by `api::music-kb-mcp.tool.<kebab-name>`,
+  > **derived from `catalog.ts`** in `src/mcp/permissions.ts` — no
+  > hand-maintained mirror of the tool list (the failure this branch keeps
+  > hitting), and `client/src/lib/mcp-tool-permissions.test.ts` asserts both
+  > directions. The uid is kebab-cased because Strapi's action registry
+  > rejects uppercase in a permission uid — and rejects the *entire batch*
+  > when one uid is bad, which is why registration screens uids and logs
+  > loudly instead of letting all 29 permissions vanish at once.
+  >
+  > **The tiers do not survive as permissions**, only as the sub-category
+  > heading their tools' checkboxes sit under in the admin UI. Keeping both
+  > was considered and rejected: Strapi enables a tool when *any* of its
+  > `auth.policies` passes (`syncMcpSessionCapabilities`), so a token holding
+  > `.write` would keep all six write tools however the per-tool boxes were
+  > set — the fine control would only work if you never used the tier, at
+  > which point the tier is dead weight.
+  >
+  > Existing tokens are carried over by a boot migration
+  > (`migrateLegacyTierPermissions`) that grants every per-tool action a held
+  > tier covered and retires the tier row. It is registered on the
+  > `strapi::content-types.afterSync` hook rather than the app's `bootstrap()`
+  > **because ordering is load-bearing**: the admin plugin's bootstrap runs
+  > `cleanPermissionsInDatabase()`, which deletes every permission row whose
+  > action is no longer registered — and the tier actions no longer are.
+  > Migrating after that would find the rows already swept and silently strip
+  > every token of its tools.
 - **Reuse, don't rewrite, the tool bodies.** `src/mcp/adapter.ts`
   wraps each existing `ToolDef`'s `execute(args, { strapi })` into an
   official `registerTool` call. The tool implementations in

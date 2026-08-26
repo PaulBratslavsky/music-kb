@@ -88,16 +88,20 @@ curl -si http://localhost:1350/mcp | head -1
   ```bash
   cd server
   printf '%s\n' \
-    "const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'claude-'+Date.now(), description:'MCP', lifespan:null, adminUserOwner:u.id, adminPermissions:[{action:'api::music-kb-mcp.read'},{action:'api::music-kb-mcp.write'},{action:'api::music-kb-mcp.maintenance'}]}, u); console.log('TOKEN='+t.accessKey);" \
+    "const P='api::music-kb-mcp.tool.'; const acts=strapi.service('admin::permission').actionProvider.keys().filter(a=>a.startsWith(P)); const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'claude-'+Date.now(), description:'MCP', lifespan:null, adminUserOwner:u.id, adminPermissions:acts.map(action=>({action}))}, u); console.log('TOKEN='+t.accessKey); console.log('GRANTED='+acts.length);" \
     ".exit" | npx strapi console
   ```
-- **Missing tools / "tool not found".** A token only sees the tools its
-  permissions allow — the three custom actions are
-  `api::music-kb-mcp.read` (16 read tools), `.write` (4: `saveSummary`,
-  `tagVideo`, `untagVideo`, `saveNote`), and `.maintenance` (4 expensive /
-  external: `addVideo`, `fetchTranscript`, `reindexEmbeddings`,
-  `generateDigest`). 24 custom domain tools total. Re-mint with the
-  actions you need.
+- **Missing tools / "tool not found".** A token sees exactly the tools it
+  holds the permission for — **one action per tool**,
+  `api::music-kb-mcp.tool.<kebab-tool-name>` (e.g.
+  `api::music-kb-mcp.tool.get-video`). 29 custom domain tools total, grouped
+  in the admin UI under MCP → read (19) / write (6) / maintenance (4); those
+  headings are grouping only, not permissions. Grant the ones you need, or
+  re-mint with the snippet above for all of them. A tool that vanished after
+  an upgrade is usually a token still scoped by the retired
+  `api::music-kb-mcp.read/.write/.maintenance` actions — the boot log shows
+  the migration that replaces them (`[music-kb mcp] Migrated apiToken …`) and
+  logs an error if it could not.
 - **Claude Desktop won't connect at all.** Its built-in client speaks
   stdio, not Streamable HTTP — bridge it with `mcp-remote` (see the
   `claude_desktop_config.json` example in `docs/mcp.md`). Claude Code can

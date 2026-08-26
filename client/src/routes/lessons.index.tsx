@@ -1,89 +1,34 @@
 // /lessons — index of the guitar lessons. Each card links to a
-// self-contained lesson page. Add more entries here as new lessons land.
+// self-contained lesson page. Lesson data is Strapi-backed; hand-written
+// lessons are added through the CMS. AI-generated ones can now also be
+// produced right here, via the two-phase streamed generation panel below
+// (/api/lesson-plan → outline approval → /api/lesson-write).
 
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { useState } from 'react';
+import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
+import { BackendErrorPanel } from '#/components/BackendErrorPanel';
+import { Button } from '#/components/ui/button';
+import { deriveWriteStage, ProgressStepList } from '#/components/LessonProgressPanel';
+import { listLessons } from '#/data/server-functions/lessons';
+import { streamLessonPlanSSE, streamLessonWriteSSE } from '#/lib/services/lesson-stream';
+import type { LessonPlanFrame } from '#/routes/api.lesson-plan';
+import type {
+  LessonOutline,
+  LessonProgressEvent,
+  SourceVideo,
+} from '#/lib/services/lesson-generation';
+import type { LessonListResult, LessonSummary } from '#/lib/services/lessons';
 
 export const Route = createFileRoute('/lessons/')({
   component: LessonsIndexPage,
+  loader: async (): Promise<LessonListResult> => listLessons(),
   head: () => ({ meta: [{ title: 'Lessons · Music KB' }] }),
 });
 
-type LessonEntry = {
-  href: string;
-  title: string;
-  blurb: string;
-  duration: string;
-  level: 'Beginner' | 'Intermediate' | 'Advanced';
-};
-
-const LESSONS: LessonEntry[] = [
-  {
-    href: '/lessons/triads',
-    title: 'Triads across the neck',
-    blurb:
-      'Three notes, three adjacent strings, three inversions. The four qualities differ by a single note each — major, minor, augmented, diminished — and the whole grid of string sets and inversions is laid out so you can see the pattern rather than memorise 48 shapes.',
-    duration: '~20 min read',
-    level: 'Intermediate',
-  },
-  {
-    href: '/lessons/power-chords',
-    title: 'Power chords: one shape, the whole neck',
-    blurb:
-      'Root, fifth, octave — no third, which is why it fits over major and minor alike. One movable shape covers every root, with two details worth knowing: what changes when it crosses the G-B string pair, and the one degree in every key that has no power chord at all.',
-    duration: '~10 min read',
-    level: 'Beginner',
-  },
-  {
-    href: '/lessons/music-theory-fundamentals',
-    title: 'Music theory fundamentals (part 1 of 3)',
-    blurb:
-      'What general music theory actually is, why "guitar theory" is a shortcut on top of it, and the 9 short principles that turn notes into scales into chords into keys. Conceptual primer — no fretboard diagrams yet.',
-    duration: '~15 min read',
-    level: 'Beginner',
-  },
-  {
-    href: '/lessons/scale-systems-on-the-neck',
-    title: 'Mapping scales on the neck (part 2 of 3)',
-    blurb:
-      'Three systems for mapping the diatonic scale across all six strings — 5 pentatonic positions, 7 three-notes-per-string patterns, and the underrated 3-pattern "Super Duper" system. Every pattern opens on the fretboard explorer.',
-    duration: '~20 min read',
-    level: 'Intermediate',
-  },
-  {
-    href: '/lessons/caged-and-roman-numerals',
-    title: 'CAGED + thinking in numbers (part 3 of 3)',
-    blurb:
-      'The CAGED system covers every chord across the neck; Roman numerals let you transpose any progression to any key for free. Together they turn the fretboard into one interconnected map.',
-    duration: '~15 min read',
-    level: 'Intermediate',
-  },
-  {
-    href: '/lessons/find-any-chord',
-    title: 'Find any chord with 2 strings + 4 shapes',
-    blurb:
-      'The "minimum viable" guitar pedagogy — memorize the natural notes on the low E and A strings, learn one power-chord shape and the four E/A barre shapes, and you have every major/minor chord at every fret.',
-    duration: '~30 min read + practice',
-    level: 'Beginner',
-  },
-  {
-    href: '/lessons/essential-chords',
-    title: '10 essential chord shapes',
-    blurb:
-      'The 10 moveable shapes every guitarist needs — power chord, E/A barre forms for major / minor / dominant 7 / minor 7, plus the Hendrix 7♯9. Compact chord-box diagrams + deep-link to the fretboard explorer for each.',
-    duration: '~10 min reference',
-    level: 'Beginner',
-  },
-  {
-    href: '/lessons/half-steps-to-chords',
-    title: 'Half steps → every chord in a key',
-    blurb:
-      'One skill — counting half steps — builds the major and minor scales, the numbers 1–7, the major/minor difference (4+3 vs 3+4), all seven chords of any key, and the circle of fifths. Includes what a whole step and a half step look like when you cross strings, so you can build a scale anywhere instead of memorizing boxes. Shown inline on piano, guitar and bass.',
-    duration: '~30 min read',
-    level: 'Beginner',
-  },
-];
-
 function LessonsIndexPage() {
+  const data = Route.useLoaderData();
+  const router = useRouter();
+
   return (
     <main className="mx-auto w-full px-4 py-8 sm:px-8 sm:py-12 xl:px-12">
       <header className="mb-8 max-w-3xl">
@@ -91,39 +36,446 @@ function LessonsIndexPage() {
           Lessons
         </p>
         <h1 className="display-title mt-1 text-3xl text-[var(--ink)] sm:text-4xl">
-          Guitar lessons
+          Music lessons
         </h1>
         <p className="mt-3 text-sm text-[var(--ink-soft)]">
           Self-contained walk-throughs that pair theory with practice.
-          Click any card to start; each lesson cross-links to the
-          fretboard explorer and the rest of the visualizer so you can
-          dig as deep as you want.
+          Diagrams, steps and examples render inline, so you never have to
+          leave the page to follow one.
         </p>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {LESSONS.map((l) => (
-          <Link
-            key={l.href}
-            to={l.href}
-            className="group block rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6 no-underline transition hover:border-[var(--accent)]"
-          >
-            <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)]">
-              <span className="rounded-full border border-[var(--line)] px-2 py-0.5 font-medium">
-                {l.level}
+      <GenerateLessonPanel onGenerated={() => void router.invalidate()} />
+
+      {!data.ok ? (
+        <BackendErrorPanel message={data.error} />
+      ) : data.lessons.length === 0 ? (
+        <p className="text-sm text-[var(--ink-soft)]">
+          No lessons yet. Add one through the CMS to see it here.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {data.lessons.map((l) => (
+            <Link
+              key={l.documentId}
+              to="/lessons/$slug"
+              params={{ slug: l.slug }}
+              className="group block rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6 no-underline transition hover:border-[var(--accent)]"
+            >
+              <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)]">
+                <span className="rounded-full border border-[var(--line)] px-2 py-0.5 font-medium">
+                  {l.level}
+                </span>
+                <InstrumentBadge instrument={l.instrument} />
+                {l.duration ? <span>{l.duration}</span> : null}
+                <StatusBadge status={l.status} />
+              </div>
+              <h2 className="mt-3 text-base font-semibold text-[var(--ink)] group-hover:text-[var(--accent)]">
+                {l.title}
+              </h2>
+              {l.summary ? (
+                <p className="mt-2 text-sm text-[var(--ink-soft)]">{l.summary}</p>
+              ) : null}
+              <span className="mt-4 inline-block text-xs font-semibold text-[var(--accent)]">
+                Start lesson →
               </span>
-              <span>{l.duration}</span>
-            </div>
-            <h2 className="mt-3 text-base font-semibold text-[var(--ink)] group-hover:text-[var(--accent)]">
-              {l.title}
-            </h2>
-            <p className="mt-2 text-sm text-[var(--ink-soft)]">{l.blurb}</p>
-            <span className="mt-4 inline-block text-xs font-semibold text-[var(--accent)]">
-              Start lesson →
-            </span>
-          </Link>
-        ))}
-      </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </main>
+  );
+}
+
+// The lesson's instrument, in the same chip shape as the `level` one it
+// sits beside. `any` renders nothing: it is the schema default and what a
+// lesson gets when the outline had no instrument in mind, so a chip
+// reading "any" would be noise on most cards while telling the reader
+// nothing. Every other value is real information — a piano lesson in a
+// list that is mostly guitar is worth spotting before you click.
+//
+// This field spent the whole branch generated by the planner, stored by
+// saveLessonService and displayed nowhere: one of the four silent fields
+// in docs/lesson-generation-audit.md, and the one render-reachability.test.ts
+// caught when it was written. Exported for direct testing, same reasoning
+// as StatusBadge below.
+export function InstrumentBadge({
+  instrument,
+}: {
+  instrument: LessonSummary['instrument'];
+}) {
+  if (!instrument || instrument === 'any') return null;
+  return (
+    <span className="rounded-full border border-[var(--line)] px-2 py-0.5 font-medium">
+      {instrument}
+    </span>
+  );
+}
+
+// Small label chip using the palette that's already on the page (see the
+// `level` chip just above it) — no new colors invented. `published` (and
+// any other status the CMS might add) renders no badge at all, matching
+// the "reviewed, nothing to flag" default. Exported for direct testing —
+// rendering the full route through Route.useLoaderData() needs a live
+// router context this suite doesn't set up.
+export function StatusBadge({ status }: { status: LessonSummary['status'] }) {
+  if (status === 'ai-generated') {
+    return (
+      <span className="rounded-full border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-2 py-0.5 font-medium text-[var(--accent)]">
+        AI-generated
+      </span>
+    );
+  }
+  if (status === 'draft') {
+    return (
+      <span className="rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-2 py-0.5 font-medium text-[var(--ink-muted)]">
+        Draft
+      </span>
+    );
+  }
+  return null;
+}
+
+// The backstop for anything the coverage check (lesson-generation.ts) might
+// still miss: a user who can see exactly which videos a lesson was built
+// from can judge it for themselves. Shown next to the success message,
+// never hidden behind a click — this is the whole point of surfacing it.
+// Exported for direct testing, same reasoning as StatusBadge above.
+export function SourcesList({ sources }: { sources: SourceVideo[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="mt-2 text-xs text-[var(--ink-muted)]">
+      <span className="font-medium">Built from:</span>{' '}
+      {sources.map((s, i) => (
+        <span key={s.documentId}>
+          {i > 0 ? ', ' : ''}
+          {s.title ?? s.youtubeVideoId}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Progress rendering — the live step list. Extracted to
+// #/components/LessonProgressPanel so the single-video Lesson tab
+// (learn.$videoId.tsx) can reuse the exact same rendering instead of a
+// second, differently-behaved progress UI — both entry points stream the
+// same LessonProgressEvent vocabulary. Re-exported here so this file's own
+// existing import (`./lessons.index`) in lessons.index.test.tsx keeps
+// working unchanged.
+// -----------------------------------------------------------------------------
+
+export { ProgressStepList };
+
+type PlanPayload = Extract<LessonPlanFrame, { type: 'plan' }>;
+type SavedPayload = Extract<LessonProgressEvent, { type: 'saved' }>;
+
+type GeneratePhase = 'idle' | 'planning' | 'review' | 'writing' | 'success' | 'refused' | 'error';
+
+// Generates a lesson from the video library via the two-phase streamed
+// pipeline: POST /api/lesson-plan (SSE) → outline approval gate →
+// POST /api/lesson-write (SSE) → save. Runs entirely server-side — the
+// ANTHROPIC_API_KEY that may back the frontier tier never reaches this
+// component; only the tier NAME ('frontier' | 'local') and model id
+// stream back, which is exactly what the UI needs to show which kind of
+// artifact this is.
+// Exported for direct testing (see lessons.index.test.tsx) — same reasoning
+// as StatusBadge/SourcesList/ProgressStepList above: driving the full route
+// through Route.useLoaderData() needs a live router context this suite
+// doesn't set up.
+export function GenerateLessonPanel({ onGenerated }: { onGenerated: () => void }) {
+  const [topic, setTopic] = useState('');
+  const [phase, setPhase] = useState<GeneratePhase>('idle');
+  const [events, setEvents] = useState<LessonProgressEvent[]>([]);
+  // What the write phase is ACTUALLY doing — shared with LessonTab's
+  // identical panel via deriveWriteStage (LessonProgressPanel.tsx) rather
+  // than a second hand-maintained copy of this derivation. See that
+  // function's header for why "switch on the last event" looked frozen
+  // through the illustrate/ground/save tail, and how the structural fix
+  // (furthest stage reached, not last event seen) avoids it.
+  const writingStage = deriveWriteStage(events);
+
+  const [plan, setPlan] = useState<PlanPayload | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editHeadings, setEditHeadings] = useState<string[]>([]);
+  const [saved, setSaved] = useState<SavedPayload | null>(null);
+  const [errorInfo, setErrorInfo] = useState<{ step: string; message: string } | null>(null);
+  const [refusal, setRefusal] = useState<{ actualTopic: string | null; reason: string | null } | null>(
+    null,
+  );
+
+  const busy = phase === 'planning' || phase === 'writing';
+
+  function resetToIdle() {
+    setPhase('idle');
+    setEvents([]);
+    setPlan(null);
+    setSaved(null);
+    setErrorInfo(null);
+    setRefusal(null);
+  }
+
+  async function handlePlan() {
+    const trimmed = topic.trim();
+    if (!trimmed || busy) return;
+    setPhase('planning');
+    setEvents([]);
+    setPlan(null);
+    setSaved(null);
+    setErrorInfo(null);
+    setRefusal(null);
+
+    try {
+      const res = await fetch('/api/lesson-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: trimmed }),
+      });
+      let finalPlan: PlanPayload | null = null;
+      let lastError: { step: string; message: string } | null = null;
+      let lastRefusal: { actualTopic: string | null; reason: string | null } | null = null;
+      for await (const frame of streamLessonPlanSSE(res)) {
+        // The terminal `plan` frame is NOT a LessonProgressEvent (it
+        // carries the round-trippable outline/sources/digest, not a
+        // progress step) — kept out of `events` so ProgressStepList never
+        // has to render it. It used to be pushed here anyway and render as
+        // an empty bordered box, since renderProgressEvent has no case for
+        // `type: 'plan'`.
+        if (frame.type === 'plan') {
+          finalPlan = frame;
+          continue;
+        }
+        setEvents((prev) => [...prev, frame]);
+        if (frame.type === 'error') lastError = { step: frame.step, message: frame.message };
+        else if (frame.type === 'coverage' && !frame.covered) {
+          lastRefusal = { actualTopic: frame.actualTopic, reason: frame.reason };
+        }
+      }
+      if (finalPlan) {
+        setPlan(finalPlan);
+        setEditTitle(finalPlan.outline.title);
+        setEditHeadings(finalPlan.outline.sections.map((s) => s.heading));
+        setPhase('review');
+        return;
+      }
+      if (lastRefusal) {
+        setRefusal(lastRefusal);
+        setPhase('refused');
+        return;
+      }
+      setErrorInfo(lastError ?? { step: 'plan', message: 'Lesson planning failed unexpectedly.' });
+      setPhase('error');
+    } catch (err) {
+      setErrorInfo({
+        step: 'plan',
+        message: err instanceof Error ? err.message : 'Lesson planning failed.',
+      });
+      setPhase('error');
+    }
+  }
+
+  async function handleWrite() {
+    if (!plan) return;
+    setPhase('writing');
+    setSaved(null);
+    setErrorInfo(null);
+
+    const editedOutline: LessonOutline = {
+      ...plan.outline,
+      title: editTitle.trim() || plan.outline.title,
+      sections: plan.outline.sections.map((section, i) => ({
+        ...section,
+        heading: (editHeadings[i] ?? section.heading).trim() || section.heading,
+      })),
+    };
+
+    try {
+      const res = await fetch('/api/lesson-write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: topic.trim(),
+          outline: editedOutline,
+          sources: plan.sources,
+          digest: plan.digest,
+        }),
+      });
+      let finalSaved: SavedPayload | null = null;
+      let lastError: { step: string; message: string } | null = null;
+      for await (const frame of streamLessonWriteSSE(res)) {
+        setEvents((prev) => [...prev, frame]);
+        if (frame.type === 'saved') finalSaved = frame;
+        else if (frame.type === 'error') lastError = { step: frame.step, message: frame.message };
+      }
+      if (finalSaved) {
+        setSaved(finalSaved);
+        setPhase('success');
+        onGenerated();
+        return;
+      }
+      setErrorInfo(lastError ?? { step: 'write', message: 'Lesson writing failed unexpectedly.' });
+      setPhase('error');
+    } catch (err) {
+      setErrorInfo({
+        step: 'write',
+        message: err instanceof Error ? err.message : 'Lesson writing failed.',
+      });
+      setPhase('error');
+    }
+  }
+
+  // Cancelling the outline approval costs nothing further — phase 2 never
+  // ran, so there's no in-flight request to abort, just local state to drop.
+  function handleCancel() {
+    resetToIdle();
+  }
+
+  return (
+    <section className="mb-8 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
+      <h2 className="text-base font-semibold text-[var(--ink)]">Generate a lesson</h2>
+      <p className="mt-1 text-sm text-[var(--ink-muted)]">
+        Pick a topic and the AI builds a lesson from videos already in the
+        library — retrieval, cross-video synthesis, and citations, all
+        grounded in what you&apos;ve actually watched. You&apos;ll review the
+        proposed outline before it writes the full lesson.
+      </p>
+
+      {phase === 'idle' && (
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            type="text"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handlePlan();
+            }}
+            placeholder="e.g. drop-D tuning basics"
+            className="h-10 min-w-0 flex-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-5 text-sm text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:border-[var(--line-strong)] focus:outline-none"
+          />
+          <Button type="button" size="sm" onClick={() => void handlePlan()} disabled={!topic.trim()}>
+            Generate
+          </Button>
+        </div>
+      )}
+
+      {phase === 'planning' && (
+        <p className="mt-3 text-xs text-[var(--ink-muted)]">
+          Retrieving related videos, checking coverage, and drafting an
+          outline for &ldquo;{topic.trim()}&rdquo;…
+        </p>
+      )}
+
+      {(phase === 'planning' || phase === 'writing' || phase === 'success') && (
+        <ProgressStepList events={events} />
+      )}
+
+      {phase === 'review' && plan && (
+        <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--bg-subtle)] p-4">
+          <p className="text-xs font-medium text-[var(--ink-muted)]">
+            Proposed outline — built by the{' '}
+            <strong>{plan.tier === 'frontier' ? 'frontier' : 'local'}</strong> tier (
+            <code>{plan.model}</code>). Edit the title or section headings, then generate the
+            full lesson, or cancel — cancelling costs nothing further.
+          </p>
+
+          <label className="mt-3 block text-xs font-medium text-[var(--ink-muted)]" htmlFor="lesson-title-edit">
+            Title
+          </label>
+          <input
+            id="lesson-title-edit"
+            type="text"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            className="mt-1 h-9 w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-3 text-sm text-[var(--ink)] focus:border-[var(--line-strong)] focus:outline-none"
+          />
+
+          <p className="mt-3 text-xs font-medium text-[var(--ink-muted)]">Sections</p>
+          <ol className="mt-1 space-y-2">
+            {plan.outline.sections.map((section, i) => (
+              <li key={i}>
+                <input
+                  type="text"
+                  value={editHeadings[i] ?? section.heading}
+                  onChange={(e) =>
+                    setEditHeadings((prev) => {
+                      const next = [...prev];
+                      next[i] = e.target.value;
+                      return next;
+                    })
+                  }
+                  className="h-9 w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-3 text-sm text-[var(--ink)] focus:border-[var(--line-strong)] focus:outline-none"
+                />
+                {section.goal ? (
+                  <p className="mt-1 text-xs text-[var(--ink-muted)]">{section.goal}</p>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+
+          <SourcesList sources={plan.sources} />
+
+          <div className="mt-4 flex gap-2">
+            <Button type="button" size="sm" onClick={() => void handleWrite()}>
+              Generate sections
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={handleCancel}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {phase === 'writing' && (
+        <p className="mt-3 text-xs text-[var(--ink-muted)]">
+          {/* After the last section there is a long, previously un-narrated
+              stretch — illustration passes, citation grounding, assembly,
+              save. A static "Writing each section…" through all of it reads
+              exactly like a freeze, and was reported as one. */}
+          {writingStage}
+        </p>
+      )}
+
+      {phase === 'success' && saved && (
+        <p className="mt-3 text-xs text-[var(--ink)]">
+          Generated{' '}
+          <Link
+            to="/lessons/$slug"
+            params={{ slug: saved.slug }}
+            className="font-semibold text-[var(--accent)]"
+          >
+            {saved.title}
+          </Link>{' '}
+          — built by the <strong>{saved.tier === 'frontier' ? 'frontier' : 'local'}</strong> tier
+          (<code>{saved.model}</code>).
+        </p>
+      )}
+
+      {/* A coverage refusal is information, not a crash: it names what the
+          library actually covers instead of rendering as a red error box. */}
+      {phase === 'refused' && refusal && (
+        <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--bg-subtle)] p-4 text-xs text-[var(--ink-soft)]">
+          <p>
+            The library doesn&apos;t actually cover &ldquo;{topic.trim()}&rdquo;.
+            {refusal.actualTopic ? ` The closest material it has is about ${refusal.actualTopic}.` : ''}
+          </p>
+          {refusal.reason ? <p className="mt-1">{refusal.reason}</p> : null}
+          <Button type="button" size="sm" variant="outline" className="mt-3" onClick={resetToIdle}>
+            Try another topic
+          </Button>
+        </div>
+      )}
+
+      {phase === 'error' && errorInfo && (
+        <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--bg-subtle)] p-4 text-xs text-[var(--ink-soft)]">
+          <p>
+            Failed at <strong>{errorInfo.step}</strong>: {errorInfo.message}
+          </p>
+          <Button type="button" size="sm" variant="outline" className="mt-3" onClick={resetToIdle}>
+            Try again
+          </Button>
+        </div>
+      )}
+    </section>
   );
 }

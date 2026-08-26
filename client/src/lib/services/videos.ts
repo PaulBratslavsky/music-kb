@@ -439,7 +439,25 @@ const detailQuery: StrapiQuery = {
 // relatedVideos, semantic search). Pulls the fields needed to rebuild the
 // embedding text + the existing vector for comparison — nothing else.
 // Paginates internally so one call returns every eligible row.
-export async function listAllVideosForEmbeddingService(): Promise<StrapiVideo[]> {
+export type VideoEmbeddingListResult =
+  | { ok: true; videos: StrapiVideo[] }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Status-aware sibling of `listAllVideosForEmbeddingService`.
+ *
+ * The plain version breaks out of its pagination loop on a failed fetch and
+ * returns whatever it has, so "Strapi is unreachable" and "the library is
+ * empty" are indistinguishable to the caller. That bit lesson generation,
+ * which reported a dead backend to the user as "No videos in the library have
+ * embeddings yet — generate summaries first" and sent them off to fix a
+ * problem they didn't have. Callers that need to tell those apart use this.
+ *
+ * A failure on page 1 is fatal; a failure partway through pagination returns
+ * what was collected, because a partial library still ranks usefully and the
+ * caller has no better option than proceeding.
+ */
+export async function listAllVideosForEmbeddingWithStatusService(): Promise<VideoEmbeddingListResult> {
   const pageSize = 100;
   const all: StrapiVideo[] = [];
   for (let page = 1; page <= 50; page += 1) {
@@ -451,11 +469,62 @@ export async function listAllVideosForEmbeddingService(): Promise<StrapiVideo[]>
         pagination: { page, pageSize, withCount: true },
       },
     });
-    if (!result.ok) break;
+    if (!result.ok) {
+      if (page === 1) return { ok: false, status: result.status, error: result.error };
+      break;
+    }
     for (const v of result.data ?? []) {
       const cleaned = stripVideoForClient(v);
       if (cleaned) all.push(cleaned);
     }
+    const pageCount = result.meta?.pagination?.pageCount ?? 1;
+    if (page >= pageCount) break;
+  }
+  return { ok: true, videos: all };
+}
+
+export async function listAllVideosForEmbeddingService(): Promise<StrapiVideo[]> {
+  const result = await listAllVideosForEmbeddingWithStatusService();
+  return result.ok ? result.videos : [];
+}
+
+/** id + stored transcript index only — see `listAllVideoTranscriptIndexesService`. */
+export type VideoTranscriptIndexRow = {
+  youtubeVideoId: string;
+  transcriptSegments: StoredTranscriptIndex | null;
+};
+
+/**
+ * Every video's `youtubeVideoId` + stored BM25 index, nothing else — no
+ * summary text, scores, or embeddings. Built for corpus-wide document-
+ * frequency checks (`chooseProseSource`'s library-rarity gate, see
+ * `prose-grounding.ts`), which only need to know whether OTHER videos say a
+ * term, not read their content. Deliberately narrower than
+ * `listAllVideosForEmbeddingWithStatusService` — that one strips
+ * `transcriptSegments` (client-safe listing) and filters to
+ * `summaryStatus: 'generated'`; a video can have a stored transcript index
+ * before its summary exists, and this is a server-internal caller like
+ * `fetchVideoByDocumentIdService` above, not something that ships to the
+ * client. Paginates internally so one call returns the whole library —
+ * personal-KB scale (<1000 videos, CLAUDE.md), same assumption
+ * `embeddings.ts`'s in-memory scan already relies on. A failure partway
+ * through returns what was collected so far, same stance as
+ * `listAllVideosForEmbeddingWithStatusService`: a partial corpus still
+ * makes the rarity check more accurate than skipping it, and this feeds a
+ * confidence gate, not a correctness-critical read.
+ */
+export async function listAllVideoTranscriptIndexesService(): Promise<VideoTranscriptIndexRow[]> {
+  const pageSize = 100;
+  const all: VideoTranscriptIndexRow[] = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const result = await strapiFetch<VideoTranscriptIndexRow[]>('GET', '/api/videos', {
+      query: {
+        fields: ['youtubeVideoId', 'transcriptSegments'],
+        pagination: { page, pageSize, withCount: true },
+      },
+    });
+    if (!result.ok) break;
+    all.push(...(result.data ?? []));
     const pageCount = result.meta?.pagination?.pageCount ?? 1;
     if (page >= pageCount) break;
   }

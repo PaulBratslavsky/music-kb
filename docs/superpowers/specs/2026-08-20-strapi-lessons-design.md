@@ -1,6 +1,7 @@
 # Design: lessons served from Strapi
 
-**Status:** Approved, not started
+**Status:** Approved. **Amended 2026-08-20 — see "Scope revision" below;
+the Migration section is superseded.**
 **Date:** 2026-08-20
 **Scope:** Phase 1 only — move the 8 hardcoded lessons into a Strapi
 collection rendered from a dynamic zone. AI lesson generation is phase 2 and
@@ -96,7 +97,7 @@ between them, and no current lesson needs it.
 
 ### Block vocabulary
 
-Ten components under `lesson-blocks.*`. Every block carries an optional
+Eleven components under `lesson.*`. Every block carries an optional
 `source` component (`videoId`, `timeSec`) — empty for migrated lessons,
 populated by phase 2.
 
@@ -104,7 +105,8 @@ populated by phase 2.
 |---|---|---|
 | `prose` | markdown | `body` (rich text) — covers `p`, `ul`/`ol`, `h2`/`h3`. **Prefer few large blocks over many small ones** |
 | `step` | `Step` | `number`, `title`, `lede`, `body` |
-| `diagram` | `MiniNeck` / `MiniKeyboard` / `MiniPush` | `instrument` enum; `mode` enum; params **or** dots; `useParam` |
+| `diagram` | `MiniNeck` | `instrument` enum (**guitar/bass only**); `mode` enum; params **or** dots; `useParam` |
+| `keyboard-diagram` | `MiniKeyboard` | `mode` enum; params **or** marks; `useParam`; `octaves` |
 | `degree-chips` | `DegreeChips` | `degrees[]`, `size` |
 | `table` | table | `headers[]`, `rows[][]`, `useParam` |
 | `callout` | — | `tone` enum, `body` |
@@ -121,7 +123,24 @@ wrong, and it keeps each block a readable chunk. This also demotes the
 standalone `heading` block to a rare case: headings normally live inside
 prose markdown.
 
-**One `diagram` block, not three.** Instrument is a field. Fewer components,
+**Split by addressing scheme, not by instrument** (revised 2026-08-20 after
+implementation surfaced the gap). `MiniNeck` is *position*-addressed
+(`{string, fret}`); `MiniKeyboard` is *pitch-class*-addressed (`{pc}`). Guitar
+and bass are the same shape with a different string count, so they share one
+block with `instrument` as a field. Piano is a different shape and gets its
+own block.
+
+Keeping all three in one block would have made `stringSet`/`inversion`/
+`fromFret`/`toFret` meaningless-but-valid whenever `instrument` was `piano` —
+conditional knowledge, which is exactly what a model gets wrong, and the same
+error as leaving `root` freeform. It also left `mode: "explicit"`
+*unexpressible* for piano, since `dots` is `NeckDot[]` with no `pc`.
+
+`push` is dropped entirely: no lesson uses `MiniPush`, so a third conversion
+would be speculative. The component stays; it is simply not offered as a block
+instrument until something needs it.
+
+**One `diagram` block for guitar and bass.** Instrument is a field there. Fewer components,
 and a model picks an enum value rather than choosing between three
 near-identical block names.
 
@@ -188,7 +207,78 @@ returns nothing. An AI-generated lesson naming a block that does not exist
 degrades to a gap rather than a white page — the same defensive posture
 `chat-stream.ts` takes toward unknown SSE event types.
 
+## Scope revision (2026-08-20, after Task 8)
+
+The Migration section below assumed `client/src/routes/lessons.*.tsx` held the
+only copies of the 8 hand-written lessons, and that serving them from Strapi
+therefore meant translating all 3,456 lines into blocks.
+
+That assumption was wrong. **`web/src/lessons/` already contains all 8**, with
+its own complete widget set (`web/src/lessons/components/` — including
+`LessonChordDiagram` and `NaturalNotesStrings`, which the client never had).
+They were duplicated when the monorepo refactor folded `web/` in; line counts
+differ only by the TanStack route wrapper.
+
+The ruling, made by the repo owner:
+
+- The **hand-written React format stays in `web/`** and continues to be
+  authored there by hand. It is not a legacy format awaiting migration — it is
+  one of two supported lesson formats, and the better one for the intricate,
+  bespoke, heavily-interactive lessons that motivated it.
+- **`client/`'s `/lessons` becomes Strapi-only.** It carries the
+  `api::lesson.lesson` collection and nothing hardcoded. This is where
+  AI-generated lessons land.
+- The 8 client route copies are **deleted**, not translated.
+
+Everything above this section — the block vocabulary, content model, and
+rendering contract — stands unchanged. What changes is only what fills the
+collection: phase-2 AI output rather than back-ported hand-written lessons.
+
+**The cost of this, stated plainly:** the plan's migration was also its
+validation. Translating 8 real lessons was how the block vocabulary was going
+to be proven expressive enough before phase 2 depended on it.
+
+That cost was not theoretical, and it came due immediately. Writing a *single*
+real lesson (`server/seed-data/lessons/one-fret-one-half-step.json`) plus one
+adversarial review of the branch surfaced seven contract defects that
+`LessonBody`'s own unit tests did not catch, because those tests fed it
+well-formed data:
+
+- `caption` was declared on four block types and rendered by nothing, while
+  the renderer read a `label` field those schemas never declared — content
+  written by an author, accepted by Strapi, and silently dropped. The seeded
+  lesson tripped this five times and nobody noticed while writing it.
+- Three `json`-typed fields crashed the whole route (SSR 500, not a missing
+  block) on plausible model output such as `degrees: [1,2,3]`.
+- Three of the seven `quality` enum values could never render, so a model
+  picking a legal value got a blank.
+- `parameter.default` was a freeform string while the picker offered seven
+  naturals; a default of `Eb` blanked every parameterised diagram in a lesson.
+
+All are fixed. The lesson to carry into phase 2 is not "the vocabulary is now
+proven" — one lesson is not proof — but that **the failure mode of this design
+is silence.** Nothing threw. Typecheck was clean and every test passed through
+all of it. Any future block type, or any change to an existing one, needs a
+render check against real data, because neither the compiler nor the unit
+tests can see this class of bug.
+
+Two lesser consequences:
+
+- `lesson.interactive` was removed from the dynamic zone entirely (2026-08-22).
+  It was specified for the triads lesson's live chord builder, that migration
+  was cancelled, and it shipped declared-but-unrendered. Once the `createLesson`
+  MCP tool let a model author blocks, a schema-legal `interactive` block became
+  an invisible hole with no error — so the declaration went rather than the
+  renderer arriving. Re-add schema and renderer together or not at all.
+- Three cross-links in `TheoryReference.tsx` pointed at deleted routes. Since
+  the client has no URL for the deployed companion app, the links were reduced
+  to plain text rather than rewritten — the prose still names the lesson, it
+  just no longer navigates.
+
 ## Migration
+
+> **Superseded by the Scope revision above.** Kept for the reasoning it
+> records about block coverage, which informed the vocabulary.
 
 ### Step 0 — archive before touching anything
 

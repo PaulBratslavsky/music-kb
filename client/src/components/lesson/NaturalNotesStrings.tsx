@@ -1,14 +1,28 @@
 // NaturalNotesStrings — two-string strip showing the natural notes on
-// the low E and A strings, frets 0–12. The pedagogical centerpiece of
-// the "find any chord" lesson: if you know these 14 notes (7 per string,
-// repeating at the 12th fret), every sharp/flat is one fret away and
-// every root for the four chord shapes is reachable.
+// the low E and A strings, frets 0–12. The pedagogical centerpiece of the
+// hand-written "find any chord" lesson: if you know these 14 notes (7 per
+// string, repeating at the 12th fret), every sharp/flat is one fret away
+// and every root for the four movable chord shapes is reachable.
 //
-// Half-step pairs B→C and E→F are emphasized — they're the spots with
-// no sharp/flat between consecutive natural notes, which throws people
-// off when they're hunting for chord roots.
+// Half-step pairs B→C and E→F are banded — they're the spots with no
+// sharp/flat between consecutive natural notes, which throws people off
+// when they're hunting for chord roots.
+//
+// Ported from web/src/lessons/components/NaturalNotesStrings.tsx with two
+// changes. The palette: the web copy draws on `--fret-wood`/`--fret-line`/
+// `--string`, tokens that exist only in that app's dark-only fretboard
+// stylesheet, so this copy uses the client's own theme tokens, which invert
+// together in light and dark. And the left gutter, widened — see the note
+// on STRING_NAMES.
+//
+// Takes no props, on purpose. It is the same fixed reference diagram every
+// time — that is the whole point of it.
 
-const STRING_NAMES = ['A (string 5)', 'low E (string 6)'] as const;
+// Short on purpose. The web copy uses "A (string 5)" / "low E (string 6)",
+// which overflow the left gutter here and collide with the open-string note
+// circles — the client's type scale is not the one that layout was tuned
+// against. The caption and the aria-label carry the full naming.
+const STRING_NAMES = ['A · 5th', 'E · 6th'] as const;
 
 // Natural notes per string, indexed by fret 0..12. null = a fret with
 // only sharps/flats (not a natural).
@@ -20,8 +34,7 @@ const E_STRING_NATURALS: (string | null)[] = [
 ];
 
 // Pairs of fret indices where natural notes sit 1 fret apart (the
-// no-sharp-between-them spots). Emphasized to drive the lesson point
-// home.
+// no-sharp-between-them spots). Banded to drive the lesson point home.
 const HALF_STEP_PAIRS_A = [
   [2, 3], // B → C
   [7, 8], // E → F
@@ -34,11 +47,11 @@ const HALF_STEP_PAIRS_E = [
 const FRET_COUNT = 12;
 const FRET_W = 50;
 const STRING_GAP = 56;
-const PADDING_X = 84;
+const PADDING_X = 100;
 const PADDING_TOP = 30;
 // Generous bottom padding so the fret-number row sits well below the
-// bottom-string's note circles. With only ~7px gap the numbers visually
-// merge into the orange note dots and break the alignment cue.
+// bottom string's note circles. With only ~7px gap the numbers visually
+// merge into the note dots and break the alignment cue.
 const PADDING_BOTTOM = 40;
 
 const TOTAL_W = PADDING_X + FRET_W * FRET_COUNT + 24;
@@ -66,7 +79,7 @@ export function NaturalNotesStrings() {
         y={PADDING_TOP - 16}
         width={FRET_W * FRET_COUNT}
         height={STRING_GAP + 32}
-        fill="var(--fret-wood)"
+        fill="var(--bg-subtle)"
         rx={4}
       />
 
@@ -76,7 +89,7 @@ export function NaturalNotesStrings() {
         y={PADDING_TOP - 16}
         width={6}
         height={STRING_GAP + 32}
-        fill="#d8cdb8"
+        fill="var(--ink)"
       />
 
       {/* Fret lines */}
@@ -87,12 +100,12 @@ export function NaturalNotesStrings() {
           x2={PADDING_X + f * FRET_W}
           y1={PADDING_TOP - 16}
           y2={PADDING_TOP + STRING_GAP + 16}
-          stroke="var(--fret-line)"
+          stroke="var(--line-strong)"
           strokeWidth={2}
         />
       ))}
 
-      {/* Inlay dots — center between the two strings */}
+      {/* Inlay dots — centered between the two strings */}
       {Array.from({ length: FRET_COUNT }, (_, i) => i + 1)
         .filter((f) => FRET_INLAYS_SINGLE.has(f))
         .map((f) => (
@@ -101,7 +114,7 @@ export function NaturalNotesStrings() {
             cx={PADDING_X + (f - 0.5) * FRET_W}
             cy={PADDING_TOP + STRING_GAP / 2}
             r={5}
-            fill="#5a5048"
+            fill="var(--line-strong)"
           />
         ))}
       {Array.from({ length: FRET_COUNT }, (_, i) => i + 1)
@@ -112,13 +125,13 @@ export function NaturalNotesStrings() {
               cx={PADDING_X + (f - 0.5) * FRET_W - 7}
               cy={PADDING_TOP + STRING_GAP / 2}
               r={5}
-              fill="#5a5048"
+              fill="var(--line-strong)"
             />
             <circle
               cx={PADDING_X + (f - 0.5) * FRET_W + 7}
               cy={PADDING_TOP + STRING_GAP / 2}
               r={5}
-              fill="#5a5048"
+              fill="var(--line-strong)"
             />
           </g>
         ))}
@@ -131,11 +144,11 @@ export function NaturalNotesStrings() {
             x2={PADDING_X + FRET_W * FRET_COUNT}
             y1={yForString(i)}
             y2={yForString(i)}
-            stroke="var(--string)"
+            stroke="var(--ink-faint)"
             strokeWidth={2 + i}
           />
           <text
-            x={PADDING_X - 14}
+            x={PADDING_X - 48}
             y={yForString(i) + 4}
             fontSize={11}
             fill="var(--ink-soft)"
@@ -148,7 +161,7 @@ export function NaturalNotesStrings() {
       ))}
 
       {/* Half-step lanes — translucent bands across the half-step fret
-          pairs on each string, so the B-C / E-F "no sharp between them"
+          pairs on each string, so the B–C / E–F "no sharp between them"
           spots pop out at a glance. */}
       {HALF_STEP_PAIRS_A.map(([a, b]) => {
         const left = a === 0 ? xForFret(0) - 16 : xForFret(a) - FRET_W / 2;
@@ -160,8 +173,8 @@ export function NaturalNotesStrings() {
             y={yForString(0) - 20}
             width={right - left}
             height={40}
-            fill="#dc2626"
-            opacity={0.08}
+            fill="var(--band-red-dot)"
+            opacity={0.12}
             rx={4}
           />
         );
@@ -176,72 +189,44 @@ export function NaturalNotesStrings() {
             y={yForString(1) - 20}
             width={right - left}
             height={40}
-            fill="#dc2626"
-            opacity={0.08}
+            fill="var(--band-red-dot)"
+            opacity={0.12}
             rx={4}
           />
         );
       })}
 
-      {/* Natural-note markers — A string */}
-      {A_STRING_NATURALS.map((name, fret) => {
-        if (!name) return null;
-        return (
-          <g key={`A-${fret}`}>
-            <circle
-              cx={xForFret(fret)}
-              cy={yForString(0)}
-              r={13}
-              fill="var(--accent)"
-              stroke="#0b0d12"
-              strokeWidth={1.5}
-            />
-            <text
-              x={xForFret(fret)}
-              y={yForString(0) + 4}
-              fontSize={12}
-              fill="white"
-              textAnchor="middle"
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fontWeight={700}
-            >
-              {name}
-            </text>
-          </g>
-        );
-      })}
-
-      {/* Natural-note markers — low E string */}
-      {E_STRING_NATURALS.map((name, fret) => {
-        if (!name) return null;
-        return (
-          <g key={`E-${fret}`}>
-            <circle
-              cx={xForFret(fret)}
-              cy={yForString(1)}
-              r={13}
-              fill="var(--accent)"
-              stroke="#0b0d12"
-              strokeWidth={1.5}
-            />
-            <text
-              x={xForFret(fret)}
-              y={yForString(1) + 4}
-              fontSize={12}
-              fill="white"
-              textAnchor="middle"
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fontWeight={700}
-            >
-              {name}
-            </text>
-          </g>
-        );
-      })}
+      {/* Natural-note markers */}
+      {[A_STRING_NATURALS, E_STRING_NATURALS].map((naturals, stringIdx) =>
+        naturals.map((name, fret) =>
+          name ? (
+            <g key={`${stringIdx}-${fret}`}>
+              <circle
+                cx={xForFret(fret)}
+                cy={yForString(stringIdx)}
+                r={13}
+                fill="var(--accent)"
+                stroke="var(--card)"
+                strokeWidth={1.5}
+              />
+              <text
+                x={xForFret(fret)}
+                y={yForString(stringIdx) + 4}
+                fontSize={12}
+                fill="#ffffff"
+                textAnchor="middle"
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fontWeight={700}
+              >
+                {name}
+              </text>
+            </g>
+          ) : null,
+        ),
+      )}
 
       {/* Fret numbers below — pushed down from the bottom string so they
-          don't visually merge into the note circles. Slightly larger
-          font for readability at this scale. */}
+          don't visually merge into the note circles. */}
       {Array.from({ length: FRET_COUNT + 1 }, (_, i) => i).map((f) => (
         <text
           key={`fnum-${f}`}

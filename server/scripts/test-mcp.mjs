@@ -1,22 +1,55 @@
 #!/usr/bin/env node
-// Integration test harness for the /api/mcp endpoint.
+// Integration test harness for the OFFICIAL Strapi MCP server at /mcp.
 //
-// Exercises every registered tool against the LIVE Strapi instance, so
-// what we verify is real behavior (auth, route wiring, schema
-// serialization, handler logic) — not unit-test mocks of the same.
+// Exercises real tools against a LIVE Strapi instance, so what we verify is
+// real behavior (auth, route wiring, schema serialization, handler logic) —
+// not unit-test mocks of the same.
 //
 // Usage:
-//   export MCP_TEST_TOKEN=<your-strapi-api-token>
-//   export MCP_TEST_URL=http://localhost:1350/api/mcp   (default)
+//   export MCP_TEST_TOKEN=<a Strapi ADMIN API token — kind:'admin', see
+//     docs/mcp.md's "Mint an admin token" recipe. A content-API "Full
+//     access" token from Settings > API Tokens is rejected; it isn't
+//     kind:'admin'. Permissions are PER TOOL now
+//     (api::music-kb-mcp.tool.<kebab-tool-name>); this harness expects a
+//     token holding every one of them, which docs/mcp.md's recipe grants.>
+//
+//   DO NOT point this at data you care about. RUN_WRITES=1 once overwrote a
+//   real video's summary via saveSummary and the original is gone — that
+//   incident is why permissions are per-tool at all. Run it against a
+//   throwaway database copy (DATABASE_FILENAME=.tmp/scratch.db on a second
+//   port), or leave the write paths skipped.
+//   export MCP_TEST_URL=http://localhost:1350/mcp   (default; NOT /api/mcp
+//     — that hand-rolled endpoint was retired, see ADR 0008)
 //   node server/scripts/test-mcp.mjs
 //
-// Prints a per-tool PASS/FAIL line and exits non-zero on any failure so
-// the script can wire into a CI gate later.
+// The official server is STATELESS (server.mcp / StreamableHTTPServerTransport
+// is constructed with `sessionIdGenerator: undefined`, and Strapi's request
+// handler builds a brand-new McpServer + transport for every single POST —
+// see @strapi/core's handlePost.js). Concretely that means:
+//   - No `Mcp-Session-Id` is ever returned, and none is required on
+//     subsequent calls — every JSON-RPC call is a fully independent HTTP
+//     request, authenticated by its own bearer token.
+//   - A bare `tools/call` works with no prior `initialize` in the same
+//     process at all (confirmed live). We still send `initialize` first
+//     below because it's the spec-correct handshake and a cheap way to
+//     assert server identity, not because the server requires it.
+// This is a deliberate rewrite of the previous session-carrying logic here,
+// which targeted the retired hand-rolled /api/mcp server (which DID mint and
+// require a session id). Keeping that logic would have been silently
+// harmless (the code degrades to "no session header sent" when none comes
+// back) but it documented a protocol this server doesn't speak — exactly
+// the kind of confident-looking-but-wrong harness this task exists to fix.
+//
+// Prints a per-tool PASS/FAIL line and exits non-zero on any failure so the
+// script can wire into a CI gate later.
 
-const URL = process.env.MCP_TEST_URL ?? 'http://localhost:1350/api/mcp';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const URL = process.env.MCP_TEST_URL ?? 'http://localhost:1350/mcp';
 const TOKEN = process.env.MCP_TEST_TOKEN;
 if (!TOKEN) {
-  console.error('MCP_TEST_TOKEN env var is required.');
+  console.error('MCP_TEST_TOKEN env var is required (a Strapi admin API token — see the usage comment above).');
   process.exit(2);
 }
 
@@ -24,23 +57,12 @@ if (!TOKEN) {
 // MCP wire helpers (minimal Streamable-HTTP client)
 // ───────────────────────────────────────────────────────────────────────
 
-let sessionId = null;
-
-function parseSSE(body) {
-  // The transport responds with `event: message\ndata: <json>\n\n`. We
-  // only care about the first `data:` line per response.
-  const dataLine = body.split('\n').find((l) => l.startsWith('data: '));
-  if (!dataLine) throw new Error(`no data line in SSE body:\n${body.slice(0, 200)}`);
-  return JSON.parse(dataLine.slice('data: '.length));
-}
-
 async function rpc(method, params, id = 1) {
   const headers = {
     'Content-Type': 'application/json',
     Accept: 'application/json, text/event-stream',
     Authorization: `Bearer ${TOKEN}`,
   };
-  if (sessionId) headers['mcp-session-id'] = sessionId;
 
   const res = await fetch(URL, {
     method: 'POST',
@@ -48,17 +70,21 @@ async function rpc(method, params, id = 1) {
     body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
   });
 
-  const returnedSession = res.headers.get('mcp-session-id');
-  if (returnedSession && !sessionId) sessionId = returnedSession;
-
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`HTTP ${res.status} on ${method}: ${body.slice(0, 300)}`);
   }
 
+  // A bare notification (no "id"-bearing request in the body) gets a 202
+  // with no body — nothing to parse.
   if (method === 'notifications/initialized') return null;
+
   const body = await res.text();
-  const msg = parseSSE(body);
+  // The transport responds with `event: message\ndata: <json>\n\n`. We only
+  // care about the first `data:` line per response.
+  const dataLine = body.split('\n').find((l) => l.startsWith('data: '));
+  if (!dataLine) throw new Error(`no data line in SSE body:\n${body.slice(0, 200)}`);
+  const msg = JSON.parse(dataLine.slice('data: '.length));
   if (msg.error) {
     throw new Error(`RPC error on ${method}: ${JSON.stringify(msg.error)}`);
   }
@@ -80,6 +106,18 @@ async function callTool(name, args) {
   }
 }
 
+/** Like callTool, but expects tool-input validation to REJECT the call
+ * (isError: true, thrown by the MCP SDK's own zod parse before execute()
+ * ever runs — see server/src/mcp/tools/lesson-blocks.ts's header comment).
+ * Returns the error message text so the caller can assert on its content. */
+async function callToolExpectingRejection(name, args) {
+  const result = await rpc('tools/call', { name, arguments: args }, 1);
+  if (!result.isError) {
+    throw new Error(`tool ${name} was expected to reject these args but succeeded: ${JSON.stringify(result)}`);
+  }
+  return result.content?.[0]?.text ?? '';
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // Test runner
 // ───────────────────────────────────────────────────────────────────────
@@ -87,6 +125,11 @@ async function callTool(name, args) {
 let passed = 0;
 let failed = 0;
 const failures = [];
+// Loud, end-of-run reminder of any rows the harness created and could not
+// delete (the public/admin token this harness uses is deliberately NOT
+// granted a delete permission — see the "Clean up after yourself" note
+// below and the brief this script was repaired against).
+const leftoverRows = [];
 
 async function test(name, fn) {
   const started = Date.now();
@@ -121,35 +164,68 @@ await test('initialize handshake', async () => {
     capabilities: {},
     clientInfo: { name: 'test-mcp', version: '1.0' },
   });
-  assert(r.serverInfo?.name === 'yt-knowledge-base', `wrong server name: ${r.serverInfo?.name}`);
+  assert(r.serverInfo?.name === 'strapi-mcp-server', `wrong server name: ${r.serverInfo?.name}`);
   assert(r.capabilities?.tools !== undefined, 'tools capability missing');
-  assert(sessionId, 'no session id returned');
+  // NOT asserting a session id here: the official server is stateless
+  // (sessionIdGenerator: undefined) and never returns one. See the file
+  // header for why that's correct, not a regression.
 });
 
 await test('notifications/initialized', async () => {
   await rpc('notifications/initialized', undefined);
 });
 
-// 1. tools/list
+// 1. tools/list — the full domain catalog (server/src/mcp/catalog.ts) plus
+// the built-in `log` tool. Asserted as an EXACT count for a full-power
+// token (read + write + maintenance), not just "these names exist": a
+// silently-skipped registration (see adapter.ts's per-tool try/catch —
+// this exact failure mode took down a tool during this branch's own
+// development, see task-6-report.md) would otherwise pass a subset check.
+//
+// The expected list is READ FROM THE CATALOG, not typed out here. It used to
+// be a hand-written array and it had already rotted — it was missing
+// getLessonAuthoringGuide, so the exact-count assertion failed against a
+// perfectly healthy server. A hand-maintained mirror of the tool list is the
+// failure this codebase keeps re-learning; see server/src/mcp/permissions.ts.
+const DOMAIN_TOOLS = readCatalogToolNames();
+
+function readCatalogToolNames() {
+  const mcpDir = path.resolve(import.meta.dirname, '../src/mcp');
+  // export const listVideosTool: ToolDef<…> = { name: 'listVideos', …
+  const namesByExport = new Map();
+  for (const file of fs.readdirSync(path.join(mcpDir, 'tools')).filter((f) => f.endsWith('.ts'))) {
+    const source = fs.readFileSync(path.join(mcpDir, 'tools', file), 'utf8');
+    for (const m of source.matchAll(/export const (\w+Tool)\b/g)) {
+      const name = /\bname:\s*'([A-Za-z0-9_]+)'/.exec(source.slice(m.index));
+      if (name) namesByExport.set(m[1], name[1]);
+    }
+  }
+  // { tool: listVideosTool, title: 'List videos', access: 'read' },
+  const catalog = fs.readFileSync(path.join(mcpDir, 'catalog.ts'), 'utf8');
+  const names = [...catalog.matchAll(/\{\s*tool:\s*(\w+),\s*title:/g)].map((m) => namesByExport.get(m[1]));
+  if (names.length === 0 || names.some((n) => !n)) {
+    throw new Error('could not read the tool catalog from server/src/mcp — the parser above needs updating');
+  }
+  return names;
+}
 let toolNames = [];
-await test('tools/list returns 18 tools with valid schemas', async () => {
+await test(`tools/list returns exactly ${DOMAIN_TOOLS.length} domain tools + built-in log`, async () => {
   const r = await rpc('tools/list', {}, 2);
   assert(Array.isArray(r.tools), 'tools is not an array');
   toolNames = r.tools.map((t) => t.name);
-  const expected = [
-    'listTranscripts', 'getTranscript', 'searchTranscript', 'findTranscripts', 'fetchTranscript',
-    'listVideos', 'getVideo', 'searchVideos', 'addVideo', 'saveSummary',
-    'listTags', 'tagVideo', 'untagVideo', 'saveNote',
-    'aggregateByTag', 'listUntagged', 'crossSearchTranscripts', 'libraryStats',
-  ];
-  for (const name of expected) {
+  for (const name of DOMAIN_TOOLS) {
     assert(toolNames.includes(name), `tool ${name} missing from tools/list`);
   }
+  assert(toolNames.includes('log'), 'built-in "log" tool missing from tools/list');
+  const expectedCount = DOMAIN_TOOLS.length + 1;
+  assert(
+    toolNames.length === expectedCount,
+    `expected exactly ${expectedCount} tools (this token's permissions determine the set — mint per docs/mcp.md's ` +
+      `full-power recipe), got ${toolNames.length}: ${toolNames.join(', ')}`,
+  );
   for (const t of r.tools) {
     assert(t.inputSchema?.type === 'object', `tool ${t.name} has no inputSchema.type`);
-    // listTranscripts has zero required fields (all defaulted); that's OK.
-    // Just assert `properties` is defined where we expect params.
-    if (['searchTranscript', 'searchVideos', 'getVideo', 'addVideo'].includes(t.name)) {
+    if (['searchTranscript', 'searchVideos', 'getVideo', 'addVideo', 'createLesson'].includes(t.name)) {
       assert(t.inputSchema?.properties, `tool ${t.name} missing properties`);
     }
   }
@@ -172,12 +248,20 @@ await test('listTranscripts', async () => {
   assert(parsed?.transcripts?.length > 0, 'no transcripts in KB');
 });
 
-// 3. searchVideos — exact partial title (the real-world "Rethinking" regression).
-await test('searchVideos tokenizes queries with filler words', async () => {
-  const { parsed } = await callTool('searchVideos', { query: 'Harness Engineering' });
-  assert(parsed?.matchCount > 0, `matchCount=${parsed?.matchCount}, expected >0`);
-  const titles = parsed.videos.map((v) => v.videoTitle).join(' | ');
-  assert(/harness/i.test(titles), `no 'harness' in returned titles: ${titles}`);
+// 3. searchVideos — tokenized search against whatever video is actually in
+// this KB, not a hardcoded title from a different dataset (the previous
+// "Harness Engineering" fixture doesn't exist in every seed — this is now
+// self-fixturing off listVideos' first row like findTranscripts already was).
+await test('searchVideos tokenizes queries and matches on title words', async () => {
+  // searchVideos' matching is AND-strict across every non-stopword token
+  // (see search-videos.ts's schema .describe()) — unlike findTranscripts
+  // below, there's no loose fallback, so don't inject filler connector
+  // words here; a word like "plus" isn't a recognized stopword and would
+  // make the AND-match fail against a title that doesn't contain it.
+  const tokens = (fixtureTitle || '').split(/\s+/).filter((w) => w.length > 3).slice(0, 2);
+  assert(tokens.length > 0, 'fixture title too short to build a query from');
+  const { parsed } = await callTool('searchVideos', { query: tokens.join(' ') });
+  assert(parsed?.matchCount > 0, `matchCount=${parsed?.matchCount}, expected >0 for tokens [${tokens.join(', ')}]`);
 });
 
 await test('searchVideos returns empty for clearly absent query (not a false positive)', async () => {
@@ -195,14 +279,11 @@ await test('searchVideos by youtubeVideoId substring', async () => {
 
 // 4. findTranscripts — same tokenization assertion against transcript title.
 await test('findTranscripts tokenizes and finds relevant rows', async () => {
-  // Use a couple of tokens from the fixture title, separated by filler.
   const tokens = (fixtureTitle || '').split(/\s+/).filter((w) => w.length > 3).slice(0, 2);
   if (tokens.length < 2) {
-    // Fallback query if the fixture title is too short.
     tokens.push('transcript');
   }
   const { parsed } = await callTool('findTranscripts', { query: tokens.join(' plus ') });
-  // loose-mode fallback should find something since at least one token matches.
   assert(parsed?.matchCount > 0 || parsed?.hint, 'expected matches or a hint');
 });
 
@@ -232,7 +313,6 @@ await test('getTranscript chunked mode', async () => {
 await test('getTranscript timeRange mode', async () => {
   const { parsed } = await callTool('getTranscript', { videoId: fixtureVideoId, mode: 'timeRange', startSec: 0, endSec: 60 });
   assert(Array.isArray(parsed?.segments), 'segments missing');
-  // Time-range segments should all have startMs < 60000.
   for (const s of parsed.segments) {
     assert(s.startMs < 60000, `segment at ${s.startMs}ms leaked past range`);
   }
@@ -241,7 +321,6 @@ await test('getTranscript timeRange mode', async () => {
 // 7. searchTranscript — BM25 or substring fallback.
 await test('searchTranscript returns ranked passages', async () => {
   const { parsed } = await callTool('searchTranscript', { videoId: fixtureVideoId, query: 'the', k: 3 });
-  // Even a weak query should return something for a multi-minute video.
   assert(parsed?.results !== undefined, 'results field missing');
   assert(['bm25', 'substring'].includes(parsed?.source), `unexpected source: ${parsed?.source}`);
 });
@@ -283,11 +362,9 @@ await test('listUntagged returns rows (may be empty — accepts either)', async 
 });
 
 await test('aggregateByTag with known tag returns videos', async () => {
-  // Pull any populated tag so the test doesn't hard-code a specific one.
   const { parsed: tagsResp } = await callTool('listTags', {});
   const populated = (tagsResp?.tags ?? []).find((t) => t.videoCount > 0);
   if (!populated) {
-    // Edge case: no tags in the KB yet. Treat as pass since `listUntagged` will be the workflow instead.
     console.log('      (no populated tags in KB; skipping aggregateByTag deep assertion)');
     return;
   }
@@ -298,7 +375,6 @@ await test('aggregateByTag with known tag returns videos', async () => {
 await test('crossSearchTranscripts returns hits across videos', async () => {
   const { parsed } = await callTool('crossSearchTranscripts', { query: 'the', perVideo: 2, maxVideos: 5 });
   assert(typeof parsed?.videosScanned === 'number', 'videosScanned missing');
-  // Hits expected since 'the' appears in basically every transcript.
   assert(parsed?.videosWithHits >= 1 || parsed?.hint, 'expected hits or hint');
 });
 
@@ -311,6 +387,136 @@ await test('saveNote attaches a note', async () => {
   });
   assert(parsed?.noteDocumentId, 'noteDocumentId missing');
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// 11. Lesson tools — createLesson / updateLesson / listLessons / getLesson
+// ───────────────────────────────────────────────────────────────────────
+//
+// Validation-rejection coverage always runs: the MCP SDK parses tool args
+// against the zod `schema` BEFORE execute() ever runs (see lesson-blocks.ts's
+// header comment), so every case below is rejected at the wire layer — no
+// Strapi write is attempted, nothing to clean up.
+//
+// Row-creating coverage (create -> update -> disposal) only runs under
+// RUN_WRITES=1, matching this file's existing convention for anything that
+// writes real data (see saveSummary below). The public/admin token this
+// harness authenticates with has NO delete permission on lessons BY DESIGN
+// (see the brief this script was repaired against) and this harness must
+// not add one. So instead of deleting, it overwrites the row it created
+// with an unmistakably disposable title/summary/status and prints its
+// documentId so a human can delete it via the Strapi admin.
+
+await test('createLesson rejects an unknown __component (lesson.interactive was removed from the schema)', async () => {
+  const text = await callToolExpectingRejection('createLesson', {
+    title: 'zzz mcp harness validation probe',
+    body: [{ __component: 'lesson.interactive', kind: 'triad-explorer' }],
+  });
+  assert(/Invalid discriminator value/i.test(text), `expected a discriminator rejection, got: ${text}`);
+  assert(!/lesson\.interactive/.test(text.split('Expected')[1] ?? ''), `lesson.interactive still listed as legal: ${text}`);
+});
+
+await test('createLesson rejects an empty body', async () => {
+  const text = await callToolExpectingRejection('createLesson', { title: 'zzz mcp harness validation probe', body: [] });
+  assert(/at least one block/i.test(text), `expected the empty-body message, got: ${text}`);
+});
+
+await test('createLesson rejects a theory-mode diagram missing stringSet', async () => {
+  const text = await callToolExpectingRejection('createLesson', {
+    title: 'zzz mcp harness validation probe',
+    body: [{ __component: 'lesson.diagram', mode: 'theory', root: 'C', quality: 'major' }],
+  });
+  assert(/stringSet is required/i.test(text), `expected a missing-stringSet message, got: ${text}`);
+});
+
+await test('createLesson rejects a hyphen where stringSet needs an EN DASH', async () => {
+  const text = await callToolExpectingRejection('createLesson', {
+    title: 'zzz mcp harness validation probe',
+    body: [{ __component: 'lesson.diagram', mode: 'theory', root: 'C', quality: 'major', stringSet: 'e-B-G' }],
+  });
+  assert(/EN DASH/i.test(text) && /e–B–G/.test(text), `expected the hyphen-correction message, got: ${text}`);
+});
+
+await test('createLesson rejects an over-length caption', async () => {
+  // lesson.degree-chips has no caption field at all — lesson.table does.
+  const text = await callToolExpectingRejection('createLesson', {
+    title: 'zzz mcp harness validation probe',
+    body: [
+      {
+        __component: 'lesson.table',
+        headers: ['a', 'b'],
+        rows: [['1', '2']],
+        caption: 'x'.repeat(300),
+      },
+    ],
+  });
+  assert(/255/.test(text), `expected the 255-char caption message, got: ${text}`);
+});
+
+await test('updateLesson rejects a call with nothing to update', async () => {
+  const text = await callToolExpectingRejection('updateLesson', { documentId: 'irrelevant-for-this-check' });
+  assert(/Nothing to update/i.test(text), `expected the nothing-to-update message, got: ${text}`);
+});
+
+await test('updateLesson on an unknown documentId returns an error field (not a throw)', async () => {
+  const { parsed } = await callTool('updateLesson', { documentId: 'definitely-not-a-real-document-id', order: 1 });
+  assert(parsed?.error, `expected an error field, got: ${JSON.stringify(parsed)}`);
+});
+
+await test('getLesson with an unknown slug returns an error field', async () => {
+  const { parsed } = await callTool('getLesson', { slug: 'definitely-not-a-real-lesson-slug-zzz' });
+  assert(parsed?.error, `expected an error field, got: ${JSON.stringify(parsed)}`);
+});
+
+await test('listLessons returns the paged catalog shape', async () => {
+  const { parsed } = await callTool('listLessons', { pageSize: 5 });
+  assert(typeof parsed?.total === 'number', 'total missing');
+  assert(Array.isArray(parsed?.lessons), 'lessons missing');
+});
+
+if (process.env.RUN_WRITES === '1') {
+  let createdDocumentId = null;
+  let createdSlug = null;
+
+  await test('createLesson creates a minimal valid lesson', async () => {
+    const { parsed } = await callTool('createLesson', {
+      title: `MCP harness test lesson ${new Date().toISOString()}`,
+      body: [{ __component: 'lesson.prose', body: 'Written by server/scripts/test-mcp.mjs — safe to delete.' }],
+    });
+    assert(parsed?.lessonDocumentId, 'lessonDocumentId missing from createLesson result');
+    assert(parsed?.status === 'ai-generated', `expected default status "ai-generated", got ${parsed?.status}`);
+    createdDocumentId = parsed.lessonDocumentId;
+    createdSlug = parsed.slug;
+  });
+
+  await test('updateLesson applies a partial update', async () => {
+    const { parsed } = await callTool('updateLesson', { documentId: createdDocumentId, order: 999 });
+    assert(parsed?.updatedFields?.includes('order'), `expected "order" in updatedFields, got: ${JSON.stringify(parsed)}`);
+  });
+
+  await test('getLesson returns the full body for the created lesson', async () => {
+    const { parsed } = await callTool('getLesson', { slug: createdSlug });
+    assert(Array.isArray(parsed?.body) && parsed.body.length === 1, 'expected a 1-block body');
+    assert(parsed.body[0].__component === 'lesson.prose', 'expected the prose block back');
+  });
+
+  await test('disposal: mark the created lesson unmistakably disposable (no delete permission by design)', async () => {
+    const { parsed } = await callTool('updateLesson', {
+      documentId: createdDocumentId,
+      title: `[DISPOSABLE — delete me] MCP harness test lesson (${createdDocumentId})`,
+      summary:
+        'Created by server/scripts/test-mcp.mjs. The MCP token this harness uses has no delete permission on ' +
+        'lessons BY DESIGN — please delete this row manually via the Strapi admin.',
+      status: 'draft',
+    });
+    assert(parsed?.updatedFields?.length === 3, `expected title/summary/status updated, got: ${JSON.stringify(parsed)}`);
+    leftoverRows.push({ type: 'lesson', documentId: createdDocumentId, slug: createdSlug });
+  });
+} else {
+  console.log(
+    '  \x1b[33m-\x1b[0m createLesson/updateLesson row-creating coverage (skipped — set RUN_WRITES=1 to run; ' +
+      'it creates one lesson row and marks it disposable afterward, since this token has no delete permission)',
+  );
+}
 
 // 11. fetchTranscript — SKIPPED by default since it hits YouTube (slow + network).
 // Enable with SKIP_NETWORK=0 to exercise it against the fixture video.
@@ -344,6 +550,9 @@ if (process.env.RUN_WRITES === '1') {
       summaryTitle: 'MCP harness test summary — DELETE ME',
       summaryDescription: 'Written by the MCP test harness. Delete before deploying.',
       summaryOverview: 'Test overview.',
+      watchVerdict: 'skim',
+      verdictSummary: 'Worth it if you care about testing this harness. Skip if you already trust it.',
+      verdictReason: 'This is a synthetic summary written by server/scripts/test-mcp.mjs to exercise saveSummary. Delete before deploying.',
       keyTakeaways: [{ text: 'Test takeaway.' }],
       sections: [{ heading: 'Test', body: 'Test body.' }],
       actionSteps: [{ title: 'Remove test data', body: 'Delete this row.' }],
@@ -364,5 +573,13 @@ if (failed > 0) {
   for (const f of failures) {
     console.log(`  ${f.name}: ${f.error}`);
   }
+}
+if (leftoverRows.length > 0) {
+  console.log('\n\x1b[33m⚠ Rows left behind (this token has no delete permission on lessons BY DESIGN):\x1b[0m');
+  for (const row of leftoverRows) {
+    console.log(`  ${row.type} documentId=${row.documentId} slug=${row.slug} — delete manually via the Strapi admin.`);
+  }
+}
+if (failed > 0) {
   process.exit(1);
 }

@@ -131,4 +131,34 @@ describe('seroval boundary contract', () => {
   it('stripVideoForClient is null-safe', () => {
     expect(stripVideoForClient(null)).toBeNull();
   });
+
+  it('a lesson body survives the server→client boundary', () => {
+    // Lesson bodies cross the loader boundary as plain JSON from Strapi.
+    // Block keys come from component names, so a block named e.g.
+    // "constructor" is the reserved-name case this file exists for.
+    const lesson = {
+      documentId: 'abc',
+      title: 'T',
+      slug: 't',
+      summary: null,
+      level: 'beginner',
+      instrument: 'guitar',
+      order: 0,
+      status: 'published',
+      parameter: { name: 'key', label: 'Key', default: 'C' },
+      body: [
+        { __component: 'lesson.prose', id: 1, body: 'hi' },
+        {
+          __component: 'lesson.diagram',
+          id: 2,
+          instrument: 'guitar',
+          mode: 'theory',
+          root: 'C',
+          quality: 'major',
+          stringSet: 'e–B–G',
+        },
+      ],
+    };
+    expectSerovalSafe(lesson, 'lesson with blocks');
+  });
 });

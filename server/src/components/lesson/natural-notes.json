@@ -1,0 +1,12 @@
+{
+  "collectionName": "components_lesson_natural_notes",
+  "info": {
+    "displayName": "Natural notes reference",
+    "description": "A fixed reference strip of the natural notes on the low E and A strings, frets 0-12, with the two half-step pairs (B-C, E-F) banded. Takes no parameters — it is the same diagram every time, which is the point: those 14 notes are the anchor for finding any root on the neck. Renders through NaturalNotesStrings in client/src/components/lesson/NaturalNotesStrings.tsx."
+  },
+  "options": {},
+  "attributes": {
+    "caption": { "type": "string" },
+    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+  }
+}

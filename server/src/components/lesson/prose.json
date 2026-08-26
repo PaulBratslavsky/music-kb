@@ -1,0 +1,9 @@
+{
+  "collectionName": "components_lesson_proses",
+  "info": { "displayName": "Prose", "description": "Markdown body. Covers paragraphs, lists and inline headings." },
+  "options": {},
+  "attributes": {
+    "body": { "type": "richtext", "required": true },
+    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+  }
+}

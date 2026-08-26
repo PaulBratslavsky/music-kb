@@ -1,0 +1,18 @@
+{
+  "collectionName": "components_lesson_key_marks",
+  "info": {
+    "displayName": "Key mark",
+    "description": "One explicit mark on a keyboard diagram, addressed by pitch class rather than position. Mirrors KeyMark in client/src/components/lesson/MiniKeyboard.tsx."
+  },
+  "options": {},
+  "attributes": {
+    "pc": {
+      "type": "enumeration",
+      "enum": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
+      "required": true
+    },
+    "label": { "type": "string", "maxLength": 8 },
+    "root": { "type": "boolean", "default": false },
+    "flag": { "type": "boolean", "default": false }
+  }
+}

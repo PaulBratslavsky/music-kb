@@ -74,7 +74,7 @@ export type ScaleSelection = {
 export type ScalePosition = 'all' | '2oct' | 1 | 2 | 3 | 4 | 5;
 export const SCALE_POSITIONS: ScalePosition[] = ['all', '2oct', 1, 2, 3, 4, 5];
 
-export type ViewMode = 'chord' | 'scale' | 'note' | 'all';
+export type ViewMode = 'chord' | 'arpeggio' | 'scale' | 'note' | 'all';
 
 export type AppState = {
   mode: ViewMode;

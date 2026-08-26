@@ -35,6 +35,7 @@ import { RelatedVideos } from '#/components/RelatedVideos';
 import { scoreColorClass } from '#/components/VideoCard';
 import { GenerationModeSelect } from '#/components/GenerationModeSelect';
 import { MusicExtractionPanel } from '#/components/MusicExtractionPanel';
+import { LessonTab } from '#/components/LessonTab';
 import { VideoNotesEditor } from '#/components/VideoNotesEditor';
 import {
   clearSummaryFailure,
@@ -99,7 +100,7 @@ type LoaderData =
 // iframe `start` param so YouTube seeks + autoplays without us needing
 // to wait for the player's postMessage channel to come up.
 const LearnSearchSchema = z.object({
-  view: z.enum(['summary', 'read', 'notes', 'theory', 'transcript']).optional(),
+  view: z.enum(['summary', 'read', 'notes', 'theory', 'transcript', 'lesson']).optional(),
   t: z.number().int().min(0).max(86400).optional(),
   // Deep-link shorthand for the Theory tab: chord:C:maj:0:0 / scale:C:major /
   // note:C. Parsed by parseTheoryParam; invalid input falls back to defaults
@@ -243,7 +244,7 @@ function LearnLayout({
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const view = search.view ?? 'summary';
-  const setView = (next: 'summary' | 'read' | 'notes' | 'theory' | 'transcript') => {
+  const setView = (next: 'summary' | 'read' | 'notes' | 'theory' | 'transcript' | 'lesson') => {
     // Preserve `t` across view changes — stripping it would mutate the
     // player's start offset and force a reload. User changes tabs after
     // landing at a moment; the video should keep playing uninterrupted.
@@ -470,9 +471,14 @@ function LearnLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loopId]);
 
+  // `top`/`min-h` below read `--header-h` (set by Header.tsx from its own
+  // measured offsetHeight) rather than a hardcoded `top-16`/`4rem` — the
+  // header is 67px tall at `lg:`, not the 64px `4rem` assumes, and that
+  // 3px gap let content slide under the header. See styles.css's
+  // `--header-h` comment.
   return (
-      <main className="min-h-[calc(100dvh-4rem)] lg:fixed lg:inset-x-0 lg:bottom-0 lg:top-16 lg:min-h-0 lg:overflow-hidden">
-        <div className="grid min-h-[calc(100dvh-4rem)] lg:h-full lg:min-h-0 lg:grid-cols-[6fr_4fr]">
+      <main className="min-h-[calc(100dvh-var(--header-h))] lg:fixed lg:inset-x-0 lg:bottom-0 lg:top-[var(--header-h)] lg:min-h-0 lg:overflow-hidden">
+        <div className="grid min-h-[calc(100dvh-var(--header-h))] lg:h-full lg:min-h-0 lg:grid-cols-[6fr_4fr]">
           <div className="min-w-0 bg-[var(--bg-subtle)] px-6 py-10 sm:px-10 sm:py-14 lg:overflow-y-auto lg:overscroll-contain lg:px-14">
             <div className="mb-6">
               <ViewTabs
@@ -483,6 +489,7 @@ function LearnLayout({
                   { id: 'notes', label: 'Notes' },
                   { id: 'theory', label: 'Theory' },
                   { id: 'transcript', label: 'Transcript' },
+                  { id: 'lesson', label: 'Lesson' },
                 ]}
                 onChange={setView}
               />
@@ -527,6 +534,8 @@ function LearnLayout({
               </>
             ) : view === 'transcript' ? (
               <TranscriptPane video={video} />
+            ) : view === 'lesson' ? (
+              <LessonTab video={video} />
             ) : (
               <SummaryContent video={video} />
             )}

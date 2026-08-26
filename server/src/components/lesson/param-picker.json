@@ -1,0 +1,8 @@
+{
+  "collectionName": "components_lesson_param_pickers",
+  "info": { "displayName": "Parameter picker", "description": "Renders the control for the lesson-level parameter." },
+  "options": {},
+  "attributes": {
+    "label": { "type": "string" }
+  }
+}

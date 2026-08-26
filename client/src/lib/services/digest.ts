@@ -60,12 +60,14 @@ export const DigestSchema = z.object({
           .describe(
             'Exact titles (as given in the input) of the videos that cover this theme. Use the title string verbatim.',
           ),
-      }),
+      }).strict(),
     )
-    .min(1)
-    .max(8)
+    // NOT .min(1).max(8) — Anthropic's structured-output compiler rejects
+    // `maxItems` outright and `minItems` above 1, and this schema now runs on
+    // the frontier tier too. Both bounds moved into `sanitizeDigest`; the
+    // wording still tells the model what is wanted.
     .describe(
-      'Themes that appear across two or more of the selected videos, with which videos cover each. Minimum 1, maximum 8.',
+      'Themes that appear across two or more of the selected videos, with which videos cover each. Aim for 1-8; anything past 8 is dropped.',
     ),
   uniqueInsights: z
     .array(
@@ -76,7 +78,7 @@ export const DigestSchema = z.object({
           .describe(
             'What this video uniquely contributes that the others do not. MAX 600 characters.',
           ),
-      }),
+      }).strict(),
     )
     .describe(
       'For each selected video, what unique angle or content it adds. One entry per video, ideally.',
@@ -92,10 +94,12 @@ export const DigestSchema = z.object({
               stance: z
                 .string()
                 .describe('The video\'s position on the topic. MAX 400 characters.'),
-            }),
+            }).strict(),
           )
-          .min(2),
-      }),
+          // NOT .min(2) — same Anthropic restriction as sharedThemes above.
+          // A contradiction with one stance is filtered in `sanitizeDigest`.
+          ,
+      }).strict(),
     )
     .describe(
       'Genuine disagreements between the videos. ONLY include real contradictions — leave empty if the videos mostly agree.',
@@ -107,7 +111,7 @@ export const DigestSchema = z.object({
         why: z
           .string()
           .describe('Why this video comes at this position. MAX 300 characters.'),
-      }),
+      }).strict(),
     )
     .describe(
       'Recommended order to watch the videos in, with reasoning. Leave empty if order does not matter.',
@@ -117,7 +121,7 @@ export const DigestSchema = z.object({
     .describe(
       'The "if you read nothing else" TL;DR. 2-4 sentences synthesizing the most important cross-video takeaway. MAX 800 characters.',
     ),
-});
+}).strict();
 
 export type Digest = z.infer<typeof DigestSchema>;
 
@@ -156,13 +160,21 @@ function clamp(text: string, max: number): string {
   return `${window.slice(0, boundary).trimEnd()}…`;
 }
 
+// Bounds that used to sit on the schema as `.min()`/`.max()`. They moved here
+// when the digest became tier-aware: Anthropic's structured-output compiler
+// rejects `maxItems` and `minItems > 1`, so a schema carrying them 400s the
+// moment it runs on the frontier tier. Enforcing them in code keeps the intent
+// and works on both tiers.
+const MAX_SHARED_THEMES = 8;
+const MIN_CONTRADICTION_STANCES = 2;
+
 function sanitizeDigest(raw: Digest): Digest {
   return {
     ...raw,
     title: clamp(raw.title, LIMITS.title),
     description: clamp(raw.description, LIMITS.description),
     overallTheme: raw.overallTheme,
-    sharedThemes: raw.sharedThemes.map((t) => ({
+    sharedThemes: raw.sharedThemes.slice(0, MAX_SHARED_THEMES).map((t) => ({
       title: clamp(t.title, LIMITS.themeTitle),
       body: clamp(t.body, LIMITS.themeBody),
       videoTitles: t.videoTitles,
@@ -171,13 +183,17 @@ function sanitizeDigest(raw: Digest): Digest {
       videoTitle: u.videoTitle,
       insight: clamp(u.insight, LIMITS.insight),
     })),
-    contradictions: raw.contradictions.map((c) => ({
-      topic: clamp(c.topic, LIMITS.contradictionTopic),
-      positions: c.positions.map((p) => ({
-        videoTitle: p.videoTitle,
-        stance: clamp(p.stance, LIMITS.contradictionStance),
+    // A "contradiction" with a single stance is not a disagreement — it is one
+    // video's opinion, and presenting it as a clash misleads the reader.
+    contradictions: raw.contradictions
+      .filter((c) => c.positions.length >= MIN_CONTRADICTION_STANCES)
+      .map((c) => ({
+        topic: clamp(c.topic, LIMITS.contradictionTopic),
+        positions: c.positions.map((p) => ({
+          videoTitle: p.videoTitle,
+          stance: clamp(p.stance, LIMITS.contradictionStance),
+        })),
       })),
-    })),
     viewingOrder: raw.viewingOrder.map((v) => ({
       videoTitle: v.videoTitle,
       why: clamp(v.why, LIMITS.viewingOrderReason),
@@ -293,8 +309,20 @@ function looksLikeSchemaKey(title: string): boolean {
   return LIKELY_SCHEMA_KEY.test(title.trim());
 }
 
+/**
+ * Optional model override. Without it the digest runs on the local Ollama
+ * model, which is right for the standalone /digest feature.
+ *
+ * Lesson generation passes its own resolved tier instead. Before this, a
+ * frontier lesson paid ~51s of local inference to produce the structure that
+ * a frontier model then wrote the lesson from — the slowest step in the plan
+ * phase, on the weaker model, feeding the stronger one.
+ */
+export type DigestModel = { adapter: unknown; model: string };
+
 export async function synthesizeDigest(
   videos: StrapiVideo[],
+  override?: DigestModel,
 ): Promise<ServiceResult<Digest>> {
   if (videos.length < DIGEST_MIN_VIDEOS) {
     return {
@@ -320,11 +348,14 @@ export async function synthesizeDigest(
     };
   }
 
+  const activeAdapter = override?.adapter ?? digestAdapter;
+  const activeModel = override?.model ?? SUMMARY_MODEL;
+
   const tag = videos.map((v) => v.youtubeVideoId).join(',');
   const started = performance.now();
   logPhase(tag, '▶ synthesizing', {
     videos: videos.length,
-    model: SUMMARY_MODEL,
+    model: activeModel,
   });
 
   const userPrompt = [
@@ -337,13 +368,21 @@ export async function synthesizeDigest(
     const object = (await withRetry(
       () =>
         chat({
-          adapter: digestAdapter,
+          adapter: activeAdapter as never,
           messages: [
             { role: 'system', content: DIGEST_SYSTEM },
             { role: 'user', content: userPrompt },
           ] as never,
           outputSchema: DigestSchema,
-          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
+          // Frontier models reject `temperature` outright ("`temperature` is
+          // deprecated for this model"), so sampling options stay local-only —
+          // the same tier-specific split `buildModelOptions` makes in
+          // lesson-generation.ts. Always passed, empty on frontier, rather
+          // than conditionally spread: an optional-with-a-value property does
+          // not satisfy the adapter's generic.
+          modelOptions: (override
+            ? {}
+            : samplingOptions(SUMMARY_MODEL, 0.3)) as never,
         }),
       {
         attempts: 2,

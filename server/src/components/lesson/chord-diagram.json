@@ -1,0 +1,44 @@
+{
+  "collectionName": "components_lesson_chord_diagrams",
+  "info": {
+    "displayName": "Chord diagram",
+    "description": "The songbook chord box: a 4-6 fret window with a dot per fretted string, O/x markers above the nut, and an optional barre. Distinct from lesson.diagram (a stretch of neck, for scales/shapes/where-notes-live) — this one answers 'how do I hold this chord', which is the single most expected visual in a guitar lesson. Renders through ChordDiagram in client/src/components/lesson/ChordDiagram.tsx."
+  },
+  "options": {},
+  "attributes": {
+    "strings": {
+      "type": "component",
+      "repeatable": true,
+      "component": "lesson.chord-string",
+      "required": true,
+      "description": "Exactly six entries, one per string, each carrying its own `string` index (0-5). Fewer than six leaves the missing strings muted."
+    },
+    "barreFret": {
+      "type": "integer",
+      "min": 1,
+      "description": "Absolute fret of the barre. Omit for a chord with no barre. All three barre fields must be set together."
+    },
+    "barreFromString": { "type": "integer", "min": 0, "max": 5 },
+    "barreToString": { "type": "integer", "min": 0, "max": 5 },
+    "fretCount": {
+      "type": "integer",
+      "min": 3,
+      "max": 6,
+      "default": 5,
+      "description": "How many frets the box shows. Default 5."
+    },
+    "startFret": {
+      "type": "integer",
+      "min": 1,
+      "description": "Override the fret shown at the top of the box. Omit to derive it: chords reachable inside the window start at the nut, higher shapes start at their lowest fretted note and get a '5fr'-style position label."
+    },
+    "orientation": {
+      "type": "enumeration",
+      "enum": ["vertical", "horizontal"],
+      "default": "vertical",
+      "description": "vertical = the songbook chord box (nut across the top, strings running down). horizontal rotates it so the neck runs left-to-right with the nut on the LEFT, matching lesson.diagram — use it when the lesson puts a chord box next to a fretboard diagram and the two must not disagree about which way the neck runs."
+    },
+    "caption": { "type": "string" },
+    "source": { "type": "component", "repeatable": false, "component": "lesson.source" }
+  }
+}

@@ -316,10 +316,7 @@ export function TheoryReference() {
           and the fretboard map — all in one place. The other tabs are for
           exploring; this one is for answering. If you want the{' '}
           <em>why</em> behind any of it, start with{' '}
-          <Link to="/lessons/half-steps-to-chords" className="underline">
-            half steps → every chord in a key
-          </Link>
-          .
+          <em>half steps → every chord in a key</em>.
         </p>
         <p className="mt-2 text-xs text-[var(--ink-muted)]">
           Everything below is generated from the same theory engine that
@@ -493,10 +490,8 @@ export function TheoryReference() {
           Quality follows the degree, not the key: major keys always run
           major · minor · minor · major · major · minor · diminished. Swap to
           seventh chords by stacking one more third —{' '}
-          <Link to="/lessons/caged-and-roman-numerals" className="underline hover:text-[var(--ink)]">
-            Roman numerals
-          </Link>{' '}
-          explains why this makes progressions portable.
+          <em>Roman numerals</em> explains why this makes progressions
+          portable.
         </p>
       </RefSection>
 
@@ -646,11 +641,8 @@ export function TheoryReference() {
         </div>
         <p className="mt-3 text-xs text-[var(--ink-muted)]">
           Learning all six strings at once is the slow way.{' '}
-          <Link to="/lessons/find-any-chord" className="underline hover:text-[var(--ink)]">
-            Two strings and four shapes
-          </Link>{' '}
-          gets you every major and minor chord from just the low E and A
-          strings.
+          <em>Two strings and four shapes</em> gets you every major and minor
+          chord from just the low E and A strings.
         </p>
       </RefSection>
 

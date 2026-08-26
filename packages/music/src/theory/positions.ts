@@ -44,7 +44,18 @@ type ExplicitShape = {
   positions: { string: number; fretOffset: number }[];
 };
 
-type WindowBox = { lo: number; hi: number };
+/**
+ * A fret window, expressed as offsets from the tonic's low-E fret — the
+ * "box" half of the two representations above.
+ *
+ * Public because a position is not only a scale idea. An *arpeggio*
+ * position is the same hand position with a different note filter applied
+ * (see `theory/arpeggios.ts`), so the window model is shared rather than
+ * retyped there.
+ */
+export type FretWindowBox = { lo: number; hi: number };
+
+type WindowBox = FretWindowBox;
 
 /* ---- Major: explicit CAGED shapes, verified vs c_major_box1-5.png ---------- */
 
@@ -154,6 +165,37 @@ const MAJOR_SHAPE_NAMES: Record<number, string> = {
  */
 const TWO_OCTAVE_WINDOW: WindowBox = { lo: -1, hi: 3 };
 
+/** The "2 octaves" window, under a name other modules can import. */
+export const TWO_OCTAVE_BOX: FretWindowBox = TWO_OCTAVE_WINDOW;
+
+/**
+ * The fret span each numbered CAGED position occupies, as offsets from the
+ * root's low-E fret.
+ *
+ * DERIVED from `MAJOR_SHAPES` rather than typed out a second time: the span
+ * of a box is exactly the lowest and highest offset its verified fingering
+ * reaches, so correcting a shape moves its window with it and the two can
+ * never drift. (That is why box 5 spans -4..0 rather than -3..0 — the
+ * G-shape's reach-back on the G string is part of the hand position.)
+ *
+ * Quality-independent on purpose. CAGED numbers a *hand position relative
+ * to the root*, not a chord type: the position an E-shape major lives in is
+ * the position an Em shape lives in. Which notes light up inside the window
+ * is what the chord decides.
+ */
+export const CAGED_POSITION_WINDOWS: Readonly<Record<number, FretWindowBox>> =
+  Object.freeze(
+    Object.fromEntries(
+      Object.entries(MAJOR_SHAPES).flatMap(([n, shape]) => {
+        if (!shape) return [];
+        const offsets = shape.positions.map((p) => p.fretOffset);
+        return [
+          [Number(n), { lo: Math.min(...offsets), hi: Math.max(...offsets) }] as const,
+        ];
+      }),
+    ),
+  );
+
 /* -------------------------------------------------------------------------- */
 /*  Public API                                                                */
 /* -------------------------------------------------------------------------- */
@@ -172,6 +214,25 @@ export function availablePositions(
 
 export function supportsCaged(scaleType: ScaleType): boolean {
   return scaleType === 'major' || WINDOW_BOXES[scaleType] != null;
+}
+
+/**
+ * Every position this scale type can actually be DRAWN in — the legal
+ * values a validator should quote back when it refuses one, the same shape
+ * `arpeggioPositions()` answers for a chord quality.
+ *
+ * `availablePositions()` alone is not that list: it reports the numbered
+ * boxes only, so it answers `[]` for the five modes even though
+ * `realizeCagedShape` draws every one of them in the universal `'2oct'`
+ * window. Quoting the bare numbers at an author would tell them a Dorian
+ * box is impossible when what is impossible is a *numbered* Dorian box.
+ * So `'2oct'` is appended for every scale type, and this list is never
+ * empty.
+ */
+export function scalePositions(
+  scaleType: ScaleType,
+): Exclude<ScalePosition, 'all'>[] {
+  return [...availablePositions(scaleType), '2oct'];
 }
 
 export function shapeName(
@@ -217,7 +278,17 @@ function realizeExplicit(
     });
 }
 
-function realizeWindow(
+/**
+ * Every position inside `box` — anchored on `root`'s low-E fret — whose
+ * pitch class is one of `pcs`.
+ *
+ * The window slides by an octave when it would fall off either end of the
+ * board, which is what makes a box a movable shape rather than a fixed set
+ * of frets. Public because the note filter is the caller's business: pass
+ * scale tones and you get a scale box, pass chord tones and you get the
+ * arpeggio living in the same hand position.
+ */
+export function realizeFretWindow(
   box: WindowBox,
   scaleRoot: PitchClass,
   scalePcs: PitchClass[],
@@ -262,7 +333,7 @@ export function realizeCagedShape(
 ): RealizedPosition[] {
   if (position === '2oct') {
     // Universal — applies to every scale, including modes.
-    return realizeWindow(TWO_OCTAVE_WINDOW, scaleRoot, scalePcs);
+    return realizeFretWindow(TWO_OCTAVE_WINDOW, scaleRoot, scalePcs);
   }
   if (typeof position !== 'number') return [];
   if (scaleType === 'major') {
@@ -270,5 +341,5 @@ export function realizeCagedShape(
     return shape ? realizeExplicit(shape, scaleRoot, scalePcs) : [];
   }
   const box = WINDOW_BOXES[scaleType]?.[position];
-  return box ? realizeWindow(box, scaleRoot, scalePcs) : [];
+  return box ? realizeFretWindow(box, scaleRoot, scalePcs) : [];
 }

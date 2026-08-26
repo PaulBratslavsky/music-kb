@@ -9,13 +9,24 @@ export function Step({
   number,
   title,
   lede,
+  headingLevel = 'h3',
   children,
 }: {
   number: number;
   title: string;
   lede: string;
+  /** A step is a subsection of whatever section heading (h2 or h3) it sits
+   *  under, never a sibling of it (lesson-ux brief #1): a bare `<h2>` here
+   *  put every step at the same outline level as the section containing
+   *  it, wrong for the document outline and for screen readers. LessonBody
+   *  derives this from the nearest preceding `lesson.heading` block —
+   *  'h3' under a top-level (or absent) section heading, 'h4' under an
+   *  `h3` subsection — so it always nests one level deeper than its
+   *  section. The visual size is unchanged; only the tag changes. */
+  headingLevel?: 'h3' | 'h4';
   children: ReactNode;
 }) {
+  const TitleTag = headingLevel;
   return (
     <section className="mb-12 max-w-5xl">
       <div className="flex items-start gap-4">
@@ -23,9 +34,9 @@ export function Step({
           {number}
         </span>
         <div>
-          <h2 className="text-lg font-semibold text-[var(--ink)] sm:text-xl">
+          <TitleTag className="text-lg font-semibold text-[var(--ink)] sm:text-xl">
             {title}
-          </h2>
+          </TitleTag>
           <p className="mt-1 max-w-3xl text-sm text-[var(--ink-soft)]">{lede}</p>
         </div>
       </div>

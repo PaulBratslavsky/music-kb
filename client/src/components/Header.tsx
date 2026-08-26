@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
 import ThemeToggle from './ThemeToggle'
 
@@ -5,8 +6,31 @@ export default function Header() {
   const pathname = useLocation({ select: (l) => l.pathname })
   const onNewPost = pathname === '/new-post'
 
+  // Publishes the header's REAL rendered height as --header-h (see
+  // styles.css's fallback comment) so any page that pins content to the
+  // header's bottom edge — learn.$videoId.tsx's `lg:fixed` pane — tracks
+  // the actual value instead of a hardcoded `4rem`/`top-16` that drifts
+  // out of sync with the header's own padding (measured 67px at `lg:`,
+  // not 64px). A ResizeObserver rather than a one-time read: the header's
+  // height changes across the sm/lg breakpoints (py-3 vs sm:py-4).
+  const headerRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const setVar = () => {
+      document.documentElement.style.setProperty('--header-h', `${el.offsetHeight}px`)
+    }
+    setVar()
+    const observer = new ResizeObserver(setVar)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--header-bg)] backdrop-blur-lg">
+    <header
+      ref={headerRef}
+      className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--header-bg)] backdrop-blur-lg"
+    >
       <nav className="flex items-center gap-3 px-6 py-3 sm:px-10 sm:py-4 lg:px-14">
         <Link to="/" className="inline-flex items-center gap-2 no-underline">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ink)] text-[var(--card)]">

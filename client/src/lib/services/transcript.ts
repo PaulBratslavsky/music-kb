@@ -818,7 +818,50 @@ export type TranscriptEvidence = {
   snippet: string;
   /** BM25 relevance score. Higher = stronger match. */
   score: number;
+  /**
+   * The distinct query terms the matched chunk actually contains.
+   *
+   * `score` alone cannot be compared across two videos — each index has its
+   * own idf table, built over its own chunk count (5 chunks in one of this
+   * library's videos, 48 in another), so the same overlap scores differently
+   * depending on which transcript it landed in. A COUNT of shared terms has
+   * no such scale, which is what makes "which of these five videos does this
+   * paragraph come from?" answerable at all. See `chooseProseSource`.
+   */
+  sharedTerms: string[];
+  /**
+   * The subset of `sharedTerms` that is rare INSIDE this video — a document
+   * frequency at or below `DISTINCTIVE_DF_RATIO` of its chunks.
+   *
+   * This is the difference between "this passage and this paragraph are both
+   * about guitar" and "this passage is where that paragraph came from".
+   * Overlap on `fret`, `note`, `position` is what any two moments in a guitar
+   * video share; overlap on `blister`, `preliminary`, `cleanly` is evidence.
+   */
+  distinctiveTerms: string[];
 };
+
+/**
+ * Document-frequency ceiling — as a fraction of a video's chunk count — for
+ * a term to count as distinctive inside that video. 0.2 means "appears in at
+ * most a fifth of this transcript's chunks".
+ *
+ * Expressed as a RATIO rather than an idf cutoff on purpose: idf is scaled by
+ * the index's chunk count, so a fixed idf threshold would quietly make short
+ * transcripts uncitable and long ones easy. A ratio means the same thing in
+ * both.
+ */
+export const DISTINCTIVE_DF_RATIO = 0.2;
+
+/**
+ * The idf at exactly `DISTINCTIVE_DF_RATIO × chunkCount` documents. idf is
+ * monotonically decreasing in df, so `idf >= this` is exactly `df <= that
+ * ceiling` — the ceiling test without a second pass over the tf tables.
+ */
+function distinctiveIdfFloor(chunkCount: number): number {
+  const maxDf = DISTINCTIVE_DF_RATIO * chunkCount;
+  return Math.log(1 + (chunkCount - maxDf + 0.5) / (maxDf + 0.5));
+}
 
 export function findEvidenceForQuote(
   quote: string,
@@ -827,11 +870,58 @@ export function findEvidenceForQuote(
 ): TranscriptEvidence | null {
   const hit = searchBM25Top1WithScore(index, quote);
   if (!hit || hit.score < minScore) return null;
+  // 1e-9 slack so a term sitting exactly on the ceiling counts as
+  // distinctive — the floor is derived through Math.log, and `df === maxDf`
+  // must not turn on the last bit of a float.
+  const floor = distinctiveIdfFloor(index.chunks.length) - 1e-9;
   return {
     timeSec: hit.chunk.timeSec,
     snippet: hit.chunk.text,
     score: hit.score,
+    sharedTerms: hit.sharedTerms,
+    distinctiveTerms: hit.sharedTerms.filter((t) => (index.idf[t] ?? 0) >= floor),
   };
+}
+
+/**
+ * Whether `term` is rare enough across a WIDER set of indexes — how many of
+ * them contain it AT ALL, not how often it recurs inside any one — to still
+ * count as distinctive once corpus-wide rarity is considered.
+ *
+ * `distinctiveTerms` above only answers "is this term rare INSIDE the video
+ * it matched", which a short quote can clear on any video with few chunks
+ * while the term is everyday vocabulary the rest of the library uses
+ * constantly: on a 20-chunk video, "will", "scale", "any" all appear in one
+ * chunk out of twenty (df ≤ `DISTINCTIVE_DF_RATIO`) and still say nothing
+ * about which video a paragraph came from, because a wide swath of the
+ * OTHER videos say them too. This is the second half of "distinctive" — see
+ * `chooseProseSource`, which requires a term to clear BOTH bars before
+ * trusting it as evidence.
+ *
+ * `otherIndexes` should exclude the video `term` matched in — the question
+ * is whether OTHER sources also say it, not whether the winner does (it
+ * always does; that is what made it a shared term in the first place). An
+ * empty `otherIndexes` — nothing else to compare against — is vacuously
+ * distinctive: the same stance `chooseProseSource` takes on its margin
+ * check when there is no runner-up, no competing population means no
+ * verdict to make.
+ */
+export function isLibraryDistinctive(
+  term: string,
+  otherIndexes: readonly BM25Index[],
+  maxRatio: number,
+): boolean {
+  if (otherIndexes.length === 0) return true;
+  // Same 1e-9 slack as distinctiveIdfFloor, for the same reason: a count
+  // sitting exactly on the ceiling must not flip on a float rounding bit.
+  const ceiling = maxRatio * otherIndexes.length + 1e-9;
+  let df = 0;
+  for (const index of otherIndexes) {
+    if (index.idf[term] === undefined) continue;
+    df += 1;
+    if (df > ceiling) return false;
+  }
+  return true;
 }
 
 // Parse a `mm:ss`, `h:mm:ss`, or bare-seconds string into seconds.
@@ -1042,14 +1132,16 @@ export type GroundedSection<T extends GroundableSection> = T & {
 function searchBM25Top1WithScore(
   index: BM25Index,
   query: string,
-): { chunk: TranscriptChunk; score: number } | null {
+): { chunk: TranscriptChunk; score: number; sharedTerms: string[] } | null {
   const queryTerms = Array.from(new Set(tokenize(query)));
   if (queryTerms.length === 0) return null;
 
   let bestIdx = -1;
   let bestScore = 0;
+  let bestShared: string[] = [];
   for (let i = 0; i < index.chunks.length; i++) {
     let score = 0;
+    const shared: string[] = [];
     for (const term of queryTerms) {
       const idf = index.idf[term];
       if (!idf) continue;
@@ -1058,14 +1150,16 @@ function searchBM25Top1WithScore(
       const dl = index.lengths[i];
       const norm = 1 - BM25_B + (BM25_B * dl) / (index.avgLength || 1);
       score += idf * ((f * (BM25_K1 + 1)) / (f + BM25_K1 * norm));
+      shared.push(term);
     }
     if (score > bestScore) {
       bestScore = score;
       bestIdx = i;
+      bestShared = shared;
     }
   }
   if (bestIdx === -1) return null;
-  return { chunk: index.chunks[bestIdx], score: bestScore };
+  return { chunk: index.chunks[bestIdx], score: bestScore, sharedTerms: bestShared };
 }
 
 export function groundSectionsToTranscript<T extends GroundableSection>(

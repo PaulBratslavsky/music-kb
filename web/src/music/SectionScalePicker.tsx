@@ -24,6 +24,7 @@ import type { PlayAlongInstrument } from './usePlayAlongInstrument';
 import { usePlayerControl } from './Player';
 import { activeIndex } from './SectionChordStrip';
 import { chordToneMap, outsideScaleTones } from '@music-kb/music/theory/chord-overlay';
+import { fitPianoRange } from '@music-kb/music/theory/piano-range';
 import { pianoVoicing } from '@music-kb/music/theory/voicings/piano';
 import { midiFromPitchOctave, noteFromMidi } from '@music-kb/music/theory/notes';
 import { voicingPositionKeys } from '@music-kb/music/theory/voicing-positions';
@@ -309,23 +310,16 @@ export function SectionScalePicker({
     }));
   }, [overlay, scalePcs, showDegrees, root]);
 
-  // Fit the board to the voicing: start on the C at or below its lowest
-  // note and draw enough octaves to reach the top one. A chord that dips
-  // below the board's first C (B3 under an E4 voicing) would otherwise be
-  // drawn an octave up and read as the wrong inversion.
-  const pianoRange = useMemo(() => {
-    const midis = keyMarks
-      .map((m) => m.midi)
-      .filter((m): m is number => typeof m === 'number');
-    if (midis.length === 0) return { baseMidi: 60, octaves: 2 };
-    const lo = Math.min(...midis);
-    const hi = Math.max(...midis);
-    const baseMidi = Math.floor(lo / 12) * 12;
-    return {
-      baseMidi,
-      octaves: Math.max(2, Math.ceil((hi - baseMidi + 1) / 12)),
-    };
-  }, [keyMarks]);
+  // Fit the board to the voicing — see fitPianoRange. Two octaves minimum
+  // here (its default): an interactive board wants keys around the chord,
+  // not just the ones it lights.
+  const pianoRange = useMemo(
+    () =>
+      fitPianoRange(
+        keyMarks.map((m) => m.midi).filter((m): m is number => typeof m === 'number'),
+      ),
+    [keyMarks],
+  );
 
   const scaleName = `${root} ${SCALE_TYPE_LABELS[type]}`;
 

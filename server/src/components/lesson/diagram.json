@@ -1,0 +1,162 @@
+{
+  "collectionName": "components_lesson_diagrams",
+  "info": {
+    "displayName": "Diagram",
+    "description": "A fretboard diagram (guitar or bass). mode=theory stores musical parameters and computes dots at render; mode=explicit stores hand-placed dots. Position-addressed (string/fret) \u2014 keyboard diagrams use lesson.keyboard-diagram instead, which is pitch-class-addressed. Every field that can be an enum is one: a closed set is impossible for an LLM to get wrong under JSON-mode decoding, where a freeform array is not."
+  },
+  "options": {},
+  "attributes": {
+    "instrument": {
+      "type": "enumeration",
+      "enum": [
+        "guitar",
+        "bass"
+      ],
+      "default": "guitar",
+      "required": true
+    },
+    "mode": {
+      "type": "enumeration",
+      "enum": [
+        "theory",
+        "explicit"
+      ],
+      "default": "theory",
+      "required": true
+    },
+    "intent": {
+      "type": "enumeration",
+      "description": "What the diagram is OF, when mode=theory. Each intent is realized by @music-kb/music \u2014 the author says what to show, the theory layer decides where the dots go. chord: triadVoicing (root+quality+stringSet+inversion). scale: realizeCagedShape (root+scaleType+position). arpeggio: realizeArpeggio (root+quality+position). pattern: threeNotesPerString (root+scaleType+patternIndex). Absent means chord, which is what every diagram stored before intents existed is.",
+      "enum": [
+        "chord",
+        "scale",
+        "arpeggio",
+        "pattern"
+      ],
+      "default": "chord"
+    },
+    "root": {
+      "type": "enumeration",
+      "enum": [
+        "C",
+        "C#",
+        "D",
+        "D#",
+        "E",
+        "F",
+        "F#",
+        "G",
+        "G#",
+        "A",
+        "A#",
+        "B"
+      ]
+    },
+    "quality": {
+      "type": "enumeration",
+      "description": "Required for intent=chord and intent=arpeggio. intent=chord voices a triad, so only major/minor/augmented/diminished (or their short spellings maj/min/aug/dim) can be used there. intent=arpeggio accepts every value here \u2014 the list is exactly the qualities @music-kb/music has an arpeggio shape for (four distinct tones or fewer; a 9th/11th/13th lights up half a hand position and stops being an arpeggio picture).",
+      "enum": [
+        "major",
+        "minor",
+        "augmented",
+        "diminished",
+        "5",
+        "maj",
+        "min",
+        "dim",
+        "aug",
+        "sus2",
+        "sus4",
+        "6",
+        "m6",
+        "maj7",
+        "min7",
+        "dom7",
+        "m7b5",
+        "dim7",
+        "mMaj7",
+        "7sus4",
+        "add9",
+        "madd9",
+        "7b5",
+        "7#5"
+      ]
+    },
+    "stringSet": {
+      "type": "enumeration",
+      "description": "Required when mode=theory and intent=chord \u2014 which three strings voice the triad (resolveDiagramDots returns [] without it). Not used by the scale/arpeggio/pattern intents, and not used at all when mode=explicit.",
+      "enum": [
+        "e\u2013B\u2013G",
+        "B\u2013G\u2013D",
+        "G\u2013D\u2013A",
+        "D\u2013A\u2013E"
+      ]
+    },
+    "inversion": {
+      "type": "integer",
+      "min": 0,
+      "max": 2
+    },
+    "scaleType": {
+      "type": "enumeration",
+      "description": "Required for intent=scale and intent=pattern. The @music-kb/music scale vocabulary, verbatim.",
+      "enum": [
+        "major",
+        "minor",
+        "harmonicMinor",
+        "melodicMinor",
+        "dorian",
+        "phrygian",
+        "lydian",
+        "mixolydian",
+        "locrian",
+        "majorPentatonic",
+        "minorPentatonic",
+        "blues"
+      ]
+    },
+    "position": {
+      "type": "enumeration",
+      "description": "Required for intent=scale and intent=arpeggio: which hand position on the neck, the same vocabulary the scale boxes use. 1-5 are the numbered CAGED boxes; 2oct is the universal two-octave window anchored on the 6th-string root, which every scale and every arpeggio quality has. A string rather than an integer because 2oct is one of the values. NOT every combination is legal \u2014 majorPentatonic ships boxes 1 and 5 only, the modes ship none, and both authoring paths reject an illegal pair naming the legal values rather than rendering a blank neck.",
+      "enum": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "2oct"
+      ]
+    },
+    "patternIndex": {
+      "type": "integer",
+      "min": 1,
+      "max": 7,
+      "description": "Required for intent=pattern: which three-notes-per-string pattern, 1-based. Pattern N starts on scale degree N, so the legal maximum is the number of notes in the scale (7 for major and the modes, 6 for blues, 5 for the pentatonics) rather than a flat 7."
+    },
+    "useParam": {
+      "type": "boolean",
+      "default": false
+    },
+    "dots": {
+      "type": "component",
+      "repeatable": true,
+      "component": "lesson.neck-dot"
+    },
+    "fromFret": {
+      "type": "integer",
+      "min": 0
+    },
+    "toFret": {
+      "type": "integer",
+      "min": 0
+    },
+    "caption": {
+      "type": "string"
+    },
+    "source": {
+      "type": "component",
+      "repeatable": false,
+      "component": "lesson.source"
+    }
+  }
+}
