@@ -13,6 +13,16 @@
 }
 
 :root {
+  /* The header's REAL rendered height, in px — Header.tsx measures itself
+     with a ResizeObserver and overwrites this on mount/resize. 4rem is only
+     the pre-hydration/SSR fallback: the header is `py-3`/`sm:py-4` plus a
+     border, which doesn't land on a round Tailwind spacing step (measured
+     67px at the `lg:` breakpoint, not 64px) — any page that positions
+     content against the header's bottom edge (learn.$videoId.tsx's
+     `lg:fixed` pane) should read this variable instead of hardcoding
+     `4rem`/`top-16`, or it silently drifts out of sync again. */
+  --header-h: 4rem;
+
   /* Product-grade neutral palette. Near-white background, near-black text,
      zinc-scale borders. One accent color only (blue) — everything else is
      grayscale + semantic band tints. Modern, sleek, no warmth. */

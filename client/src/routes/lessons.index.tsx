@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { BackendErrorPanel } from '#/components/BackendErrorPanel';
 import { Button } from '#/components/ui/button';
-import { ProgressStepList } from '#/components/LessonProgressPanel';
+import { deriveWriteStage, ProgressStepList } from '#/components/LessonProgressPanel';
 import { listLessons } from '#/data/server-functions/lessons';
 import { streamLessonPlanSSE, streamLessonWriteSSE } from '#/lib/services/lesson-stream';
 import type { LessonPlanFrame } from '#/routes/api.lesson-plan';
@@ -188,24 +188,13 @@ export function GenerateLessonPanel({ onGenerated }: { onGenerated: () => void }
   const [topic, setTopic] = useState('');
   const [phase, setPhase] = useState<GeneratePhase>('idle');
   const [events, setEvents] = useState<LessonProgressEvent[]>([]);
-  // What the write phase is ACTUALLY doing, derived from the last event.
-  // The sections finish long before the lesson does: illustration runs per
-  // section, then citations are ground against transcripts, then the body is
-  // assembled and saved. None of that emitted a status line, so the panel sat
-  // on "Writing each section…" through the whole tail and looked frozen.
-  const writingStage = (() => {
-    const last = [...events].reverse().find((e) => e.type !== 'notice');
-    switch (last?.type) {
-      case 'section':
-        return 'Writing each section…';
-      case 'illustrate':
-        return 'Choosing diagrams for each section…';
-      case 'grounding':
-        return 'Grounding citations against the transcripts…';
-      default:
-        return 'Assembling and saving the lesson…';
-    }
-  })();
+  // What the write phase is ACTUALLY doing — shared with LessonTab's
+  // identical panel via deriveWriteStage (LessonProgressPanel.tsx) rather
+  // than a second hand-maintained copy of this derivation. See that
+  // function's header for why "switch on the last event" looked frozen
+  // through the illustrate/ground/save tail, and how the structural fix
+  // (furthest stage reached, not last event seen) avoids it.
+  const writingStage = deriveWriteStage(events);
 
   const [plan, setPlan] = useState<PlanPayload | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -247,9 +236,18 @@ export function GenerateLessonPanel({ onGenerated }: { onGenerated: () => void }
       let lastError: { step: string; message: string } | null = null;
       let lastRefusal: { actualTopic: string | null; reason: string | null } | null = null;
       for await (const frame of streamLessonPlanSSE(res)) {
-        setEvents((prev) => [...prev, frame as LessonProgressEvent]);
-        if (frame.type === 'plan') finalPlan = frame;
-        else if (frame.type === 'error') lastError = { step: frame.step, message: frame.message };
+        // The terminal `plan` frame is NOT a LessonProgressEvent (it
+        // carries the round-trippable outline/sources/digest, not a
+        // progress step) — kept out of `events` so ProgressStepList never
+        // has to render it. It used to be pushed here anyway and render as
+        // an empty bordered box, since renderProgressEvent has no case for
+        // `type: 'plan'`.
+        if (frame.type === 'plan') {
+          finalPlan = frame;
+          continue;
+        }
+        setEvents((prev) => [...prev, frame]);
+        if (frame.type === 'error') lastError = { step: frame.step, message: frame.message };
         else if (frame.type === 'coverage' && !frame.covered) {
           lastRefusal = { actualTopic: frame.actualTopic, reason: frame.reason };
         }

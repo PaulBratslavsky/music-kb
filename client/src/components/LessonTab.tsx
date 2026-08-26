@@ -1,4 +1,5 @@
-// The Lesson tab on /learn/$videoId — turn THIS ONE video into a lesson.
+// The Lesson tab on /learn/$videoId — turn THIS ONE video into a lesson,
+// and once one exists, READ it right here rather than only link to it.
 //
 // Different pipeline than the library's /lessons generator, not a filtered
 // version of it: for a single video, retrieval/coverage/digest are all
@@ -8,19 +9,28 @@
 // WRITE phase posts to the EXISTING /api/lesson-write route, unchanged —
 // same section/illustrate/ground/assemble/save code the library path runs.
 //
-// Progress rendering is the shared <ProgressStepList/> — see that module's
-// header for why a second, differently-behaved progress UI would be wrong
-// here.
+// Progress rendering is the shared <ProgressStepList/> and <deriveWriteStage>
+// — see LessonProgressPanel's header for why a second, differently-behaved
+// progress UI (or a second stage-label derivation) would be wrong here.
+//
+// Reading a finished lesson reuses <LessonBody> unchanged — no second
+// renderer. Unlike /lessons/$slug it does NOT mount <LessonVideoPanel>: the
+// video is already playing in /learn's own right column, so a citation
+// here seeks THAT player (usePlayerControl, the same mechanism the
+// Transcript tab's timestamps already use) instead of opening a panel.
 
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '#/components/ui/button';
-import { ProgressStepList } from '#/components/LessonProgressPanel';
-import { findLessonForVideo } from '#/data/server-functions/lessons';
+import { LessonBody } from '#/components/lesson/LessonBody';
+import { ProgressStepList, deriveWriteStage } from '#/components/LessonProgressPanel';
+import { findLessonForVideo, getLessonBySlug } from '#/data/server-functions/lessons';
 import { streamLessonPlanSSE, streamLessonWriteSSE } from '#/lib/services/lesson-stream';
+import { citationStartSec, type LessonCitation } from '#/lib/lesson/citation';
+import { usePlayerControl } from '#/components/player';
 import type { LessonPlanFrame } from '#/routes/api.lesson-plan';
 import type { LessonOutline, LessonProgressEvent } from '#/lib/services/lesson-generation';
-import type { LessonForVideo } from '#/lib/services/lessons';
+import type { Lesson } from '#/lib/services/lessons';
 import type { StrapiVideo } from '#/lib/services/videos';
 
 type PlanPayload = Extract<LessonPlanFrame, { type: 'plan' }>;
@@ -28,7 +38,7 @@ type SavedPayload = Extract<LessonProgressEvent, { type: 'saved' }>;
 
 type Phase =
   | 'checking'
-  | 'existing'
+  | 'showing'
   | 'idle'
   | 'planning'
   | 'review'
@@ -38,57 +48,58 @@ type Phase =
 
 export function LessonTab({ video }: Readonly<{ video: StrapiVideo }>) {
   const [phase, setPhase] = useState<Phase>('checking');
-  const [existing, setExisting] = useState<LessonForVideo | null>(null);
+  // The full lesson, once we have one to render inline — either an
+  // existing one found on mount, or the one just generated. Both paths
+  // converge on the same "showing" render below, which is the point:
+  // revisiting a video with a lesson and just having generated one look
+  // identical, because they render through the same code.
+  const [lesson, setLesson] = useState<Lesson | null>(null);
   const [events, setEvents] = useState<LessonProgressEvent[]>([]);
   const [plan, setPlan] = useState<PlanPayload | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editHeadings, setEditHeadings] = useState<string[]>([]);
   const [saved, setSaved] = useState<SavedPayload | null>(null);
   const [errorInfo, setErrorInfo] = useState<{ step: string; message: string } | null>(null);
+  // Which citation was last clicked, purely for the "you are here" mark
+  // LessonBody draws next to it — there is no companion panel in this tab
+  // to otherwise show that state.
+  const [activeCitation, setActiveCitation] = useState<LessonCitation | null>(null);
 
-  const writingStage = (() => {
-    const last = [...events].reverse().find((e) => e.type !== 'notice');
-    switch (last?.type) {
-      case 'section':
-        return 'Writing each section…';
-      case 'illustrate':
-        return 'Choosing diagrams for each section…';
-      case 'grounding':
-        return 'Grounding citations against the transcript…';
-      default:
-        return 'Assembling and saving the lesson…';
-    }
-  })();
+  const { seekTo } = usePlayerControl();
+
+  const writingStage = deriveWriteStage(events);
 
   // On mount (and whenever the video changes — navigating between two
   // learn pages without a full reload), check whether a single-video
-  // lesson already exists for THIS video. If one does, the generate form
-  // never renders — see findLessonForVideoService for why this only
+  // lesson already exists for THIS video, and if so load it in full for
+  // inline rendering. See findLessonForVideoService for why this only
   // matches a lesson whose whole source set is this one video.
   useEffect(() => {
     let cancelled = false;
     setPhase('checking');
-    setExisting(null);
+    setLesson(null);
     findLessonForVideo({
       data: { documentId: video.documentId, youtubeVideoId: video.youtubeVideoId },
     })
-      .then((found) => {
+      .then(async (found) => {
+        if (cancelled || !found) {
+          if (!cancelled) setPhase('idle');
+          return;
+        }
+        const full = await getLessonBySlug({ data: { slug: found.slug } });
         if (cancelled) return;
-        if (found) {
-          setExisting(found);
-          setPhase('existing');
+        if (full.ok) {
+          setLesson(full.lesson);
+          setPhase('showing');
         } else {
+          // The lookup found it but the full fetch failed (a backend
+          // hiccup between the two calls) — fall back to the generate
+          // form rather than getting stuck; regenerating never overwrites.
           setPhase('idle');
         }
       })
       .catch(() => {
         if (cancelled) return;
-        // A failed lookup falls back to the generate form rather than
-        // getting stuck on "checking" forever — worst case the reader sees
-        // the form when a lesson already exists, discovers as much from
-        // this tab still being reachable, and generation is idempotent
-        // enough (never overwrites) that trying again costs nothing but a
-        // few minutes.
         setPhase('idle');
       });
     return () => {
@@ -100,10 +111,12 @@ export function LessonTab({ video }: Readonly<{ video: StrapiVideo }>) {
 
   function resetToIdle() {
     setPhase('idle');
+    setLesson(null);
     setEvents([]);
     setPlan(null);
     setSaved(null);
     setErrorInfo(null);
+    setActiveCitation(null);
   }
 
   async function handlePlan() {
@@ -123,9 +136,15 @@ export function LessonTab({ video }: Readonly<{ video: StrapiVideo }>) {
       let finalPlan: PlanPayload | null = null;
       let lastError: { step: string; message: string } | null = null;
       for await (const frame of streamLessonPlanSSE(res)) {
-        setEvents((prev) => [...prev, frame as LessonProgressEvent]);
+        // The terminal `plan` frame is NOT a LessonProgressEvent (it
+        // carries the round-trippable outline/sources/digest, not a
+        // progress step) — kept out of `events` so ProgressStepList never
+        // has to render it. Every other frame IS a LessonProgressEvent.
         if (frame.type === 'plan') finalPlan = frame;
-        else if (frame.type === 'error') lastError = { step: frame.step, message: frame.message };
+        else {
+          setEvents((prev) => [...prev, frame]);
+          if (frame.type === 'error') lastError = { step: frame.step, message: frame.message };
+        }
       }
       if (finalPlan) {
         setPlan(finalPlan);
@@ -184,6 +203,18 @@ export function LessonTab({ video }: Readonly<{ video: StrapiVideo }>) {
       if (finalSaved) {
         setSaved(finalSaved);
         setPhase('success');
+        // Load the just-saved lesson in full so this converges on the same
+        // inline render as "an existing lesson was found" — the reader
+        // sees the finished lesson, not a link to go read it elsewhere.
+        const full = await getLessonBySlug({ data: { slug: finalSaved.slug } });
+        if (full.ok) {
+          setLesson(full.lesson);
+          setPhase('showing');
+        }
+        // If the re-fetch fails, phase stays 'success' — the save itself
+        // worked (that's what `saved` means), so the fallback below still
+        // offers a working link rather than reporting an error for a
+        // generation that actually succeeded.
         return;
       }
       setErrorInfo(lastError ?? { step: 'write', message: 'Lesson writing failed unexpectedly.' });
@@ -205,23 +236,52 @@ export function LessonTab({ video }: Readonly<{ video: StrapiVideo }>) {
     return <p className="text-sm text-[var(--ink-muted)]">Checking for an existing lesson…</p>;
   }
 
-  if (phase === 'existing' && existing) {
+  // The finished lesson, read right here — whether it already existed or
+  // was just generated. A citation seeks the video already playing in
+  // /learn's right column; it does not open a second player or link away.
+  if (phase === 'showing' && lesson) {
     return (
-      <div className="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-6">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-          Lesson
-        </p>
-        <h2 className="mt-1 text-xl font-semibold text-[var(--ink)]">{existing.title}</h2>
-        {existing.summary ? (
-          <p className="mt-2 text-sm text-[var(--ink-soft)]">{existing.summary}</p>
-        ) : null}
-        <Link
-          to="/lessons/$slug"
-          params={{ slug: existing.slug }}
-          className="mt-4 inline-block text-sm font-semibold text-[var(--accent)] no-underline hover:underline"
-        >
-          Open lesson →
-        </Link>
+      <div>
+        <div className="mb-6 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+              Lesson
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold leading-tight text-[var(--ink)]">
+              {lesson.title}
+            </h2>
+            {lesson.summary ? (
+              <p className="mt-2 text-sm text-[var(--ink-soft)]">{lesson.summary}</p>
+            ) : null}
+          </div>
+          <Link
+            to="/lessons/$slug"
+            params={{ slug: lesson.slug }}
+            className="mt-1 shrink-0 whitespace-nowrap text-xs font-medium text-[var(--accent)] no-underline hover:underline"
+          >
+            Open full lesson →
+          </Link>
+        </div>
+
+        <LessonBody
+          blocks={lesson.body}
+          parameter={lesson.parameter}
+          sourceVideos={lesson.videos}
+          onCitationSelect={(citation) => {
+            setActiveCitation(citation);
+            seekTo(citationStartSec(citation));
+          }}
+          activeCitation={activeCitation}
+        />
+
+        {/* Regenerating is reachable but deliberately not the default —
+            it sits below the whole lesson, and a second generation never
+            overwrites the first (saveLessonService appends -2, -3, …). */}
+        <div className="mt-10 border-t border-[var(--line)] pt-4">
+          <Button type="button" size="sm" variant="outline" onClick={resetToIdle}>
+            Generate another version
+          </Button>
+        </div>
       </div>
     );
   }
@@ -314,6 +374,9 @@ export function LessonTab({ video }: Readonly<{ video: StrapiVideo }>) {
         <p className="mt-3 text-xs text-[var(--ink-muted)]">{writingStage}</p>
       )}
 
+      {/* Fallback only: reached when the write succeeded but re-fetching
+          the full lesson for inline rendering failed (see handleWrite).
+          The save itself is real — this still links to it. */}
       {phase === 'success' && saved && (
         <p className="mt-3 text-xs text-[var(--ink)]">
           Generated{' '}

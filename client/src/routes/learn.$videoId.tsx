@@ -471,9 +471,14 @@ function LearnLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loopId]);
 
+  // `top`/`min-h` below read `--header-h` (set by Header.tsx from its own
+  // measured offsetHeight) rather than a hardcoded `top-16`/`4rem` — the
+  // header is 67px tall at `lg:`, not the 64px `4rem` assumes, and that
+  // 3px gap let content slide under the header. See styles.css's
+  // `--header-h` comment.
   return (
-      <main className="min-h-[calc(100dvh-4rem)] lg:fixed lg:inset-x-0 lg:bottom-0 lg:top-16 lg:min-h-0 lg:overflow-hidden">
-        <div className="grid min-h-[calc(100dvh-4rem)] lg:h-full lg:min-h-0 lg:grid-cols-[6fr_4fr]">
+      <main className="min-h-[calc(100dvh-var(--header-h))] lg:fixed lg:inset-x-0 lg:bottom-0 lg:top-[var(--header-h)] lg:min-h-0 lg:overflow-hidden">
+        <div className="grid min-h-[calc(100dvh-var(--header-h))] lg:h-full lg:min-h-0 lg:grid-cols-[6fr_4fr]">
           <div className="min-w-0 bg-[var(--bg-subtle)] px-6 py-10 sm:px-10 sm:py-14 lg:overflow-y-auto lg:overscroll-contain lg:px-14">
             <div className="mb-6">
               <ViewTabs
