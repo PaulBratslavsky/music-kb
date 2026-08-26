@@ -30,8 +30,11 @@ Bumping the core to chase it is its own task — see
 
 Three layers, in every AI surface:
 
-1. **Adapter** — `createOllamaChat(model, host)` or `createAnthropicChat(model, key)`,
-   constructed once at module scope.
+1. **Adapter** — resolved **per call**, never at module scope, from
+   `services/model-policy.ts`. Local surfaces call `resolveModel(surface)`;
+   lesson generation calls `resolveLessonModel()`. Those two modules are the
+   only ones in `client/` that call `createOllamaChat` / `createAnthropicChat`
+   — pinned by `services/model-policy.test.ts`.
 2. **`chat({ adapter, messages, tools, modelOptions })`** — the single entry point.
    Tools declared with `toolDefinition()` are auto-executed server-side by the
    agent loop; the model's tool call never reaches the browser.
@@ -48,28 +51,64 @@ field the adapter never reads.
 
 ## Which model backs which surface
 
-| Surface | Entry point | Model |
-|---|---|---|
-| Per-video chat | `routes/api.chat.tsx` | `OLLAMA_CHAT_MODEL` |
-| Query rewrite (RRF) | `services/chat-retrieval.ts` | `OLLAMA_CHAT_MODEL` |
-| Digest chat | `routes/api.digest-chat.tsx` | `OLLAMA_CHAT_MODEL` |
-| Library ask | `routes/api.ask.tsx` | `OLLAMA_SYNTHESIS_MODEL` |
-| Note compose | `routes/api.notes.compose.tsx` | `OLLAMA_SYNTHESIS_MODEL` |
-| Summaries | `services/learning.ts` | `OLLAMA_MODEL` |
-| Music extraction | `services/music-extraction.ts` | `OLLAMA_MODEL` |
-| Reading mode | `services/reader.ts` | `OLLAMA_MODEL` |
-| Digest synthesis | `services/digest.ts` | `OLLAMA_MODEL`, overridable |
-| **Lesson generation** | `services/lesson-generation.ts` | **`resolveLessonModel()`** |
-| Embeddings (in-app) | `services/embeddings.ts` | `OLLAMA_EMBEDDING_MODEL` |
-| Embeddings (MCP) | `server/src/mcp/utils/embeddings.ts` | `OLLAMA_EMBEDDING_MODEL` |
+Every row below except lesson generation and the two embedding rows is a
+**surface key** in `services/model-policy.ts`'s `LOCAL_SURFACES`. Keys are per
+*model-id binding*, not per user-facing feature — `note-summarize` and
+`note-compose` are one feature on two different models, and the three digest
+bindings have three different policies, so merging any of those pairs would
+silently re-point a model for anyone who sets the optional env overrides.
+
+| Surface key | Entry point | Model | Tier |
+|---|---|---|---|
+| `video-chat` | `routes/api.chat.tsx` + `learning.ts` `askAboutVideoService` | `OLLAMA_CHAT_MODEL` | local |
+| `query-rewrite` | `services/chat-retrieval.ts` | `OLLAMA_CHAT_MODEL` | local |
+| `digest-chat` | `routes/api.digest-chat.tsx` | `OLLAMA_CHAT_MODEL` | local |
+| `library-ask` | `routes/api.ask.tsx` | `OLLAMA_SYNTHESIS_MODEL` | local |
+| `note-compose` | `routes/api.notes.compose.tsx` | `OLLAMA_SYNTHESIS_MODEL` | local |
+| `note-summarize` | `services/notes.ts` | `OLLAMA_MODEL` | local |
+| `summary` | `services/learning.ts` | `OLLAMA_MODEL` | local |
+| `music-extraction` | `services/music-extraction.ts` | `OLLAMA_MODEL` | local |
+| `reader` | `services/reader.ts` | `OLLAMA_MODEL` | local |
+| `digest-synthesis` | `services/digest.ts` `synthesizeDigest` | `OLLAMA_MODEL` | local default, frontier by inheritance — see below |
+| `digest-article` | `services/digest.ts` `synthesizeDigestArticle` | `OLLAMA_MODEL` | local |
+| *(no key)* | `services/lesson-generation.ts` | **`resolveLessonModel()`** | **frontier or local** |
+| *(no key)* | `services/embeddings.ts` | `OLLAMA_EMBEDDING_MODEL` | local (raw `fetch`, no adapter) |
+| *(no key)* | `server/src/mcp/utils/embeddings.ts` | `OLLAMA_EMBEDDING_MODEL` | local (raw `fetch`, no adapter) |
 
 **Lesson generation is the only surface that can reach a frontier model.** That is
 the documented single exception to local-first (CLAUDE.md, decided 2026-08-21):
 `resolveLessonModel()` in `services/lesson-model.ts` returns an Anthropic adapter
 when `ANTHROPIC_API_KEY` is set and an Ollama adapter when it isn't. Both tiers run
 the identical staged pipeline, so the two are comparable rather than divergent code
-paths. `ANTHROPIC_API_KEY` is read once, there, and never appears in the returned
-`LessonModel` — only the constructed adapter, the tier, and the model id.
+paths. `ANTHROPIC_API_KEY` is read once, there, and never appears as a property of
+the returned model — only the constructed adapter, the tier, and the model id.
+(The adapter's own SDK client *does* hold the key at `.client.apiKey`, at Node's
+default inspect depth, so the frontier object carries `toJSON` + a custom-inspect
+hook to keep a stray `console.log(model)` from printing it.)
+
+**The exception is enforced in the type system, not by convention.**
+`resolveModel(surface)` accepts only a `LocalSurface` and returns only a
+`LocalModel`; there is no `'lesson'` key and no `Surface` union to widen. Three
+source-text guards in `services/model-policy.test.ts` close the routes around it:
+only `model-policy.ts` may call `createOllamaChat`, only `lesson-model.ts` may
+call `createAnthropicChat` or import `ANTHROPIC_API_KEY`, and `resolveLessonModel`
+has exactly one importer (`lesson-generation.ts`). Promoting a surface therefore
+takes a code change in two named modules *and* turns a test red.
+
+**The one honest caveat:** `synthesizeDigest` takes an optional `ResolvedModel`,
+and lesson generation passes its own — so digest synthesis *is* frontier-reachable
+at runtime, by tier inheritance. Its own default is local and cannot be otherwise;
+the only frontier path is an explicit argument from the one module allowed to build
+a frontier adapter, and `digest.test.ts` pins that no other caller passes one.
+
+Tier-specific behaviour travels **on** the resolved model rather than beside it:
+`model.modelOptions(t)` (Ollama's nested `.options` shape vs. `{}` — newer
+Anthropic models 400 on `temperature`), `model.friendlyError(raw)` (the echoing
+`friendlyOllamaError` vs. the never-echoing `friendlyAnthropicError`), and
+`model.redact(raw)`. Pairing the wrong mapper with a tier is unrepresentable.
+The four SSE surfaces are the gap this cannot close — they map errors
+*client-side*, hardcoded at `chat-stream.ts`, which is correct only because all
+four are `LocalSurface`s.
 
 ## The two tool systems
 
@@ -173,13 +212,20 @@ document, two consumers, one drift test in both directions.
    behavior change (fewer source videos when the library is stale) and needs its
    own reasoning about whether degraded ranking beats no ranking.
 
-3. **Model routing is scattered.** Ten module-scope `createOllamaChat(...)` calls
-   bind their model at import time. `lesson-model.ts` demonstrates the better
-   shape — one resolver returning adapter + tier + the matching friendly-error
-   mapper — and the cost of not generalizing it showed up when the digest needed
-   to become tier-aware and had to grow a bespoke `override?: DigestModel`
-   parameter. A `resolveModel(surface)` would let any surface be promoted to
-   frontier by configuration instead of by code change.
+3. ~~**Model routing is scattered.**~~ **Fixed** (2026-08-26) by
+   `services/model-policy.ts`. Note what actually shipped, because it is the
+   *opposite* of what this entry used to propose: promotion to frontier still
+   requires a code change, in two named modules, and `resolveModel` was
+   deliberately given a signature that makes `resolveModel('lesson')` a compile
+   error. Making tier a config row would have turned CLAUDE.md's "same kind of
+   evidence" bar into a one-word edit.
+
+   What remains: adapter construction moved from import time to call time, so a
+   malformed `OLLAMA_BASE_URL` no longer crashes at boot — it warns once from
+   `model-policy.ts` and then throws `TypeError: Invalid URL` per request, which
+   `friendlyOllamaError` does not recognise and will echo verbatim. Call sites
+   resolve inside their existing `try` so this lands as a normal failure rather
+   than an unhandled rejection, but the user-facing string is raw.
 
 4. **The two tool systems duplicate retrieval.** `library-tools.ts` and the MCP
    `searchVideos` / `getVideo` / `crossSearchTranscripts` answer the same

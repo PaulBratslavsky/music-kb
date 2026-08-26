@@ -11,7 +11,6 @@
 // terminology, the narrative arc.
 
 import { chat } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import {
   fetchTranscriptByVideoIdService,
   fetchVideoByVideoIdService,
@@ -26,10 +25,13 @@ import {
   type TimedTextSegment,
 } from '#/lib/services/transcript';
 import { withRetry } from '#/lib/retry';
-import { MAP_CONCURRENCY, OLLAMA_HOST, OLLAMA_MODEL as MODEL } from '#/lib/env';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
+import { MAP_CONCURRENCY } from '#/lib/env';
+import {
+  modelIdFor,
+  resolveModel,
+  type LocalModel,
+} from '#/lib/services/model-policy';
 
-const adapter = createOllamaChat(MODEL, OLLAMA_HOST);
 
 // Same cutover used for summary generation — above this, map-reduce kicks
 // in to keep per-section attention coherent on long videos.
@@ -148,11 +150,14 @@ async function generateSinglePass(
 ): Promise<ServiceResult<string>> {
   const started = performance.now();
   logPhase(transcript.videoId, 'single-pass → generating', {
-    model: MODEL,
+    // Pure sibling of resolveModel — no adapter built, so this pre-try log
+    // line cannot throw on a malformed OLLAMA_BASE_URL.
+    model: modelIdFor('reader'),
     chars: transcript.text.length,
     tokens: estimateTokens(transcript.text),
   });
   try {
+    const model = resolveModel('reader');
     const userPrompt = [
       displayTitle ? `Video title: ${displayTitle}` : null,
       '',
@@ -165,13 +170,13 @@ async function generateSinglePass(
     const out = (await withRetry(
       () =>
         chat({
-          adapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: ARTICLE_SYSTEM },
             { role: 'user', content: userPrompt },
           ] as never,
           stream: false,
-          modelOptions: samplingOptions(MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         }),
       {
         attempts: 2,
@@ -209,14 +214,14 @@ async function generateMapReduce(
     transcript.durationSec,
   );
   logPhase(transcript.videoId, 'map-reduce → generating', {
-    model: MODEL,
+    model: modelIdFor('reader'),
     chunks: chunks.length,
     concurrency: MAP_CONCURRENCY,
   });
 
   const windowOutputs: string[] = new Array(chunks.length);
 
-  const processChunk = async (i: number): Promise<void> => {
+  const processChunk = async (i: number, model: LocalModel): Promise<void> => {
     const chunk = chunks[i];
     const start = performance.now();
     logPhase(transcript.videoId, `map chunk ${i + 1}/${chunks.length} → generating`);
@@ -227,13 +232,16 @@ async function generateMapReduce(
     const out = (await withRetry(
       () =>
         chat({
-          adapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: MAP_SYSTEM },
             { role: 'user', content: `Transcript window:\n${cleanChunkText}` },
           ] as never,
           stream: false,
-          modelOptions: samplingOptions(MODEL, 0.3),
+          // NOTE: unlike learning.ts's map step, reader's map step HAS
+          // always passed sampling. Do not "harmonise" the two — the
+          // difference is pre-existing behaviour on both sides.
+          modelOptions: model.modelOptions(0.3),
         }),
       {
         attempts: 2,
@@ -253,14 +261,16 @@ async function generateMapReduce(
   };
 
   let cursor = 0;
-  const workers = Array.from({ length: MAP_CONCURRENCY }, async () => {
-    while (true) {
-      const i = cursor++;
-      if (i >= chunks.length) return;
-      await processChunk(i);
-    }
-  });
   try {
+    // One adapter shared by every map worker, resolved inside the try.
+    const model = resolveModel('reader');
+    const workers = Array.from({ length: MAP_CONCURRENCY }, async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= chunks.length) return;
+        await processChunk(i, model);
+      }
+    });
     await Promise.all(workers);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'map step failed';
@@ -270,6 +280,7 @@ async function generateMapReduce(
 
   const reduceStart = performance.now();
   try {
+    const model = resolveModel('reader');
     const reduceUser = [
       displayTitle ? `Video title: ${displayTitle}` : null,
       '',
@@ -283,13 +294,13 @@ async function generateMapReduce(
     const out = (await withRetry(
       () =>
         chat({
-          adapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: REDUCE_SYSTEM },
             { role: 'user', content: reduceUser },
           ] as never,
           stream: false,
-          modelOptions: samplingOptions(MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         }),
       {
         attempts: 2,
@@ -344,7 +355,7 @@ async function persistArticle(
       data: {
         readableArticle: article,
         readableArticleGeneratedAt: now,
-        readableArticleModel: MODEL,
+        readableArticleModel: modelIdFor('reader'),
       },
     }),
   });
@@ -356,7 +367,7 @@ async function persistArticle(
   }
   return {
     success: true,
-    data: { article, generatedAt: now, model: MODEL },
+    data: { article, generatedAt: now, model: modelIdFor('reader') },
   };
 }
 
@@ -383,7 +394,7 @@ export async function generateReadableArticleForVideo(
       data: {
         article: video.readableArticle,
         generatedAt: video.readableArticleGeneratedAt ?? new Date().toISOString(),
-        model: video.readableArticleModel ?? MODEL,
+        model: video.readableArticleModel ?? modelIdFor('reader'),
       },
     };
   }

@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { chat, toServerSentEventsResponse } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import {
   ASK_LIBRARY_SYSTEM,
   formatSeedForPrompt,
@@ -8,8 +7,7 @@ import {
   type RetrievedPassage,
 } from '#/lib/services/ask-library';
 import { buildLibraryTools } from '#/lib/services/library-tools';
-import { OLLAMA_HOST, OLLAMA_SYNTHESIS_MODEL } from '#/lib/env';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
+import { resolveModel } from '#/lib/services/model-policy';
 
 // Streaming library-QA endpoint. Parallels /api/chat in shape:
 //   - AG-UI style SSE (TEXT_MESSAGE_CONTENT + [DONE])
@@ -117,8 +115,13 @@ export const Route = createFileRoute('/api/ask')({
           if (seen < SEED_ANCHORS_PER_VIDEO) seedAnchors++;
           perVideoCount.set(p.video.documentId, seen + 1);
         }
+        // Resolved once, above the log line, so the `[ask/<model>]` tag, the
+        // CITATIONS frame's `model:` field (which the eval harness records)
+        // and the adapter are all one read of the policy. There used to be
+        // three independent reads of OLLAMA_SYNTHESIS_MODEL here.
+        const model = resolveModel('library-ask');
         console.log(
-          `[${new Date().toISOString().slice(11, 23)}] [ask/${OLLAMA_SYNTHESIS_MODEL}] "${question}" → pool: ${uniqueVideoCount} videos / ${passages.length} passages · seed: ${seedAnchors} anchors → synthesizing`,
+          `[${new Date().toISOString().slice(11, 23)}] [ask/${model.model}] "${question}" → pool: ${uniqueVideoCount} videos / ${passages.length} passages · seed: ${seedAnchors} anchors → synthesizing`,
         );
 
         const userPrompt = [
@@ -127,7 +130,6 @@ export const Route = createFileRoute('/api/ask')({
           formatSeedForPrompt(passages),
         ].join('\n');
 
-        const adapter = createOllamaChat(OLLAMA_SYNTHESIS_MODEL, OLLAMA_HOST);
         // Progressive retrieval: the model only sees #1 candidate's
         // passages up-front. The `load_passages` tool (built per-request
         // with the pool closed over) lets it expand to any of the 4
@@ -140,13 +142,13 @@ export const Route = createFileRoute('/api/ask')({
         // the single best source.
         const tools = buildLibraryTools({ pool: passages });
         const stream = chat({
-          adapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: ASK_LIBRARY_SYSTEM },
             { role: 'user', content: userPrompt },
           ] as never,
           tools,
-          modelOptions: samplingOptions(OLLAMA_SYNTHESIS_MODEL, 0.4),
+          modelOptions: model.modelOptions(0.4),
         });
 
         // Build a combined stream: one CITATIONS frame up front, then
@@ -157,7 +159,7 @@ export const Route = createFileRoute('/api/ask')({
         const citationsFrame = `data: ${JSON.stringify({
           type: 'CITATIONS',
           citations: passages.map(toCitationPayload),
-          model: OLLAMA_SYNTHESIS_MODEL,
+          model: model.model,
         })}\n\n`;
 
         const baseResponse = toServerSentEventsResponse(stream);

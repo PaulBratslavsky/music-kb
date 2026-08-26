@@ -8,7 +8,6 @@
 // their own retrieval shapes and stay out of this module.
 
 import { chat } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import {
   loadStoredIndex,
   searchBM25,
@@ -17,10 +16,7 @@ import {
   type TranscriptChunk,
 } from '#/lib/services/transcript';
 import { withRetry } from '#/lib/retry';
-import {
-  OLLAMA_HOST,
-  OLLAMA_CHAT_MODEL as CHAT_MODEL,
-} from '#/lib/env';
+import { resolveModel } from '#/lib/services/model-policy';
 import type { StrapiVideo } from '#/lib/services/videos';
 
 // How many retrieved chunks to include in the chat prompt. 8 * ~150 words
@@ -33,8 +29,6 @@ const CHAT_TOP_K = 8;
 // original is always included, so total query count = REWRITE_COUNT + 1.
 // 3-5 is the industry sweet spot.
 const REWRITE_COUNT = 4;
-
-const ollamaAdapterChat = createOllamaChat(CHAT_MODEL, OLLAMA_HOST);
 
 function logPhase(
   videoId: string,
@@ -72,10 +66,13 @@ export async function rewriteQuery(
     `Produce exactly ${REWRITE_COUNT} alternative phrasings. Keep each under 15 words.`,
   ].join('\n');
   try {
+    const model = resolveModel('query-rewrite');
     const text = (await withRetry(
       () =>
         chat({
-          adapter: ollamaAdapterChat,
+          adapter: model.adapter,
+          // NO modelOptions, deliberately — this leg has always run at
+          // Ollama's default temperature. Pinned by chat-retrieval.test.ts.
           messages: [
             { role: 'system', content: rewriteSystem },
             { role: 'user', content: `Original question: ${trimmed}\n\nAlternative phrasings:` },

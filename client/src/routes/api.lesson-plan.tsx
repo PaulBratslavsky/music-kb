@@ -6,7 +6,7 @@ import {
   type SourceVideo,
 } from '#/lib/services/lesson-generation';
 import type { Digest } from '#/lib/services/digest';
-import type { ModelTier } from '#/lib/services/lesson-model';
+import type { ModelTier } from '#/lib/services/model-policy';
 
 // Phase 1 of streamed lesson generation — POST /api/lesson-plan.
 //

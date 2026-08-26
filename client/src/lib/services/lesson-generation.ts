@@ -113,14 +113,9 @@ import {
   strapiRowToDigest,
 } from '#/lib/services/digests';
 import { cosineSimilarity, embedText } from '#/lib/services/embeddings';
-import { friendlyAnthropicError } from '#/lib/services/anthropic-errors';
-import {
-  redactAnthropicKey,
-  resolveLessonModel,
-  type ModelTier,
-} from '#/lib/services/lesson-model';
+import { redactAnthropicKey, resolveLessonModel } from '#/lib/services/lesson-model';
+import type { ModelTier, ResolvedModel } from '#/lib/services/model-policy';
 import { friendlyOllamaError } from '#/lib/services/ollama-errors';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
 import { chooseProseSource } from '#/lib/services/prose-grounding';
 import {
   findEvidenceForQuote,
@@ -139,32 +134,12 @@ import {
 } from '#/lib/services/videos';
 import type { LessonBlock } from '#/lib/services/lessons';
 
-// Translates a caught error's message through the tier-appropriate friendly
-// mapper. Frontier errors get the non-echoing Anthropic mapper (never
-// leaks provider payload / the key); local errors keep the existing Ollama
-// mapper, which is safe to echo since Ollama runs on localhost.
-function friendlyModelError(tier: ModelTier, message: string): string {
-  return tier === 'frontier' ? friendlyAnthropicError(message) : friendlyOllamaError(message);
-}
-
-// The two adapters take differently-shaped `modelOptions`: Ollama nests
-// sampling knobs under `.options` and requires a (structurally unused)
-// top-level `model` field (see samplingOptions' own doc comment); Anthropic
-// takes sampling knobs flat, with no `model` field in modelOptions at all
-// (model is bound at adapter-construction time either way — this is purely
-// about satisfying each adapter's declared provider-options shape).
-function buildModelOptions(lessonModel: ReturnType<typeof resolveLessonModel>, temperature: number) {
-  // Frontier: send NO sampling knobs. Newer Anthropic models reject
-  // `temperature` outright — claude-sonnet-5 answers a request carrying it
-  // with `400 invalid_request_error: \`temperature\` is deprecated for this
-  // model.`, which fails the whole generation. The local path still needs it
-  // (temperature 1.0 is what made gemma4-kb's tool calling unreliable), so
-  // the knob stays tier-specific rather than being dropped everywhere.
-  // `temperature` is accepted here and deliberately unused on this branch.
-  void temperature;
-  if (lessonModel.tier === 'frontier') return {};
-  return samplingOptions(lessonModel.model, temperature);
-}
+// `friendlyModelError(tier, message)` and `buildModelOptions(model, t)` used
+// to live here. Both are gone: the tier-appropriate error mapper and the
+// tier-appropriate modelOptions shape are now MEMBERS of the resolved model
+// (`lessonModel.friendlyError(m)` / `lessonModel.modelOptions(t)`), supplied
+// by the same factory that built the adapter. There is no longer a `tier`
+// value to hand to the wrong function.
 
 function logPhase(topic: string, phase: string, extra?: Record<string, unknown>) {
   const ts = new Date().toISOString().slice(11, 23);
@@ -724,7 +699,7 @@ type DigestResolution =
 async function getOrCreateDigest(
   topic: string,
   youtubeVideoIds: string[],
-  lessonModel: ReturnType<typeof resolveLessonModel>,
+  lessonModel: ResolvedModel,
 ): Promise<DigestResolution> {
   const { videos: fullVideos, missing } = await resolveFullVideos(youtubeVideoIds);
   if (missing.length > 0 || fullVideos.length < DIGEST_MIN_VIDEOS) {
@@ -754,12 +729,12 @@ async function getOrCreateDigest(
     videoSetKey,
     model: lessonModel.model,
   });
-  const synthesized = await synthesizeDigest(
-    fullVideos,
-    lessonModel.tier === 'frontier'
-      ? { adapter: lessonModel.adapter, model: lessonModel.model }
-      : undefined,
-  );
+  // Passed unconditionally now. The old `tier === 'frontier' ? … :
+  // undefined` ternary existed only because the mechanism was
+  // presence-based: `synthesizeDigest` used argument presence as a proxy for
+  // "frontier" when picking modelOptions. It keys off `model.tier` instead,
+  // so handing it a LOCAL lessonModel is identical to its own default.
+  const synthesized = await synthesizeDigest(fullVideos, lessonModel);
   if (!synthesized.success) {
     logPhase(topic, 'digest ✗ synthesis failed', { error: synthesized.error });
     return { ok: false, error: synthesized.error };
@@ -2302,6 +2277,13 @@ export async function planLesson(
     // A dead backend is not an Ollama problem, and must not be reported as an
     // empty library — that sends the user off to regenerate summaries they
     // already have.
+    //
+    // DELIBERATELY `friendlyOllamaError`, not `lessonModel.friendlyError`.
+    // Error-mapper pairing is per CALL tier, not per RUN tier: this step is
+    // embeddings + Strapi, both local regardless of what tier the lesson
+    // itself runs on. Routing it through the frontier mapper on a frontier
+    // run would swallow a real Ollama-embeddings failure into the canned
+    // "Frontier AI request failed." string. Do not "fix" this.
     const friendly = err instanceof BackendUnreachableError ? message : friendlyOllamaError(message);
     emit(onProgress, { type: 'error', step: 'retrieve', message: friendly });
     return { ok: false, error: friendly };
@@ -2372,7 +2354,7 @@ export async function planLesson(
             { role: 'user', content: buildCoveragePrompt(topic, candidatesText) },
           ] as never,
           outputSchema: CoverageVerdictSchema,
-          modelOptions: buildModelOptions(lessonModel, 0.1),
+          modelOptions: lessonModel.modelOptions(0.1),
         }),
       {
         attempts: 2,
@@ -2391,7 +2373,7 @@ export async function planLesson(
     logPhase(topic, 'coverage ✗ call failed — refusing rather than proceeding', {
       error: message,
     });
-    const friendly = friendlyModelError(lessonModel.tier, message);
+    const friendly = lessonModel.friendlyError(message);
     emit(onProgress, { type: 'error', step: 'coverage', message: friendly });
     return { ok: false, error: friendly };
   }
@@ -2438,6 +2420,24 @@ export async function planLesson(
   const digestResolution = await getOrCreateDigest(topic, youtubeVideoIds, lessonModel);
   const digestMs = Math.round(performance.now() - digestStart);
   if (!digestResolution.ok) {
+    // ALSO deliberately `friendlyOllamaError`, and this one is a known
+    // imperfect trade rather than a clean win. `getOrCreateDigest` has three
+    // failure exits and only ONE is a model error:
+    //   1. 'Could not load the selected source videos…'  (Strapi/fetch)
+    //   2. 'These videos need summaries first: <titles>' / the min/max
+    //      video-count guards                            (validation, raised
+    //                                                     before any adapter
+    //                                                     is touched)
+    //   3. the synthesis call's own error                (the model one)
+    // friendlyOllamaError echoes 1 and 2 verbatim, which is correct and
+    // actionable. Switching to `lessonModel.friendlyError` would fix a rare
+    // frontier-payload leak on 3 while turning the COMMON cases 1 and 2 into
+    // "Frontier AI request failed. … leave ANTHROPIC_API_KEY unset" for
+    // every frontier user — a much worse misdiagnosis. The honest fix needs
+    // a discriminator on DigestResolution (`fromModel: boolean`) or mapping
+    // inside digest.ts's catch, both of which change user-visible text on
+    // the standalone /digest surface too. That is its own change, not part
+    // of a resolver refactor.
     const friendly = friendlyOllamaError(digestResolution.error);
     emit(onProgress, { type: 'error', step: 'digest', message: friendly });
     return { ok: false, error: friendly };
@@ -2467,7 +2467,7 @@ export async function planLesson(
           },
         ] as never,
         outputSchema: LessonOutlineSchema,
-        modelOptions: buildModelOptions(lessonModel, 0.3),
+        modelOptions: lessonModel.modelOptions(0.3),
       });
       const sanitized = sanitizeOutline(raw);
       return sanitized ? { kind: 'ok', outline: sanitized } : { kind: 'invalid' };
@@ -2524,7 +2524,7 @@ export async function planLesson(
 
     // outcome.kind === 'error'
     if (isLastAttempt) {
-      outlineFailureMessage = friendlyModelError(lessonModel.tier, outcome.message);
+      outlineFailureMessage = lessonModel.friendlyError(outcome.message);
       break;
     }
     logPhase(topic, `outline ✗ failed (attempt ${attempt}) — retrying once`, {
@@ -2758,7 +2758,7 @@ export async function writeLesson(
           // was found at this call site, and none of them applies to a
           // text response. See the step-5 header and markdown-blocks.ts.
           stream: false,
-          modelOptions: buildModelOptions(lessonModel, 0.4),
+          modelOptions: lessonModel.modelOptions(0.4),
         });
 
         const markdown = typeof raw === 'string' ? raw : '';
@@ -2900,7 +2900,7 @@ export async function writeLesson(
 
   if (succeededSections === 0) {
     logPhase(topic, '✗ every section failed — no usable body');
-    const message = friendlyModelError(lessonModel.tier, 'Every lesson section failed to generate.');
+    const message = lessonModel.friendlyError('Every lesson section failed to generate.');
     emit(onProgress, { type: 'error', step: 'section', message });
     return { ok: false, error: message };
   }
@@ -2942,7 +2942,7 @@ export async function writeLesson(
             // and fret windows were all cut to stay under the 16-union cap
             // a structured schema imposed.
             stream: false,
-            modelOptions: buildModelOptions(lessonModel, 0.3),
+            modelOptions: lessonModel.modelOptions(0.3),
           });
           const markdown = typeof raw === 'string' ? raw : '';
           const { blocks: parsed, issues } = parseLessonMarkdown(markdown, {
@@ -3348,7 +3348,7 @@ export async function planSingleVideoLesson(
           { role: 'user', content: buildOutlinePrompt(topic, contextText, overviewText) },
         ] as never,
         outputSchema: LessonOutlineSchema,
-        modelOptions: buildModelOptions(lessonModel, 0.3),
+        modelOptions: lessonModel.modelOptions(0.3),
       });
       const sanitized = sanitizeOutline(raw);
       return sanitized ? { kind: 'ok', outline: sanitized } : { kind: 'invalid' };
@@ -3401,7 +3401,7 @@ export async function planSingleVideoLesson(
     }
 
     if (isLastAttempt) {
-      outlineFailureMessage = friendlyModelError(lessonModel.tier, outcome.message);
+      outlineFailureMessage = lessonModel.friendlyError(outcome.message);
       break;
     }
     logPhase(videoId, `outline ✗ failed (attempt ${attempt}) — retrying once`, {

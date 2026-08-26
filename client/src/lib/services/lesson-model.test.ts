@@ -8,11 +8,23 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// resolveLessonModel's LOCAL branch now goes through model-policy.ts's
+// `localModel()`, and model-policy.ts imports OLLAMA_CHAT_MODEL /
+// OLLAMA_SYNTHESIS_MODEL / OLLAMA_BASE_URL as well. Vitest's
+// missing-export throw is LAZY (on property access, not at import), so
+// these 9 tests stayed green without them — none of them resolves a chat
+// or synthesis surface. They are declared anyway, because the failure mode
+// otherwise is a test in this file resolving some other surface one day and
+// getting `No "OLLAMA_CHAT_MODEL" export is defined on the mock`, an error
+// that says nothing about surfaces.
 const envState = vi.hoisted(() => ({
   ANTHROPIC_API_KEY: undefined as string | undefined,
   LESSON_MODEL: 'claude-sonnet-5',
   OLLAMA_MODEL: 'gemma4-kb:latest',
+  OLLAMA_CHAT_MODEL: 'gemma4-kb:latest',
+  OLLAMA_SYNTHESIS_MODEL: 'gemma4-kb:latest',
   OLLAMA_HOST: 'http://localhost:11434',
+  OLLAMA_BASE_URL: 'http://localhost:11434/v1',
 }));
 
 vi.mock('#/lib/env', () => ({
@@ -25,8 +37,17 @@ vi.mock('#/lib/env', () => ({
   get OLLAMA_MODEL() {
     return envState.OLLAMA_MODEL;
   },
+  get OLLAMA_CHAT_MODEL() {
+    return envState.OLLAMA_CHAT_MODEL;
+  },
+  get OLLAMA_SYNTHESIS_MODEL() {
+    return envState.OLLAMA_SYNTHESIS_MODEL;
+  },
   get OLLAMA_HOST() {
     return envState.OLLAMA_HOST;
+  },
+  get OLLAMA_BASE_URL() {
+    return envState.OLLAMA_BASE_URL;
   },
 }));
 
@@ -56,7 +77,10 @@ beforeEach(() => {
   envState.ANTHROPIC_API_KEY = undefined;
   envState.LESSON_MODEL = 'claude-sonnet-5';
   envState.OLLAMA_MODEL = 'gemma4-kb:latest';
+  envState.OLLAMA_CHAT_MODEL = 'gemma4-kb:latest';
+  envState.OLLAMA_SYNTHESIS_MODEL = 'gemma4-kb:latest';
   envState.OLLAMA_HOST = 'http://localhost:11434';
+  envState.OLLAMA_BASE_URL = 'http://localhost:11434/v1';
   createOllamaChatMock.mockClear();
   createAnthropicChatMock.mockClear();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
