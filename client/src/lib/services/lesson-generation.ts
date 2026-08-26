@@ -686,6 +686,7 @@ type DigestResolution =
 async function getOrCreateDigest(
   topic: string,
   youtubeVideoIds: string[],
+  lessonModel: ReturnType<typeof resolveLessonModel>,
 ): Promise<DigestResolution> {
   const { videos: fullVideos, missing } = await resolveFullVideos(youtubeVideoIds);
   if (missing.length > 0 || fullVideos.length < DIGEST_MIN_VIDEOS) {
@@ -703,8 +704,24 @@ async function getOrCreateDigest(
     return { ok: true, digest: strapiRowToDigest(cached.data), fullVideos, cacheHit: true };
   }
 
-  logPhase(topic, 'digest ▶ cache miss, synthesizing', { videoSetKey });
-  const synthesized = await synthesizeDigest(fullVideos);
+  // Run the digest on the LESSON's tier, not always the local model. It used
+  // to be hardcoded to Ollama: a frontier lesson paid ~51s of local inference
+  // to produce the structure that a frontier model then wrote the lesson from
+  // — the slowest step in the plan phase, on the weaker model, feeding the
+  // stronger one. Sections read transcript passages directly now, so the
+  // digest's remaining job is the outline's throughline, ordering, and the
+  // cross-video contradictions nothing else can surface. Those are exactly
+  // the judgement calls worth the better model.
+  logPhase(topic, `digest ▶ cache miss, synthesizing on ${lessonModel.tier}`, {
+    videoSetKey,
+    model: lessonModel.model,
+  });
+  const synthesized = await synthesizeDigest(
+    fullVideos,
+    lessonModel.tier === 'frontier'
+      ? { adapter: lessonModel.adapter, model: lessonModel.model }
+      : undefined,
+  );
   if (!synthesized.success) {
     logPhase(topic, 'digest ✗ synthesis failed', { error: synthesized.error });
     return { ok: false, error: synthesized.error };
@@ -2286,7 +2303,7 @@ export async function planLesson(
   // --- 2: digest — cached reuse, or synthesize (never persist) ----------
   const youtubeVideoIds = ranked.map((r) => r.video.youtubeVideoId);
   const digestStart = performance.now();
-  const digestResolution = await getOrCreateDigest(topic, youtubeVideoIds);
+  const digestResolution = await getOrCreateDigest(topic, youtubeVideoIds, lessonModel);
   const digestMs = Math.round(performance.now() - digestStart);
   if (!digestResolution.ok) {
     const friendly = friendlyOllamaError(digestResolution.error);
