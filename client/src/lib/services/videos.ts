@@ -488,6 +488,49 @@ export async function listAllVideosForEmbeddingService(): Promise<StrapiVideo[]>
   return result.ok ? result.videos : [];
 }
 
+/** id + stored transcript index only — see `listAllVideoTranscriptIndexesService`. */
+export type VideoTranscriptIndexRow = {
+  youtubeVideoId: string;
+  transcriptSegments: StoredTranscriptIndex | null;
+};
+
+/**
+ * Every video's `youtubeVideoId` + stored BM25 index, nothing else — no
+ * summary text, scores, or embeddings. Built for corpus-wide document-
+ * frequency checks (`chooseProseSource`'s library-rarity gate, see
+ * `prose-grounding.ts`), which only need to know whether OTHER videos say a
+ * term, not read their content. Deliberately narrower than
+ * `listAllVideosForEmbeddingWithStatusService` — that one strips
+ * `transcriptSegments` (client-safe listing) and filters to
+ * `summaryStatus: 'generated'`; a video can have a stored transcript index
+ * before its summary exists, and this is a server-internal caller like
+ * `fetchVideoByDocumentIdService` above, not something that ships to the
+ * client. Paginates internally so one call returns the whole library —
+ * personal-KB scale (<1000 videos, CLAUDE.md), same assumption
+ * `embeddings.ts`'s in-memory scan already relies on. A failure partway
+ * through returns what was collected so far, same stance as
+ * `listAllVideosForEmbeddingWithStatusService`: a partial corpus still
+ * makes the rarity check more accurate than skipping it, and this feeds a
+ * confidence gate, not a correctness-critical read.
+ */
+export async function listAllVideoTranscriptIndexesService(): Promise<VideoTranscriptIndexRow[]> {
+  const pageSize = 100;
+  const all: VideoTranscriptIndexRow[] = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const result = await strapiFetch<VideoTranscriptIndexRow[]>('GET', '/api/videos', {
+      query: {
+        fields: ['youtubeVideoId', 'transcriptSegments'],
+        pagination: { page, pageSize, withCount: true },
+      },
+    });
+    if (!result.ok) break;
+    all.push(...(result.data ?? []));
+    const pageCount = result.meta?.pagination?.pageCount ?? 1;
+    if (page >= pageCount) break;
+  }
+  return all;
+}
+
 // NOTE: these two fetchers return the FULL video row including
 // `transcriptSegments`. They're used by server-internal callers (chat
 // retrieval, evidence extraction, digest chat) that read the BM25 index.

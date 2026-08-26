@@ -66,6 +66,12 @@ vi.mock('./embeddings', async (importOriginal) => {
 const listAllVideosMock = vi.fn();
 const fetchVideoByVideoIdMock = vi.fn();
 const fetchVideoByDocumentIdMock = vi.fn();
+// Defaults to [] in beforeEach — an empty library makes the library-rarity
+// gate vacuous (see prose-grounding.ts's isLibraryDistinctive), which keeps
+// every OTHER test in this file exercising exactly the within-video
+// grounding behavior it was written against. Tests that care about the
+// gate itself override this explicitly — see "library-rarity gate" below.
+const listAllVideoTranscriptIndexesMock = vi.fn();
 vi.mock('./videos', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./videos')>();
   return {
@@ -80,6 +86,7 @@ vi.mock('./videos', async (importOriginal) => {
     }),
     fetchVideoByVideoIdService: (id: string) => fetchVideoByVideoIdMock(id),
     fetchVideoByDocumentIdService: (id: string) => fetchVideoByDocumentIdMock(id),
+    listAllVideoTranscriptIndexesService: () => listAllVideoTranscriptIndexesMock(),
   };
 });
 
@@ -229,6 +236,9 @@ beforeEach(() => {
     return Promise.resolve(makeFullVideo(documentId));
   });
   fetchVideoByDocumentIdMock.mockResolvedValue(null);
+
+  listAllVideoTranscriptIndexesMock.mockReset();
+  listAllVideoTranscriptIndexesMock.mockResolvedValue([]);
 
   findDigestByVideoSetKeyMock.mockReset();
   findDigestByVideoSetKeyMock.mockResolvedValue({ success: true, data: null });
@@ -2136,10 +2146,51 @@ describe('writeLesson — unlinked sourcing claims', () => {
     mockedChat.mockResolvedValueOnce('A turnaround signals the loop back to the top of the form.');
     const { events, onProgress } = collector();
 
-    await writeLesson(oneSection(), onProgress);
+    const result = await writeLesson(oneSection(), onProgress);
 
     expect(events.find((e) => e.type === 'section')).toMatchObject({ unsourced: 0 });
     expect(events.some((e) => e.type === 'error')).toBe(false);
+
+    // Nothing previously asserted that writeLesson ACTUALLY auto-grounds —
+    // only that the separate unsourced-claim check stayed quiet. Prove the
+    // block really did get a citation, and that the counter the SSE stream
+    // reports (`LessonProgressPanel`'s AutoGrounded chip) actually moved.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
+    const source = prose.source as { videoId: string } | undefined;
+    expect(source?.videoId).toBe('yt-A');
+    expect(events.find((e) => e.type === 'section')).toMatchObject({ autoSourced: 1 });
+  });
+
+  // The ordering is load-bearing (see groundParsedBlocks in
+  // lesson-generation.ts and prose-grounding.ts's module header): a block
+  // is only checked for an unlinked sourcing claim in the `else` branch
+  // after chooseProseSource has already declined it. If that order were
+  // ever reversed, a block whose prose both names a source AND is
+  // confidently BM25-groundable would still get flagged `unsourced` even
+  // though its citation IS reachable. This text is built to hit both
+  // paths at once: "one video" matches the attribution pattern, and the
+  // rest is PASSAGE_B near-verbatim, so it grounds strongly to yt-B.
+  it('auto-grounds a block BEFORE checking it for an unlinked sourcing claim', async () => {
+    mockedChat.mockResolvedValueOnce(
+      'As one video explains, the turnaround walks down from the five chord to the four chord and lands on fret eight.',
+    );
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(oneSection(), onProgress);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
+    const source = prose.source as { videoId: string } | undefined;
+    expect(source?.videoId).toBe('yt-B');
+    // If findSourcingClaim ran first (or ran at all on an already-grounded
+    // block), this would be unsourced: 1 despite the citation existing.
+    expect(events.find((e) => e.type === 'section')).toMatchObject({
+      unsourced: 0,
+      autoSourced: 1,
+    });
   });
 
   it('asks the write pass for a citation on any block that names a source', async () => {
@@ -2147,6 +2198,69 @@ describe('writeLesson — unlinked sourcing claims', () => {
     await writeLesson(oneSection());
 
     expect(systemPromptOf(0)).toMatch(/names a source in its own words/i);
+  });
+});
+
+describe('writeLesson — library-rarity gate wiring', () => {
+  beforeEach(usePassageVideos);
+
+  const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
+
+  // Unit-level coverage of the gate itself lives in
+  // prose-grounding.test.ts. This proves writeLesson actually WIRES it up
+  // end to end: fetches the library-wide index and threads it into
+  // chooseProseSource, rather than the parameter existing but nothing
+  // upstream ever populating it.
+  it('declines an auto-citation once the library shows its "distinctive" terms are common elsewhere', async () => {
+    mockedChat.mockResolvedValueOnce('A turnaround signals the loop back to the top of the form.');
+
+    // Without library context (default beforeEach: []), this exact prose
+    // auto-grounds to yt-A, on six within-video-distinctive terms:
+    // turnaround, signals, loop, back, top, form (verified directly
+    // against findEvidenceForQuote on this fixture). Populate the
+    // library-wide fetch with OTHER videos that also say most of those
+    // words, so at most two survive the library-rarity gate — one short
+    // of MIN_DISTINCTIVE_SHARED — and the citation must be declined.
+    listAllVideoTranscriptIndexesMock.mockResolvedValue([
+      { youtubeVideoId: 'yt-A', transcriptSegments: { version: 1, bm25: bm25ForPassages([{ text: PASSAGE_A, timeSec: 42 }]) } },
+      { youtubeVideoId: 'yt-B', transcriptSegments: { version: 1, bm25: bm25ForPassages([{ text: PASSAGE_B, timeSec: 77 }]) } },
+      {
+        youtubeVideoId: 'yt-other-1',
+        transcriptSegments: {
+          version: 1,
+          bm25: bm25ForPassages([{ text: 'turnaround signals loop back top form', timeSec: 10 }]),
+        },
+      },
+      {
+        youtubeVideoId: 'yt-other-2',
+        transcriptSegments: {
+          version: 1,
+          bm25: bm25ForPassages([{ text: 'turnaround signals loop back top form', timeSec: 10 }]),
+        },
+      },
+    ]);
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(oneSection(), onProgress);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
+    expect(prose.source).toBeUndefined();
+    expect(events.find((e) => e.type === 'section')).toMatchObject({ autoSourced: 0 });
+  });
+
+  it('still auto-grounds when a fetch failure leaves the library empty — best-effort, not blocking', async () => {
+    mockedChat.mockResolvedValueOnce('A turnaround signals the loop back to the top of the form.');
+    listAllVideoTranscriptIndexesMock.mockRejectedValue(new Error('Strapi unreachable'));
+
+    const result = await writeLesson(oneSection());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prose = result.lesson.body.find((b) => b.__component === 'lesson.prose')!;
+    const source = prose.source as { videoId: string } | undefined;
+    expect(source?.videoId).toBe('yt-A');
   });
 });
 

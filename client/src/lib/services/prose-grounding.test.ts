@@ -15,6 +15,20 @@ function chunk(id: number, text: string, timeSec: number): TranscriptChunk {
   return { id, text, startWord: id * 100, timeSec };
 }
 
+// Every pre-existing test below passes this for the new `libraryIndexes`
+// argument: an empty library is vacuous (see `isLibraryDistinctive`'s
+// empty-population stance), so these tests keep exercising exactly what
+// they were written to exercise — ranking and within-video distinctiveness
+// — unaffected by the corpus-rarity gate covered separately below.
+const NO_LIBRARY: ReadonlyMap<string, BM25Index> = new Map();
+
+/** A minimal single-chunk index for library-only fixtures below — these
+ * exist purely so `idf[term] !== undefined` can answer "does this OTHER
+ * video say this word at all", not to exercise realistic idf shape. */
+function libVideo(words: string): BM25Index {
+  return buildBM25Index([chunk(0, words, 0)]);
+}
+
 /**
  * A video index whose chunks all share the same ordinary vocabulary, plus
  * one chunk carrying `signature` — the phrase a paragraph could only have
@@ -55,6 +69,7 @@ describe('chooseProseSource', () => {
       'One video breaks the neck into three primary string pairs — the main lanes where patterns repeat cleanly.',
       sources.keys(),
       sources,
+      NO_LIBRARY,
     );
 
     expect(decision.attach).toBe(true);
@@ -81,6 +96,7 @@ describe('chooseProseSource', () => {
       'The note the fifth position hands off to is the same note the first position started on, twelve frets later.',
       sources.keys(),
       sources,
+      NO_LIBRARY,
     );
 
     expect(decision.attach).toBe(false);
@@ -104,6 +120,7 @@ describe('chooseProseSource', () => {
       'Power chords are neither major nor minor, so the same shape works on top of almost any chord.',
       sources.keys(),
       sources,
+      NO_LIBRARY,
     );
 
     expect(decision.attach).toBe(false);
@@ -126,6 +143,7 @@ describe('chooseProseSource', () => {
       'One video breaks the neck into three primary string pairs — the main lanes where patterns repeat cleanly.',
       sources.keys(),
       sources,
+      NO_LIBRARY,
     );
     expect(attached.attach).toBe(true);
 
@@ -134,13 +152,14 @@ describe('chooseProseSource', () => {
       'The note the fifth position hands off to is the same note the first position started on.',
       sources.keys(),
       sources,
+      NO_LIBRARY,
     );
     expect(declined.attach).toBe(false);
   });
 
   it('declines rather than throwing when a source has no stored index', () => {
     const sources = new Map<string, BM25Index>();
-    const decision = chooseProseSource('anything at all', ['vidA', 'vidB'], sources);
+    const decision = chooseProseSource('anything at all', ['vidA', 'vidB'], sources, NO_LIBRARY);
     expect(decision.attach).toBe(false);
     if (decision.attach) return;
     expect(decision.reason).toBe('no-candidate');
@@ -148,19 +167,79 @@ describe('chooseProseSource', () => {
 
   it('declines empty text', () => {
     const sources = new Map<string, BM25Index>([['vidA', makeVideo({ signature: 'anything' })]]);
-    expect(chooseProseSource('   ', sources.keys(), sources).attach).toBe(false);
+    expect(chooseProseSource('   ', sources.keys(), sources, NO_LIBRARY).attach).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------
+  // Library-rarity gate — the fix for the defect an independent review
+  // found: within-video rarity alone lets ordinary vocabulary ("will",
+  // "change", "scale", "any" in the real case) clear the evidence floor
+  // whenever it happens to be said only once in a short winning video.
+  // ---------------------------------------------------------------------
+
+  it('declines a term that clears the within-video floor but is common across the rest of the library', () => {
+    // `orbital` and `cadence` each occur once in the winning video's 20
+    // chunks (within-video-rare) but recur across the wider library, same
+    // shape as the real defect. Only `tremolo` and `shimmer` are rare BOTH
+    // places — one short of the floor once the library is considered.
+    const winner = makeVideo({ signature: 'orbital cadence tremolo shimmer', signatureAt: 5 });
+    const sources = new Map<string, BM25Index>([['winner', winner]]);
+    const library = new Map<string, BM25Index>([
+      ['winner', winner],
+      ['lib1', libVideo('orbital cadence')],
+      ['lib2', libVideo('orbital cadence')],
+      ['lib3', libVideo('orbital other words entirely')],
+    ]);
+
+    // Without library context, this exact paragraph attaches — the four
+    // terms are all within-video-rare and there is no runner-up to beat.
+    const withoutLibrary = chooseProseSource(
+      'orbital cadence tremolo shimmer',
+      sources.keys(),
+      sources,
+      NO_LIBRARY,
+    );
+    expect(withoutLibrary.attach).toBe(true);
+
+    // With the wider library, `orbital` (3/3 other videos) and `cadence`
+    // (2/3) are filtered out — only `tremolo` and `shimmer` (0/3) survive,
+    // one short of MIN_DISTINCTIVE_SHARED.
+    const decision = chooseProseSource('orbital cadence tremolo shimmer', sources.keys(), sources, library);
+    expect(decision.attach).toBe(false);
+    if (decision.attach) return;
+    expect(decision.reason).toBe('too-few-distinctive-terms');
+    expect(decision.distinctive).toBe(2);
+  });
+
+  it('still attaches when the within-video-distinctive terms are also rare across the library', () => {
+    const winner = makeVideo({ signature: 'orbital cadence tremolo shimmer', signatureAt: 5 });
+    const sources = new Map<string, BM25Index>([['winner', winner]]);
+    // A real library where none of the four terms recur anywhere else —
+    // the gate must not punish genuine distinctiveness just for having a
+    // wider population to check against.
+    const library = new Map<string, BM25Index>([
+      ['winner', winner],
+      ['lib1', libVideo('completely different vocabulary')],
+      ['lib2', libVideo('nothing overlapping here either')],
+    ]);
+
+    const decision = chooseProseSource('orbital cadence tremolo shimmer', sources.keys(), sources, library);
+    expect(decision.attach).toBe(true);
+    if (!decision.attach) return;
+    expect(decision.distinctiveTerms.sort()).toEqual(['cadence', 'orbital', 'shimmer', 'tremolo']);
   });
 
   // The thresholds ARE the design, and they were tuned by reading every
   // attachment they make against the passage it matched. Pinning them means a
-  // future edit to any of the three has to be a deliberate one that shows up
+  // future edit to any of the four has to be a deliberate one that shows up
   // in a diff, rather than a quiet drift in what this pipeline is willing to
   // claim a video said.
   it('pins the confidence bar', () => {
     expect(PROSE_AUTO_CITE).toEqual({
-      MIN_DISTINCTIVE_SHARED: 4,
+      MIN_DISTINCTIVE_SHARED: 3,
       SHARED_TERM_MARGIN: 1.4,
       MIN_SCORE: 8,
+      LIBRARY_DF_RATIO: 0.4,
     });
   });
 });

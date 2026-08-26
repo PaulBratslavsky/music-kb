@@ -883,6 +883,47 @@ export function findEvidenceForQuote(
   };
 }
 
+/**
+ * Whether `term` is rare enough across a WIDER set of indexes — how many of
+ * them contain it AT ALL, not how often it recurs inside any one — to still
+ * count as distinctive once corpus-wide rarity is considered.
+ *
+ * `distinctiveTerms` above only answers "is this term rare INSIDE the video
+ * it matched", which a short quote can clear on any video with few chunks
+ * while the term is everyday vocabulary the rest of the library uses
+ * constantly: on a 20-chunk video, "will", "scale", "any" all appear in one
+ * chunk out of twenty (df ≤ `DISTINCTIVE_DF_RATIO`) and still say nothing
+ * about which video a paragraph came from, because a wide swath of the
+ * OTHER videos say them too. This is the second half of "distinctive" — see
+ * `chooseProseSource`, which requires a term to clear BOTH bars before
+ * trusting it as evidence.
+ *
+ * `otherIndexes` should exclude the video `term` matched in — the question
+ * is whether OTHER sources also say it, not whether the winner does (it
+ * always does; that is what made it a shared term in the first place). An
+ * empty `otherIndexes` — nothing else to compare against — is vacuously
+ * distinctive: the same stance `chooseProseSource` takes on its margin
+ * check when there is no runner-up, no competing population means no
+ * verdict to make.
+ */
+export function isLibraryDistinctive(
+  term: string,
+  otherIndexes: readonly BM25Index[],
+  maxRatio: number,
+): boolean {
+  if (otherIndexes.length === 0) return true;
+  // Same 1e-9 slack as distinctiveIdfFloor, for the same reason: a count
+  // sitting exactly on the ceiling must not flip on a float rounding bit.
+  const ceiling = maxRatio * otherIndexes.length + 1e-9;
+  let df = 0;
+  for (const index of otherIndexes) {
+    if (index.idf[term] === undefined) continue;
+    df += 1;
+    if (df > ceiling) return false;
+  }
+  return true;
+}
+
 // Parse a `mm:ss`, `h:mm:ss`, or bare-seconds string into seconds.
 // Mirrors parseTcToSeconds in TimecodeMarkdown — kept here to avoid a
 // dependency from services → components.
