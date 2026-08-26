@@ -5,10 +5,9 @@
 // of the lesson readable, where throwing would blank the page. Same stance
 // chat-stream.ts takes toward unknown SSE events.
 
-import { useMemo, useState } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Link } from '@tanstack/react-router';
 import { Step } from './Step';
 import { MiniNeck, type NeckDot } from './MiniNeck';
 import { MiniKeyboard } from './MiniKeyboard';
@@ -28,6 +27,12 @@ import type {
   LessonParameter,
   LessonSourceVideo,
 } from '#/lib/services/lessons';
+import {
+  citationStartSec,
+  formatCitationTime,
+  sameCitation,
+  type LessonCitation,
+} from '#/lib/lesson/citation';
 import { PITCH_CLASSES } from '@music-kb/music/types';
 
 const PITCH_OPTIONS = PITCH_CLASSES;
@@ -138,10 +143,34 @@ export function deriveCitationSuppression(blocks: LessonBlock[]): boolean[] {
   });
 }
 
+// -- Citation → panel wiring -------------------------------------------------
+//
+// Every citation in the body is a button that loads its video into the
+// lesson page's right-hand panel (LessonVideoPanel), replacing the
+// `target="_blank"` link this used to be. Context rather than props
+// because citations render six levels down through Block/BlockFooter and
+// threading two more parameters through each case is how they drift.
+//
+// The default is a no-op handler, NOT a different rendering path: a
+// citation is a <button> whether or not a panel is listening. One path
+// means what the tests exercise is what ships — a second, link-shaped
+// branch is exactly how a surface goes quietly unused here.
+type CitationSelection = {
+  onSelect: (citation: LessonCitation) => void;
+  /** The citation currently loaded in the panel, so the one that is
+   *  playing can be marked. Null when nothing is loaded. */
+  active: LessonCitation | null;
+};
+
+const NO_SELECTION: CitationSelection = { onSelect: () => {}, active: null };
+const CitationSelectionContext = createContext<CitationSelection>(NO_SELECTION);
+
 export function LessonBody({
   blocks,
   parameter,
   sourceVideos = [],
+  onCitationSelect,
+  activeCitation = null,
 }: Readonly<{
   blocks: LessonBlock[];
   parameter: LessonParameter | null;
@@ -150,8 +179,21 @@ export function LessonBody({
    * `source.videoId` into a real title + link; a citation naming a video
    * not in this set renders nothing rather than a broken link. */
   sourceVideos?: LessonSourceVideo[];
+  /** Called when the reader clicks a citation or a `lesson.video-ref`.
+   *  The lesson route hands this to LessonVideoPanel. */
+  onCitationSelect?: (citation: LessonCitation) => void;
+  /** What the panel is currently playing, for the "you are here" mark. */
+  activeCitation?: LessonCitation | null;
 }>) {
   const [paramValue, setParamValue] = useState(parameter?.default ?? 'C');
+
+  const citationSelection = useMemo<CitationSelection>(
+    () => ({
+      onSelect: onCitationSelect ?? NO_SELECTION.onSelect,
+      active: activeCitation,
+    }),
+    [onCitationSelect, activeCitation],
+  );
 
   // Only videos with a known title are lookup-able — a citation for a
   // video we can't title is treated the same as one outside the lesson's
@@ -174,20 +216,22 @@ export function LessonBody({
     // clearly bigger than the gap-1 used *inside* a block (prose/diagram/
     // table to its own caption or citation) — otherwise a citation floats
     // ambiguously between the block above it and the block below.
-    <div className="flex flex-col gap-10">
-      {blocks.map((b, i) => (
-        <Block
-          key={`${b.__component}-${b.id}`}
-          block={b}
-          parameter={parameter}
-          paramValue={paramValue}
-          onParamChange={setParamValue}
-          sourceVideoMap={sourceVideoMap}
-          stepHeadingLevel={sectionLevels[i] === 'h3' ? 'h4' : 'h3'}
-          suppressCitation={citationSuppressed[i]}
-        />
-      ))}
-    </div>
+    <CitationSelectionContext.Provider value={citationSelection}>
+      <div className="flex flex-col gap-10">
+        {blocks.map((b, i) => (
+          <Block
+            key={`${b.__component}-${b.id}`}
+            block={b}
+            parameter={parameter}
+            paramValue={paramValue}
+            onParamChange={setParamValue}
+            sourceVideoMap={sourceVideoMap}
+            stepHeadingLevel={sectionLevels[i] === 'h3' ? 'h4' : 'h3'}
+            suppressCitation={citationSuppressed[i]}
+          />
+        ))}
+      </div>
+    </CitationSelectionContext.Provider>
   );
 }
 
@@ -201,15 +245,19 @@ export function LessonBody({
 //
 // `source` is `{ videoId, timeSec? }` (lesson.source component); timeSec
 // is optional (BM25 grounding deliberately omits it when there's no
-// confident match) and must never serialize as a literal `t=undefined`.
+// confident match) and must never reach the player or a URL as
+// `undefined` — citationStartSec is the one place that is decided.
 //
-// `target="_blank"` deliberately, not a same-tab TanStack `Link` nav:
-// lessons are meant to be self-contained — the reader should never get
-// thrown out of the lesson mid-read to go look at a citation. A citation
-// opens alongside the lesson, never in place of it. TanStack Router's Link
-// itself honors `target` (skips its own preventDefault/client-nav when
-// target !== '_self', see node_modules/@tanstack/react-router link.js),
-// so this is just letting the browser do native new-tab navigation.
+// A <button>, not a link. It used to be a `target="_blank"` Link, added
+// so that following a citation would not throw the reader out of a
+// lesson mid-read. The right-hand video panel is the real answer to that
+// and supersedes it: the citation loads the video in place, beside the
+// paragraph making the claim. The "I do want to leave" affordances moved
+// with it, into the panel (Open on YouTube / Open in library).
+//
+// The grounded timestamp is now printed, not hidden in an href. It is the
+// thing that makes a citation checkable rather than asserted, and it was
+// invisible for as long as it only lived in a query string.
 function SourceNote({
   source,
   sourceVideoMap,
@@ -222,6 +270,7 @@ function SourceNote({
    *  `source` data is untouched; this only skips the render. */
   suppressed?: boolean;
 }>) {
+  const { onSelect, active } = useContext(CitationSelectionContext);
   if (suppressed) return null;
   if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
   const record = source as Record<string, JsonValue>;
@@ -230,19 +279,26 @@ function SourceNote({
   const video = sourceVideoMap.get(videoId);
   if (!video) return null;
   const timeSec = typeof record.timeSec === 'number' ? record.timeSec : undefined;
+  const citation: LessonCitation = { videoId, timeSec };
+  const isActive = sameCitation(citation, active);
   return (
-    <p className="flex items-center gap-1.5 text-[11px] text-[var(--ink-muted)]">
+    <p className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-[var(--ink-muted)]">
       <span className="font-medium uppercase tracking-wide">Source</span>
-      <Link
-        to="/learn/$videoId"
-        params={{ videoId }}
-        search={timeSec !== undefined ? { t: timeSec } : undefined}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="hover:underline"
+      <button
+        type="button"
+        onClick={() => onSelect(citation)}
+        aria-current={isActive ? 'true' : undefined}
+        className={`text-left underline decoration-dotted underline-offset-2 hover:text-[var(--accent)] ${
+          isActive ? 'font-medium text-[var(--accent)] decoration-solid' : ''
+        }`}
       >
         {video.videoTitle}
-      </Link>
+        {timeSec !== undefined ? (
+          <span className="ml-1 tabular-nums">
+            {formatCitationTime(citationStartSec(citation))}
+          </span>
+        ) : null}
+      </button>
     </p>
   );
 }
@@ -255,6 +311,36 @@ function SourceNote({
 function Caption({ text }: Readonly<{ text: string }>) {
   if (!text) return null;
   return <p className="text-xs italic text-[var(--ink-soft)]">{text}</p>;
+}
+
+// A `lesson.video-ref` block. Its own component rather than inline in the
+// switch below because it needs useContext, and hooks cannot live inside
+// a switch case.
+function VideoRefButton({
+  videoId,
+  timeSec,
+  label,
+}: Readonly<{ videoId: string; timeSec: number | undefined; label: string }>) {
+  const { onSelect, active } = useContext(CitationSelectionContext);
+  const citation: LessonCitation = { videoId, timeSec };
+  const isActive = sameCitation(citation, active);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(citation)}
+      aria-current={isActive ? 'true' : undefined}
+      className={`self-start text-left text-sm underline ${
+        isActive ? 'font-medium text-[var(--accent)]' : 'text-[var(--ink)]'
+      }`}
+    >
+      {label}
+      {timeSec !== undefined ? (
+        <span className="ml-1.5 text-[var(--ink-muted)] tabular-nums">
+          {formatCitationTime(citationStartSec(citation))}
+        </span>
+      ) : null}
+    </button>
+  );
 }
 
 // -- Block-payload coercion -------------------------------------------------
@@ -691,26 +777,20 @@ function Block({
       );
 
     case 'lesson.video-ref': {
-      // Internal route (/learn/$videoId) via a TanStack Link so the URL
-      // build (params/search) stays type-checked, but `target="_blank"`
-      // so it opens alongside the lesson rather than navigating away from
-      // it — lessons are meant to be self-contained; this is the same
-      // reason diagrams render inline instead of linking out. See the
-      // longer comment on SourceNote above.
+      // Same stance as SourceNote: loads into the lesson's video panel
+      // rather than opening a tab. Note this block does NOT consult
+      // sourceVideoMap — it carries its own videoId and renders even on a
+      // lesson whose `videos` relation is empty, which is why
+      // lessonHasVideoPanel has to check for it separately.
       const videoId = String(block.videoId ?? '');
       if (!videoId) return null;
-      const t = Number(block.timeSec ?? 0);
+      const t = typeof block.timeSec === 'number' ? block.timeSec : undefined;
       return (
-        <Link
-          to="/learn/$videoId"
-          params={{ videoId }}
-          search={t > 0 ? { t } : undefined}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm text-[var(--ink)] underline"
-        >
-          {String(block.label ?? 'Watch this moment')}
-        </Link>
+        <VideoRefButton
+          videoId={videoId}
+          timeSec={t}
+          label={String(block.label ?? 'Watch this moment')}
+        />
       );
     }
 

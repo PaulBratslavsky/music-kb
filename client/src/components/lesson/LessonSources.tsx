@@ -32,7 +32,13 @@ export function LessonSources({
             params={{ videoId: v.youtubeVideoId }}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex gap-3 rounded-xl border border-[var(--line)] bg-[var(--card)] p-3 transition hover:border-[var(--line-strong)]"
+            // `min-w-0` on the card itself, not just on the title inside
+            // it: as a grid item the card defaults to `min-width: auto`,
+            // so a long video title pushed it past the column and the
+            // whole page scrolled sideways on a phone (532px of content
+            // in a 390px viewport). The inner `truncate` could never fire
+            // because the box it was truncating into kept growing.
+            className="flex min-w-0 gap-3 rounded-xl border border-[var(--line)] bg-[var(--card)] p-3 transition hover:border-[var(--line-strong)]"
           >
             {v.videoThumbnailUrl && (
               <img

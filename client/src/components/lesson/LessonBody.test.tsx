@@ -1,40 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { LessonBody } from './LessonBody';
 import type { LessonBlock, LessonSourceVideo } from '#/lib/services/lessons';
 
-// LessonBody's video-ref block renders a TanStack `Link`, which needs a
-// live RouterProvider to resolve `useRouter()` — overkill for a unit test
-// of block rendering. Stub it down to the plain <a> it produces, matching
-// how strapi-client is mocked elsewhere in this suite.
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({
-    to,
-    params,
-    search,
-    children,
-    ...rest
-  }: {
-    to: string;
-    params?: Record<string, string>;
-    search?: Record<string, string | number> | undefined;
-    children?: ReactNode;
-  }) => {
-    const path = to.replace(/\$([a-zA-Z0-9_]+)/g, (_, key) => String(params?.[key] ?? ''));
-    const qs = search
-      ? `?${Object.entries(search)
-          .map(([k, v]) => `${k}=${v}`)
-          .join('&')}`
-      : '';
-    return (
-      <a href={`${path}${qs}`} {...rest}>
-        {children}
-      </a>
-    );
-  },
-}));
+// No `@tanstack/react-router` mock any more, and that absence is the
+// point: LessonBody no longer renders a Link anywhere. Citations and
+// video-refs are buttons that load the lesson's video panel in place, so
+// nothing in this file needs a router to resolve a `to`.
 
 const block = (b: Partial<LessonBlock> & { __component: string }): LessonBlock =>
   ({ id: 1, ...b }) as LessonBlock;
@@ -67,7 +40,8 @@ describe('LessonBody', () => {
     expect(screen.getByRole('heading', { name: 'Part one' })).toBeTruthy();
   });
 
-  it('renders a video-ref block as a link into the player', () => {
+  it('loads a video-ref block into the panel instead of navigating anywhere', () => {
+    const onCitationSelect = vi.fn();
     render(
       <LessonBody
         blocks={[
@@ -79,14 +53,20 @@ describe('LessonBody', () => {
           }),
         ]}
         parameter={null}
+        onCitationSelect={onCitationSelect}
       />,
     );
-    const link = screen.getByRole('link', { name: 'See it played' });
-    expect(link.getAttribute('href')).toBe('/learn/abc123?t=90');
-    // Lessons are self-contained — a citation must open alongside the
-    // lesson, never navigate away from it in the same tab.
-    expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    // A button, not a link: the lesson stays put and the video loads in
+    // the panel beside it. Nothing here navigates.
+    expect(screen.queryByRole('link', { name: /See it played/ })).toBeNull();
+    const button = screen.getByRole('button', { name: /See it played/ });
+    // The grounded timestamp is visible, not buried in an href.
+    expect(button.textContent).toContain('1:30');
+    fireEvent.click(button);
+    expect(onCitationSelect).toHaveBeenCalledWith({
+      videoId: 'abc123',
+      timeSec: 90,
+    });
   });
 
   it('renders nothing for an unknown block instead of throwing', () => {
@@ -488,7 +468,8 @@ describe('LessonBody', () => {
       videoThumbnailUrl: null,
     };
 
-    it('renders a link to the right video at the right time', () => {
+    it('hands the panel the right video at the right time, without navigating', () => {
+      const onCitationSelect = vi.fn();
       render(
         <LessonBody
           blocks={[
@@ -500,16 +481,24 @@ describe('LessonBody', () => {
           ]}
           parameter={null}
           sourceVideos={[knownVideo]}
+          onCitationSelect={onCitationSelect}
         />,
       );
-      const link = screen.getByRole('link', { name: 'Drop D Basics' });
-      expect(link.getAttribute('href')).toBe('/learn/vid123?t=42');
-      // Citations open alongside the lesson, never in place of it.
-      expect(link.getAttribute('target')).toBe('_blank');
-      expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+      // No anchor at all — the citation loads the video in the lesson's
+      // panel rather than sending the reader to another page or tab.
+      expect(screen.queryByRole('link')).toBeNull();
+      const cite = screen.getByRole('button', { name: /Drop D Basics/ });
+      // The BM25-grounded second is on the page, not only in a URL.
+      expect(cite.textContent).toContain('0:42');
+      fireEvent.click(cite);
+      expect(onCitationSelect).toHaveBeenCalledWith({
+        videoId: 'vid123',
+        timeSec: 42,
+      });
     });
 
-    it('renders without a timestamp and does not link to t=undefined when timeSec is absent', () => {
+    it('selects the video with no timeSec — and never prints or passes undefined — when grounding declined to guess', () => {
+      const onCitationSelect = vi.fn();
       render(
         <LessonBody
           blocks={[
@@ -522,11 +511,37 @@ describe('LessonBody', () => {
           ]}
           parameter={null}
           sourceVideos={[knownVideo]}
+          onCitationSelect={onCitationSelect}
         />,
       );
-      const link = screen.getByRole('link', { name: 'Drop D Basics' });
-      expect(link.getAttribute('href')).toBe('/learn/vid123');
-      expect(link.getAttribute('href')).not.toContain('undefined');
+      const cite = screen.getByRole('button', { name: /Drop D Basics/ });
+      expect(cite.textContent).not.toContain('undefined');
+      expect(cite.textContent).not.toMatch(/\d+:\d\d/);
+      fireEvent.click(cite);
+      expect(onCitationSelect).toHaveBeenCalledWith({
+        videoId: 'vid123',
+        timeSec: undefined,
+      });
+    });
+
+    it('marks the citation the panel is currently playing, and only that one', () => {
+      render(
+        <LessonBody
+          blocks={[
+            { ...block({ __component: 'lesson.prose', body: 'claim one', source: { videoId: 'vid123', timeSec: 42 } }), id: 1 },
+            { ...block({ __component: 'lesson.heading', text: 'Break', level: 'h2' }), id: 2 },
+            { ...block({ __component: 'lesson.prose', body: 'claim two', source: { videoId: 'vid123', timeSec: 900 } }), id: 3 },
+          ]}
+          parameter={null}
+          sourceVideos={[knownVideo]}
+          onCitationSelect={vi.fn()}
+          activeCitation={{ videoId: 'vid123', timeSec: 900 }}
+        />,
+      );
+      const cites = screen.getAllByRole('button', { name: /Drop D Basics/ });
+      expect(cites).toHaveLength(2);
+      expect(cites[0].getAttribute('aria-current')).toBeNull();
+      expect(cites[1].getAttribute('aria-current')).toBe('true');
     });
 
     it('does not render a broken link for a video outside the lesson source set', () => {
@@ -645,7 +660,7 @@ describe('LessonBody', () => {
           sourceVideos={[videoA]}
         />,
       );
-      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Video A/ })).toHaveLength(1);
     });
 
     it('shows the citation again when the timestamp is far enough away to be a different moment', () => {
@@ -673,7 +688,7 @@ describe('LessonBody', () => {
           sourceVideos={[videoA]}
         />,
       );
-      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /Video A/ })).toHaveLength(2);
     });
 
     it('shows the citation again for a different video', () => {
@@ -701,8 +716,8 @@ describe('LessonBody', () => {
           sourceVideos={[videoA, videoB]}
         />,
       );
-      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(1);
-      expect(screen.getAllByRole('link', { name: 'Video B' })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Video A/ })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Video B/ })).toHaveLength(1);
     });
 
     it('does not suppress across a block with no citation of its own — the run breaks', () => {
@@ -731,7 +746,7 @@ describe('LessonBody', () => {
           sourceVideos={[videoA]}
         />,
       );
-      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /Video A/ })).toHaveLength(2);
     });
 
     it('a run of many identical citations collapses to exactly one', () => {
@@ -744,7 +759,7 @@ describe('LessonBody', () => {
         id: i + 1,
       }));
       render(<LessonBody blocks={blocks} parameter={null} sourceVideos={[videoA]} />);
-      expect(screen.getAllByRole('link', { name: 'Video A' })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Video A/ })).toHaveLength(1);
     });
   });
 
