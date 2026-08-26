@@ -1,19 +1,36 @@
 // Chooses which model backs AI lesson generation: a frontier Anthropic
 // model when ANTHROPIC_API_KEY is configured, the existing local Ollama
-// path otherwise. This is the ONLY place that choice is made —
-// lesson-generation.ts calls resolveLessonModel() once and uses whatever it
-// gets back; it never branches on tier itself except to pick which
-// friendly-error mapper applies to a failure (see anthropic-errors.ts /
-// ollama-errors.ts). Both tiers run through the exact same staged pipeline,
-// so a frontier lesson and a local lesson are comparable, not divergent
-// code paths.
+// path otherwise. Lesson generation is the ONE documented exception to
+// local-first (CLAUDE.md, decided 2026-08-21); every other AI surface is
+// resolved by `resolveModel(surface)` in model-policy.ts, whose return type
+// cannot be frontier.
+//
+// THIS IS THE ONLY MODULE IN THE APP THAT IMPORTS @tanstack/ai-anthropic AS
+// A VALUE, and the only module that reads ANTHROPIC_API_KEY. That is the
+// enforcement mechanism for the local-first rule, and it is not a
+// convention: model-policy.test.ts pins (a) that this file is the sole
+// value-importer of the Anthropic adapter, (b) that model-policy.ts imports
+// it type-only, and (c) that `resolveLessonModel` has exactly one importer,
+// lesson-generation.ts. Widening the exception therefore takes a code change
+// in two named modules and turns a test red — which is the "same kind of
+// evidence" bar CLAUDE.md sets, mechanised.
+//
+// lesson-generation.ts calls resolveLessonModel() once per run and uses
+// whatever it gets back; it never branches on tier itself — the friendly-
+// error mapper and the modelOptions shape are members OF the returned
+// object, so the wrong pairing is unrepresentable. Both tiers run through
+// the exact same staged pipeline, so a frontier lesson and a local lesson
+// are comparable, not divergent code paths.
 //
 // Security: ANTHROPIC_API_KEY is read once, here, via env.ts (server-side
 // only — this module is never imported from a client component, same
 // boundary STRAPI_API_TOKEN already relies on in strapi-client.ts). The
-// key itself never appears in `LessonModel` — only the constructed adapter
-// (which the @tanstack/ai-anthropic SDK closes over internally), the tier,
-// and the model id. Never log the key. Never return it.
+// key never appears as a property of the returned model — only the
+// constructed adapter (which the @tanstack/ai-anthropic SDK closes over
+// internally), the tier, and the model id. The adapter's internal client
+// DOES hold the raw key at `.client.apiKey`, so the frontier object carries
+// `toJSON` + a custom-inspect hook to keep `console.log(model)` from
+// traversing into it. Never log the key. Never return it.
 //
 // `@tanstack/ai-anthropic` is pinned at 0.16.6, NOT the 0.17.0 the original
 // brief for this feature named — 0.17.0 declares a peer of
@@ -30,17 +47,14 @@ import {
   createAnthropicChat,
   type AnthropicChatModel,
 } from '@tanstack/ai-anthropic';
-import { createOllamaChat } from '@tanstack/ai-ollama';
-import type { AnyTextAdapter } from '@tanstack/ai';
-import { ANTHROPIC_API_KEY, LESSON_MODEL, OLLAMA_HOST, OLLAMA_MODEL } from '#/lib/env';
-
-export type ModelTier = 'frontier' | 'local';
-
-export type LessonModel = {
-  adapter: AnyTextAdapter;
-  tier: ModelTier;
-  model: string;
-};
+import { ANTHROPIC_API_KEY, LESSON_MODEL } from '#/lib/env';
+import { friendlyAnthropicError } from '#/lib/services/anthropic-errors';
+import {
+  LESSON_LOCAL_MODEL,
+  localModel,
+  type FrontierModel,
+  type ResolvedModel,
+} from '#/lib/services/model-policy';
 
 const DEFAULT_FRONTIER_MODEL: AnthropicChatModel = 'claude-sonnet-5';
 
@@ -65,22 +79,48 @@ function resolveFrontierModel(): AnthropicChatModel {
 
 /**
  * Frontier when ANTHROPIC_API_KEY is set, else local Ollama. The ONLY place
- * this decision is made.
+ * this decision is made, and the ONLY place in the app that constructs an
+ * Anthropic adapter.
+ *
+ * NEVER call `createAnthropicChat(model, undefined)` to "fall back". The
+ * vendored @anthropic-ai/sdk's constructor does
+ * `if (apiKey === undefined) apiKey = readEnv('ANTHROPIC_API_KEY') ?? null`
+ * (client.mjs:71), so an undefined key yields a *working* frontier client
+ * off the ambient environment. The `if (ANTHROPIC_API_KEY)` below IS the
+ * tier gate; nothing may construct that adapter outside it.
  */
-export function resolveLessonModel(): LessonModel {
+export function resolveLessonModel(): ResolvedModel {
   if (ANTHROPIC_API_KEY) {
     const model = resolveFrontierModel();
-    return {
-      adapter: createAnthropicChat(model, ANTHROPIC_API_KEY),
+    const frontier: FrontierModel = {
       tier: 'frontier',
+      adapter: createAnthropicChat(model, ANTHROPIC_API_KEY),
       model,
+      // Frontier: send NO sampling knobs. Newer Anthropic models reject
+      // `temperature` outright — claude-sonnet-5 answers a request carrying
+      // it with `400 invalid_request_error: \`temperature\` is deprecated
+      // for this model.`, which fails the whole generation. The local twin
+      // still needs it, so the knob is tier-specific rather than dropped
+      // everywhere. `temperature` is accepted and deliberately unused.
+      modelOptions: () => ({}),
+      // Tier-paired by construction: the object that carries the frontier
+      // adapter is the object that carries the non-echoing mapper, so there
+      // is no `tier` value left for a caller to pair wrongly.
+      friendlyError: (raw: string) => friendlyAnthropicError(redactAnthropicKey(raw)),
+      redact: redactAnthropicKey,
+      // The adapter closes over a live `Anthropic` client whose `.apiKey`
+      // property holds the raw key, reachable at depth 2 — so a bare
+      // `console.log(model)` or a `logPhase(..., { model })` typo would
+      // print it (verified: util.inspect(adapter, {depth: 2}) contains the
+      // key). redactAnthropicKey cannot help there; it scrubs strings and
+      // this is object traversal. These two hooks make the resolved object
+      // safe to log by any route, and model-policy.test.ts pins it.
+      toJSON: () => ({ tier: 'frontier', model }),
+      [Symbol.for('nodejs.util.inspect.custom')]: () => `FrontierModel(${model})`,
     };
+    return frontier;
   }
-  return {
-    adapter: createOllamaChat(OLLAMA_MODEL, OLLAMA_HOST),
-    tier: 'local',
-    model: OLLAMA_MODEL,
-  };
+  return localModel(LESSON_LOCAL_MODEL);
 }
 
 /**
