@@ -13,12 +13,15 @@
 //     to MCP clients; only the app's own zod instance survives the MCP
 //     SDK's cross-instance schema conversion with `.describe()` text
 //     intact.
-//   - ADDED here, per tool: the output schema, a `title`, and an `access`
-//     tier (read|write|maintenance) mapping to a custom admin permission.
+//   - ADDED here, per tool: the output schema, a `title`, and the custom
+//     admin action that gates it — `api::music-kb-mcp.tool.<name>`, one per
+//     tool, derived from the tool's own name in ./permissions.ts. The
+//     catalog's `access` tier is NOT consulted here; it only groups the
+//     tool's checkbox under a heading in the admin UI.
 import { z } from 'zod';
 import type { Core } from '@strapi/strapi';
 import type { ToolDef } from './registry';
-import { MCP_ACTIONS } from './permissions';
+import { mcpToolAction } from './permissions';
 
 type RegisterTool = Core.Strapi['ai']['mcp']['registerTool'];
 
@@ -27,10 +30,12 @@ export type DomainTool = {
   tool: ToolDef<any, any>;
   /** Short human title (the official API requires it; ToolDef has only name). */
   title: string;
-  /** Permission tier → which custom admin action gates the tool.
-   * read = no mutation; write = ordinary data mutation; maintenance =
-   * expensive / external-side-effect / hard-to-undo (reindex, YouTube
-   * fetch, digest). */
+  /** Safety tier — GROUPING ONLY, not a permission. read = no mutation;
+   * write = ordinary data mutation; maintenance = expensive /
+   * external-side-effect / hard-to-undo (reindex, YouTube fetch, digest).
+   * It picks the sub-category heading the tool's checkbox sits under in the
+   * admin Roles / API-token UI (permissions.ts). What actually gates the
+   * tool is its OWN action, `api::music-kb-mcp.tool.<name>`. */
   access: 'read' | 'write' | 'maintenance';
   /**
    * Output schema in zod 3. Defaults to a permissive object (any shape) —
@@ -92,15 +97,16 @@ export function registerDomainTool(
   strapi: Core.Strapi,
   def: DomainTool,
 ): boolean {
-  const { tool, title, access } = def;
+  const { tool, title } = def;
   const input = tool.schema;
   const output = def.output ?? LOOSE_OUTPUT;
-  const action =
-    access === 'maintenance'
-      ? MCP_ACTIONS.MAINTENANCE
-      : access === 'write'
-        ? MCP_ACTIONS.WRITE
-        : MCP_ACTIONS.READ;
+  // ONE ACTION PER TOOL. The `access` tier is grouping/UI metadata only — it
+  // decides which heading the tool's checkbox sits under (see permissions.ts),
+  // never what a token is checked against. A tier action alongside this one
+  // would defeat the whole point: Strapi enables a tool when ANY policy passes,
+  // so a tier grant would re-expose every tool in the tier regardless of the
+  // per-tool boxes.
+  const action = mcpToolAction(tool.name);
 
   try {
     registerTool({

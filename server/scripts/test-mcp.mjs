@@ -9,8 +9,15 @@
 //   export MCP_TEST_TOKEN=<a Strapi ADMIN API token — kind:'admin', see
 //     docs/mcp.md's "Mint an admin token" recipe. A content-API "Full
 //     access" token from Settings > API Tokens is rejected; it isn't
-//     kind:'admin'. Mint via `strapi console` with the music-kb-mcp.read /
-//     .write / .maintenance admin permissions for full coverage.>
+//     kind:'admin'. Permissions are PER TOOL now
+//     (api::music-kb-mcp.tool.<kebab-tool-name>); this harness expects a
+//     token holding every one of them, which docs/mcp.md's recipe grants.>
+//
+//   DO NOT point this at data you care about. RUN_WRITES=1 once overwrote a
+//   real video's summary via saveSummary and the original is gone — that
+//   incident is why permissions are per-tool at all. Run it against a
+//   throwaway database copy (DATABASE_FILENAME=.tmp/scratch.db on a second
+//   port), or leave the write paths skipped.
 //   export MCP_TEST_URL=http://localhost:1350/mcp   (default; NOT /api/mcp
 //     — that hand-rolled endpoint was retired, see ADR 0008)
 //   node server/scripts/test-mcp.mjs
@@ -35,6 +42,9 @@
 //
 // Prints a per-tool PASS/FAIL line and exits non-zero on any failure so the
 // script can wire into a CI gate later.
+
+import fs from 'node:fs';
+import path from 'node:path';
 
 const URL = process.env.MCP_TEST_URL ?? 'http://localhost:1350/mcp';
 const TOKEN = process.env.MCP_TEST_TOKEN;
@@ -171,17 +181,33 @@ await test('notifications/initialized', async () => {
 // silently-skipped registration (see adapter.ts's per-tool try/catch —
 // this exact failure mode took down a tool during this branch's own
 // development, see task-6-report.md) would otherwise pass a subset check.
-const DOMAIN_TOOLS = [
-  // read
-  'libraryStats', 'listVideos', 'searchVideos', 'getMusicData', 'getVideo',
-  'getTranscript', 'searchTranscript', 'findTranscripts', 'crossSearchTranscripts',
-  'listTranscripts', 'aggregateByTag', 'listUntagged', 'listTags', 'relatedVideos',
-  'getReadableArticle', 'verifyCitations', 'listLessons', 'getLesson',
-  // write
-  'saveSummary', 'tagVideo', 'untagVideo', 'saveNote', 'createLesson', 'updateLesson',
-  // maintenance
-  'addVideo', 'fetchTranscript', 'reindexEmbeddings', 'generateDigest',
-];
+//
+// The expected list is READ FROM THE CATALOG, not typed out here. It used to
+// be a hand-written array and it had already rotted — it was missing
+// getLessonAuthoringGuide, so the exact-count assertion failed against a
+// perfectly healthy server. A hand-maintained mirror of the tool list is the
+// failure this codebase keeps re-learning; see server/src/mcp/permissions.ts.
+const DOMAIN_TOOLS = readCatalogToolNames();
+
+function readCatalogToolNames() {
+  const mcpDir = path.resolve(import.meta.dirname, '../src/mcp');
+  // export const listVideosTool: ToolDef<…> = { name: 'listVideos', …
+  const namesByExport = new Map();
+  for (const file of fs.readdirSync(path.join(mcpDir, 'tools')).filter((f) => f.endsWith('.ts'))) {
+    const source = fs.readFileSync(path.join(mcpDir, 'tools', file), 'utf8');
+    for (const m of source.matchAll(/export const (\w+Tool)\b/g)) {
+      const name = /\bname:\s*'([A-Za-z0-9_]+)'/.exec(source.slice(m.index));
+      if (name) namesByExport.set(m[1], name[1]);
+    }
+  }
+  // { tool: listVideosTool, title: 'List videos', access: 'read' },
+  const catalog = fs.readFileSync(path.join(mcpDir, 'catalog.ts'), 'utf8');
+  const names = [...catalog.matchAll(/\{\s*tool:\s*(\w+),\s*title:/g)].map((m) => namesByExport.get(m[1]));
+  if (names.length === 0 || names.some((n) => !n)) {
+    throw new Error('could not read the tool catalog from server/src/mcp — the parser above needs updating');
+  }
+  return names;
+}
 let toolNames = [];
 await test(`tools/list returns exactly ${DOMAIN_TOOLS.length} domain tools + built-in log`, async () => {
   const r = await rpc('tools/list', {}, 2);

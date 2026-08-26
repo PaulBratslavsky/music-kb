@@ -99,11 +99,15 @@ export default {
     // surface.
     //
     // Served by the OFFICIAL Strapi MCP server (5.47+) at /mcp, gated by
-    // admin API tokens. We register our 24 domain tools on it here, behind
-    // custom admin permissions, via the adapter in `src/mcp/` (which wraps
-    // the tool bodies in `src/mcp/tools/`). The hand-rolled server that used
-    // to serve /api/mcp was retired — see ADR 0008. Must
-    // run in register(), before the MCP server starts.
+    // admin API tokens. We register our 29 domain tools on it here, each
+    // behind its OWN custom admin permission
+    // (`api::music-kb-mcp.tool.<kebab-name>`, derived from the catalog —
+    // see src/mcp/permissions.ts), via the adapter in `src/mcp/` (which
+    // wraps the tool bodies in `src/mcp/tools/`). The hand-rolled server
+    // that used to serve /api/mcp was retired — see ADR 0008. Must run in
+    // register(), before the MCP server starts: it is also where the boot
+    // migration for tokens scoped by the retired read/write/maintenance
+    // tiers gets scheduled.
     // -------------------------------------------------------------------
     await registerOfficialMcpTools(strapi);
   },
