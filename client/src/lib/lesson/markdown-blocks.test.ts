@@ -1067,3 +1067,95 @@ describe('repairs a live run turned up', () => {
     expect((blocks[0].block.rows as string[][])[0]).toHaveLength(8);
   });
 });
+
+// =============================================================================
+// Pitch labels are computed, not trusted — the same rule this project
+// already applies to timecodes. A live audit found 8 of 60 pitch-labelled
+// dots naming the wrong note (13%), clustered on the inner strings where the
+// model miscounts. The position is right in every case; only the name is
+// wrong, so it is corrected (a warning) rather than dropped (an error).
+// =============================================================================
+
+describe('a pitch-labelled dot names the wrong note', () => {
+  it('corrects it in ::diagram explicit mode, keeping the block', () => {
+    // string=3 (D string) fret=5 actually sounds G, not C — one of the
+    // exact positions the live-data audit found mislabelled.
+    const { blocks, issues } = parseLessonMarkdown(
+      ['::diagram{mode=explicit}', '- string=3 fret=5 label=C root', '::'].join('\n'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(blocks[0].block.dots).toEqual([{ string: 3, fret: 5, label: 'G', root: true }]);
+    const warn = warningsOf(issues).find((i) => i.message.includes('wrong pitch'));
+    expect(warn?.message).toContain('sounds G, not C');
+  });
+
+  it('corrects it in ::neck-pattern dots too', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::neck-pattern{}',
+        '- label="Box 1"',
+        '  - string=3 fret=5 label=C',
+        '- label="Box 2"',
+        '  - string=3 fret=10 label=D',
+        '::',
+      ].join('\n'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    const patterns = blocks[0].block.patterns as { dots: { label?: string }[] }[];
+    expect(patterns[0].dots[0].label).toBe('G');
+    expect(patterns[1].dots[0].label).toBe('C');
+    expect(warningsOf(issues).filter((i) => i.message.includes('wrong pitch'))).toHaveLength(2);
+  });
+
+  it('leaves an already-correct pitch label alone — no warning', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      ['::diagram{mode=explicit}', '- string=5 fret=5 label=A root', '::'].join('\n'),
+    );
+    expect(issues).toEqual([]);
+    expect(blocks[0].block.dots).toEqual([{ string: 5, fret: 5, label: 'A', root: true }]);
+  });
+
+  it('understands unicode sharp/flat and ASCII accidentals alike', () => {
+    // string=1 (B string) fret=13 actually sounds C, not the D the model
+    // wrote — check that Db (flat spelling) and D♯/C♯ (unicode) are all
+    // read as pitch claims and checked the same way as plain letters.
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::diagram{mode=explicit}',
+        '- string=1 fret=13 label=D',
+        '- string=1 fret=13 label=D♯',
+        '- string=1 fret=13 label=Db',
+        '::',
+      ].join('\n'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect((blocks[0].block.dots as { label?: string }[]).map((d) => d.label)).toEqual(['C', 'C', 'C']);
+  });
+
+  it('leaves non-pitch labels (scale degrees, intervals) alone even off-position', () => {
+    // "R" for root, "3" and "♭7" for scale degrees are not pitch claims —
+    // there is nothing to check them against, so they must not be touched
+    // even though they are not valid PitchClass spellings.
+    const { blocks, issues } = parseLessonMarkdown(
+      [
+        '::diagram{mode=explicit}',
+        '- string=3 fret=5 label=R root',
+        '- string=3 fret=9 label=3',
+        '- string=3 fret=13 label=♭7',
+        '::',
+      ].join('\n'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(warningsOf(issues).filter((i) => i.message.includes('wrong pitch'))).toEqual([]);
+    expect((blocks[0].block.dots as { label?: string }[]).map((d) => d.label)).toEqual(['R', '3', '♭7']);
+  });
+
+  it('checks against the bass tuning on a bass diagram, not guitar', () => {
+    // string=1 open on bass is D, not the guitar B string's pitch.
+    const { blocks, issues } = parseLessonMarkdown(
+      ['::diagram{mode=explicit instrument=bass}', '- string=1 fret=0 label=B root', '::'].join('\n'),
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(blocks[0].block.dots).toEqual([{ string: 1, fret: 0, label: 'D', root: true }]);
+  });
+});

@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { ToolDef } from '../registry';
-import { LESSON_BLOCK_COMPONENTS, lessonBodySchema, lessonParameterSchema } from './lesson-blocks';
+import { LESSON_BLOCK_COMPONENTS, correctPitchLabels, lessonBodySchema, lessonParameterSchema } from './lesson-blocks';
 import { resolveFreeLessonSlug, resolveLessonVideoDocumentIds, slugifyLessonTitle } from './lesson-utils';
 
 const schema = z
@@ -68,9 +68,13 @@ export const createLessonTool: ToolDef<z.infer<typeof schema>> = {
     'schema can\'t express (e.g. `diagram.stringSet`\'s en-dash separators) and for what makes a lesson worth reading ' +
     'rather than generic filler. ' +
     'NEVER overwrites an existing lesson: if the slug collides, a numeric suffix is appended and the actual slug used is ' +
-    'returned — read it from the result. Defaults `status` to "ai-generated", never "published".',
+    'returned — read it from the result. Defaults `status` to "ai-generated", never "published". ' +
+    'A pitch name at a fret position is computed, not trusted from the block: any `dots[].label` (in `lesson.diagram` or ' +
+    '`lesson.neck-pattern`) that parses as a pitch name and disagrees with what that string/fret actually sounds is ' +
+    'corrected in place before saving — the dot is kept, only the wrong name changes. See `pitchLabelCorrections` in the result.',
   schema,
   execute: async (args, { strapi }) => {
+    const pitchLabelCorrections = correctPitchLabels(args.body);
     const baseSlug = slugifyLessonTitle(args.slug ?? args.title);
     const slugResolution = await resolveFreeLessonSlug(strapi, baseSlug);
     if (slugResolution.status === 'error') return { error: slugResolution.error };
@@ -105,6 +109,7 @@ export const createLessonTool: ToolDef<z.infer<typeof schema>> = {
         status: args.status,
         blockCount: args.body.length,
         videoCount: videoDocumentIds.length,
+        pitchLabelCorrections,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

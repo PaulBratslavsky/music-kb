@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { ToolDef } from '../registry';
-import { LESSON_BLOCK_COMPONENTS, lessonBodySchema, lessonParameterSchema } from './lesson-blocks';
+import { LESSON_BLOCK_COMPONENTS, correctPitchLabels, lessonBodySchema, lessonParameterSchema } from './lesson-blocks';
 import { resolveFreeLessonSlug, resolveLessonVideoDocumentIds, slugifyLessonTitle } from './lesson-utils';
 
 const schema = z
@@ -65,7 +65,8 @@ export const updateLessonTool: ToolDef<z.infer<typeof schema>> = {
   description:
     'Update an existing lesson by documentId. Every provided field replaces the stored value; omitted fields are ' +
     'left unchanged. `body`, if provided, replaces the whole block array (see create_lesson for the block vocabulary ' +
-    'and validation — the same rules apply here). `videos`, if provided, replaces the whole relation.',
+    'and validation, including the pitch-label correction pass reported back as `pitchLabelCorrections` — the same ' +
+    'rules apply here). `videos`, if provided, replaces the whole relation.',
   schema,
   execute: async (args, { strapi }) => {
     const existing = (await strapi.documents('api::lesson.lesson').findOne({
@@ -86,6 +87,7 @@ export const updateLessonTool: ToolDef<z.infer<typeof schema>> = {
     if (args.duration !== undefined) data.duration = args.duration;
     if (args.status !== undefined) data.status = args.status;
     if (args.parameter !== undefined) data.parameter = args.parameter;
+    const pitchLabelCorrections = args.body !== undefined ? correctPitchLabels(args.body) : [];
     if (args.body !== undefined) data.body = args.body;
 
     let resolvedSlug = existing.slug;
@@ -117,6 +119,7 @@ export const updateLessonTool: ToolDef<z.infer<typeof schema>> = {
         lessonDocumentId: updated.documentId,
         slug: updated.slug ?? resolvedSlug,
         updatedFields: Object.keys(data),
+        pitchLabelCorrections,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -35,6 +35,80 @@ const TRIAD_QUALITIES = ['major', 'minor', 'augmented', 'diminished'] as const;
 // detects exactly that mistake and names the fix.
 const STRING_SETS = ['e–B–G', 'B–G–D', 'G–D–A', 'D–A–E'] as const;
 
+// -----------------------------------------------------------------------------
+// Pitch labels are computed, not trusted — same rule as timecodes
+// -----------------------------------------------------------------------------
+//
+// This project already refuses to store a timecode the model produced (BM25-
+// grounded against the real transcript instead — see verifyCitations). A
+// live audit found the same failure mode here: 8 of 60 pitch-labelled neck
+// dots named the wrong note (13%), clustered on the inner strings. The
+// position was always right; only the name was wrong. A pitch name at a
+// fret position is arithmetic, so `correctPitchLabels` below fixes it after
+// schema validation rather than trusting Claude's label — see its own
+// comment for why this lives outside the zod schema.
+//
+// Duplicated rather than imported from
+// @music-kb/music/instruments/guitar/layout.ts (STANDARD_TUNING_MIDI) and
+// bass/layout.ts (STANDARD_BASS_TUNING_MIDI): that package's package.json
+// "exports" map points every subpath straight at its .ts source, which only
+// resolves under TypeScript's "bundler"/"node16" moduleResolution.
+// server/tsconfig.json is "module": "CommonJS" with the default (Node10)
+// resolution — confirmed by actually adding the dependency and running
+// `tsc --noEmit`: it fails with TS2307 ("Cannot find module … Consider
+// updating to 'node16', 'nodenext', or 'bundler'"), and TypeScript refuses
+// "node16" moduleResolution unless "module" is ALSO "Node16", which is a
+// global, unrelated risk to Strapi's own CommonJS compile — out of scope
+// for this fix. These are MIDI note numbers, not a fact that can drift on
+// its own: `pitch-label-parity.test.ts` in the client reads this file as
+// text (the same stance block-vocabulary.test.ts takes — client never
+// imports server/) and asserts they stay equal to the real
+// STANDARD_TUNING_MIDI / STANDARD_BASS_TUNING_MIDI arrays.
+const STANDARD_TUNING_MIDI = [64, 59, 55, 50, 45, 40] as const; // guitar: e B G D A E, string 0 = high e
+const STANDARD_BASS_TUNING_MIDI = [43, 38, 33, 28] as const; // bass: G D A E, string 0 = high G
+
+type NeckInstrument = 'guitar' | 'bass';
+
+const TUNING_MIDI: Record<NeckInstrument, readonly number[]> = {
+  guitar: STANDARD_TUNING_MIDI,
+  bass: STANDARD_BASS_TUNING_MIDI,
+};
+
+/** Natural-letter semitone offsets from C. Sharps/flats adjust by ±1. */
+const NATURAL_SEMITONE: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+/**
+ * The pitch class sounded at `string`/`fret` on the given instrument's
+ * standard tuning — computed by semitone arithmetic, not looked up, so
+ * there is nothing here that could disagree with @music-kb/music's own
+ * tables beyond the tuning arrays above. `null` for a string/fret the
+ * instrument doesn't have; this only refuses to guess, the schema's own
+ * `min`/`max` on `string`/`fret` is what rejects an illegal position.
+ */
+function pitchClassAt(string: number, fret: number, instrument: NeckInstrument): (typeof PITCH_CLASSES)[number] | null {
+  const tuning = TUNING_MIDI[instrument];
+  if (!Number.isInteger(string) || string < 0 || string >= tuning.length) return null;
+  if (!Number.isInteger(fret) || fret < 0) return null;
+  const semitone = (((tuning[string] + fret) % 12) + 12) % 12;
+  return PITCH_CLASSES[semitone];
+}
+
+/**
+ * Is this dot label a PITCH NAME rather than a scale-degree or interval
+ * label? A single letter A–G with an optional accidental — ASCII `#`/`b`
+ * or the unicode ♯/♭ Claude sometimes writes instead. Anything else ("R",
+ * "3", "♭7") is a degree or interval, not a pitch claim, and is left
+ * untouched — only a claim this file can actually verify gets verified.
+ */
+function parsePitchLabel(raw: string): (typeof PITCH_CLASSES)[number] | null {
+  const cleaned = raw.trim().replace('♯', '#').replace('♭', 'b');
+  const match = /^([A-Ga-g])(#|b)?$/.exec(cleaned);
+  if (!match) return null;
+  const accidental = match[2] === '#' ? 1 : match[2] === 'b' ? -1 : 0;
+  const semitone = ((NATURAL_SEMITONE[match[1].toUpperCase()] + accidental) % 12 + 12) % 12;
+  return PITCH_CLASSES[semitone];
+}
+
 const pitchClass = () =>
   z.enum(PITCH_CLASSES).describe('A pitch class: C, C#, D, D#, E, F, F#, G, G#, A, A#, B (sharps only — no flats).');
 
@@ -634,3 +708,69 @@ export const lessonBodySchema = z
     `The lesson content as an ordered array of typed blocks. Each block needs a "__component" naming which kind it is — legal values: ${LESSON_BLOCK_COMPONENTS.join(', ')}. ` +
       'Every field on every block is validated; a bad enum value, an over-length caption, or a block missing a field its render mode needs is rejected with a message naming the block\'s array index and field — fix it and resubmit rather than guessing.',
   );
+
+export type PitchLabelCorrection = {
+  blockIndex: number;
+  component: 'lesson.diagram' | 'lesson.neck-pattern';
+  /** Which pattern pill this dot belongs to — lesson.neck-pattern only. */
+  patternLabel?: string;
+  string: number;
+  fret: number;
+  from: string;
+  to: string;
+};
+
+type NeckDot = z.infer<typeof neckDotSchema>;
+
+function correctDotLabel(dot: NeckDot, instrument: NeckInstrument): { from: string; to: string } | null {
+  if (!dot.label) return null;
+  const claimed = parsePitchLabel(dot.label);
+  if (!claimed) return null;
+  const actual = pitchClassAt(dot.string, dot.fret, instrument);
+  if (!actual || actual === claimed) return null;
+  const from = dot.label;
+  dot.label = actual;
+  return { from, to: actual };
+}
+
+/**
+ * Correct every pitch-labelled dot in a validated lesson body IN PLACE,
+ * returning an audit trail of what changed — the same "repair + overrides"
+ * shape `verifyCitations` already uses for drifted timecodes. Deliberately
+ * NOT part of the zod schema above: a `superRefine` can only ADD issues,
+ * which is how this file's other checks REJECT a block, and a corrected
+ * label is the opposite — the block is kept, only the name changes. Call
+ * this from a tool's `execute()`, after `schema.parse()` has already run
+ * (so `body` is shape-valid), and before writing to Strapi.
+ */
+export function correctPitchLabels(body: z.infer<typeof lessonBodySchema>): PitchLabelCorrection[] {
+  const corrections: PitchLabelCorrection[] = [];
+  body.forEach((block, blockIndex) => {
+    if (block.__component === 'lesson.diagram') {
+      if (block.mode !== 'explicit' || !block.dots) return;
+      for (const dot of block.dots) {
+        const fix = correctDotLabel(dot, block.instrument);
+        if (fix) {
+          corrections.push({ blockIndex, component: block.__component, string: dot.string, fret: dot.fret, ...fix });
+        }
+      }
+    } else if (block.__component === 'lesson.neck-pattern') {
+      for (const pattern of block.patterns) {
+        for (const dot of pattern.dots) {
+          const fix = correctDotLabel(dot, block.instrument);
+          if (fix) {
+            corrections.push({
+              blockIndex,
+              component: block.__component,
+              patternLabel: pattern.label,
+              string: dot.string,
+              fret: dot.fret,
+              ...fix,
+            });
+          }
+        }
+      }
+    }
+  });
+  return corrections;
+}

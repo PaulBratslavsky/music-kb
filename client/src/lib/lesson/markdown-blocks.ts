@@ -85,8 +85,10 @@
 // a stack, and what would let a future shared package hand the same parser
 // to the MCP write tools.
 
-import { PITCH_CLASSES } from '@music-kb/music/types';
+import { PITCH_CLASSES, type PitchClass } from '@music-kb/music/types';
 import { STRING_SETS } from '@music-kb/music/theory/triad-shapes';
+import { normalizePitchClass } from '@music-kb/music/theory/notes';
+import { pitchClassAt } from '@music-kb/music/instruments/neck';
 import {
   asNeckInstrument,
   isOnNeck,
@@ -539,7 +541,26 @@ function readCaption(a: AttrReader, freeText: string, line: number, issues: Pars
   return raw;
 }
 
-function readNeckDot(entry: BodyEntry, issues: ParseIssue[]): NeckDotInput | null {
+/**
+ * Is this dot label a PITCH NAME rather than a scale-degree or interval
+ * label? Matches a single letter A–G with an optional single accidental —
+ * ASCII `#`/`b` or the unicode ♯/♭ the model sometimes writes instead.
+ * Anything else ("R", "3", "♭7", "1") is a degree or interval, not a
+ * pitch, and stays untouched: only a claim this file can actually verify
+ * gets verified.
+ */
+function parsePitchLabel(raw: string): PitchClass | null {
+  const cleaned = raw.trim().replace('♯', '#').replace('♭', 'b');
+  if (!/^[A-Ga-g](#|b)?$/.test(cleaned)) return null;
+  return normalizePitchClass(cleaned[0].toUpperCase() + cleaned.slice(1));
+}
+
+function readNeckDot(
+  entry: BodyEntry,
+  instrument: NeckInstrument,
+  where: string,
+  issues: ParseIssue[],
+): NeckDotInput | null {
   const a = attrReader(entry.attrs, entry.line, issues, 'dot');
   const string = a.int('string', { min: 0, max: 5 });
   const fret = a.int('fret', { min: 0 });
@@ -568,6 +589,27 @@ function readNeckDot(entry: BodyEntry, issues: ParseIssue[]): NeckDotInput | nul
       });
     }
     dot.label = label.slice(0, DOT_LABEL_MAX);
+
+    // A pitch name at a fret position is arithmetic, not a fact the model
+    // gets to assert — the same rule this project already applies to
+    // timecodes (derived by BM25 against the real transcript rather than
+    // trusted from the model). Corrected, not dropped: the position is
+    // already right, only the name is wrong, and this file makes the same
+    // trade for a repairable barre and a fret window that hides its own
+    // dots. Left alone (`actual` null) when the position itself is off the
+    // board — `keepOnBoard` reports that separately.
+    const claimed = parsePitchLabel(dot.label);
+    if (claimed) {
+      const actual = pitchClassAt(string, fret, instrument);
+      if (actual && actual !== claimed) {
+        issues.push({
+          line: entry.line,
+          severity: 'warning',
+          message: `${where}: dot label "${dot.label}" at string=${string} fret=${fret} names the wrong pitch — that position sounds ${actual}, not ${claimed}. Corrected the label; the position was already right.`,
+        });
+        dot.label = actual;
+      }
+    }
   }
   if (root) dot.root = true;
   if (dim) dot.dim = true;
@@ -840,7 +882,7 @@ function buildDiagram(ctx: BuildContext, a: AttrReader): Built {
 
   if (mode === 'explicit') {
     const dots = split.entries
-      .map((e) => readNeckDot(e, issues))
+      .map((e) => readNeckDot(e, neck, '::diagram', issues))
       .filter((d): d is NeckDotInput => d !== null)
       .filter((d) => keepOnBoard(d, neck, '::diagram', line, issues));
     if (dots.length > MAX_DIAGRAM_DOTS) {
@@ -1212,7 +1254,7 @@ function buildNeckPattern(ctx: BuildContext, a: AttrReader): Built {
         });
         continue;
       }
-      const dot = readNeckDot(entry, issues);
+      const dot = readNeckDot(entry, asNeckInstrument(instrument), '::neck-pattern', issues);
       if (dot && keepOnBoard(dot, asNeckInstrument(instrument), '::neck-pattern', entry.line, issues))
         current.dots.push(dot);
       continue;
