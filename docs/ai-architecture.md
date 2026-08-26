@@ -240,11 +240,30 @@ document, two consumers, one drift test in both directions.
 
 5. ~~**`server/` has no test runner.**~~ **Fixed** (2026-08-26). `server/` now
    owns a vitest (`yarn --cwd server test`, wired into the root `yarn test` as
-   the second leg), and `server/src/mcp/tools/lesson-blocks.ts` has 77
-   behavioural tests in `lesson-blocks.test.ts`. Note what shipped, because it
-   is narrower than the entry proposed: **one** test file, importing only its
-   target and vitest — no `strapi` mock, no bootstrap, and the other 28 MCP
-   tools are still covered only end-to-end by `server/scripts/test-mcp.mjs`.
+   the second leg), and `server/src/mcp/tools/lesson-blocks.ts` has 100
+   behavioural tests in `lesson-blocks.test.ts`, plus 3 in
+   `__suite-integrity.test.ts` that fail the run if the suite is deleted or
+   muted (103 total). Note what shipped, because it is narrower than the entry
+   proposed: **one** file under test, its suite importing only that target and
+   vitest — no `strapi` mock, no bootstrap, and the other 28 MCP tools are
+   still covered only end-to-end by `server/scripts/test-mcp.mjs`.
+
+   What the 100 cover, since "the schema has tests" is the easy thing to
+   over-read: the block vocabulary's *refusals*. Every field bound is pinned on
+   **both** sides of its edge (fret 0 legal / −1 not; caption 255 legal / 256
+   not), because a loosened bound still accepts every legal value and a test
+   that only tries an absurd input never notices. Every enum is pinned against
+   a plausible near-miss rather than garbage (`instrument: 'ukulele'`,
+   `pc: 'H'`, `state: 'freted'`), and the theory-mode `superRefine` branches are
+   pinned one test per branch, since deleting either leaves the other passing.
+   Seven refusals are asserted by message *content*, not merely by failing —
+   these messages are read by a model that then has to correct itself, so a
+   refusal that stops naming the legal set (`Legal values: …`) is a real
+   regression even though the block is still rejected. Verified by mutation
+   testing: an adversarial audit ran 40 mutations, of which 19 survived the
+   original 77 tests; each of those 19 is now confirmed to turn this suite red,
+   and the numeric bounds were re-checked against off-by-one loosenings
+   (`.max(5)` → `.max(6)`) rather than only the audit's wider ones.
 
    Two things the runner deliberately did *not* buy. Vitest resolves through
    Vite, which understands `packages/music`'s `exports` map, so a server *test*

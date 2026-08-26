@@ -37,7 +37,7 @@ it is deliberately not a full barrel.
 ## Tests
 
 ```bash
-yarn --cwd packages/music test    # 195 tests
+yarn --cwd packages/music test    # 279 tests
 yarn test                         # from the repo root: this package + server + client + web
 ```
 

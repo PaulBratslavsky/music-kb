@@ -114,7 +114,7 @@ The core function `verifyTimecodesInText` already has tests at `client/src/lib/s
 - Correct citations untouched.
 - Drifted citations rewritten with wrapper style preserved.
 
-When porting to server-side per decision #1, copy those tests to `server/src/services/bm25-search.test.ts` (if/when that file exists — server side has no test infrastructure today, separate concern).
+When porting to server-side per decision #1, copy those tests to `server/src/services/bm25-search.test.ts`. That file does not exist yet, but the blocker named here is gone: `server/` got a vitest on 2026-08-26 (`yarn --cwd server test`, wired into the root `yarn test`), so a server-side port now has somewhere to land. Follow `server/src/mcp/tools/lesson-blocks.test.ts` for the shape the runner supports — a test that imports its target and vitest, with no `strapi` mock and no bootstrap.
 
 The MCP tool wrapper itself can be smoke-tested via `server/scripts/test-mcp.mjs` (the existing manual MCP integration script). Add a fixture: a known video + a draft note with one drifted citation; verify the tool returns the corrected text.
 

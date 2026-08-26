@@ -50,10 +50,10 @@ All run from the **repo root** unless noted.
 ### Tests
 
 ```bash
-yarn test                                      # every suite (1562 tests)
+yarn test                                      # every suite (1592 tests)
 yarn --cwd packages/music test                 # the shared theory layer (279)
-yarn --cwd server test                         # the MCP lesson-block schema (77)
-yarn --cwd client test                         # the KB app (1197)
+yarn --cwd server test                         # the MCP lesson-block schema (103)
+yarn --cwd client test                         # the KB app (1201)
 yarn --cwd web test                            # the companion SPA (9)
 yarn --cwd client test path/to/file.test.ts    # single file
 yarn --cwd client test -t "name fragment"      # filter by test name
@@ -63,7 +63,7 @@ yarn --cwd client test:e2e                     # Playwright smoke (needs stack u
 Unit tests are vitest. **They live in four places**: theory tests in
 `packages/music/src/`, app tests in `client/src/`, SPA tests in `web/src/`,
 and — since 2026-08-26 — server tests in `server/src/`. A bare
-`yarn --cwd client test` silently skips 365 of them — use the root script.
+`yarn --cwd client test` silently skips 391 of them — use the root script.
 The server suite is deliberately small and dependency-free (vitest + the file
 under test, no `strapi` mock, no bootstrap): it executes
 `server/src/mcp/tools/lesson-blocks.ts`, which the five client-side parity
