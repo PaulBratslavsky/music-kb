@@ -1,5 +1,4 @@
 import { chat } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import { z } from 'zod';
 import {
   createTranscriptService,
@@ -38,20 +37,25 @@ import {
 } from '#/lib/services/content-signals';
 import { withRetry } from '#/lib/retry';
 import { fetchYouTubeTranscript } from '#/lib/services/youtube-transcript';
+import { MAP_CONCURRENCY, TRANSCRIPT_PROXY_URL } from '#/lib/env';
 import {
-  MAP_CONCURRENCY,
-  OLLAMA_HOST,
-  OLLAMA_MODEL as SUMMARY_MODEL,
-  OLLAMA_CHAT_MODEL as CHAT_MODEL,
-  TRANSCRIPT_PROXY_URL,
-} from '#/lib/env';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
+  modelIdFor,
+  resolveModel,
+  type LocalModel,
+} from '#/lib/services/model-policy';
 
-// TanStack AI Ollama adapters. Two separate adapters because SUMMARY_MODEL
-// and CHAT_MODEL can differ (you might want a bigger model for summaries
-// and a faster one for chat). Each one keeps its own HTTP client.
-const ollamaAdapter = createOllamaChat(SUMMARY_MODEL, OLLAMA_HOST);
-const ollamaAdapterChat = createOllamaChat(CHAT_MODEL, OLLAMA_HOST);
+// Model bindings come from model-policy.ts, resolved per call rather than
+// once at module scope. Two distinct surface keys because the summary model
+// and the chat model can differ (a bigger model for summaries, a faster one
+// for chat) — 'summary' → OLLAMA_MODEL, 'video-chat' → OLLAMA_CHAT_MODEL.
+// Both are local, permanently: `resolveModel` cannot return anything else.
+//
+// Resolution happens INSIDE each function's existing try. Constructing an
+// Ollama adapter runs `new URL(host)` and throws `TypeError: Invalid URL`
+// on a malformed OLLAMA_BASE_URL; on this fire-and-forget generation path
+// an escape would be an unhandled rejection instead of a
+// `summaryStatus: 'failed'` row. Log lines that run before the try use the
+// pure `modelIdFor(...)` instead.
 
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -466,12 +470,13 @@ async function generateSummarySinglePass(
   const started = performance.now();
   setGenerationStep(transcript.videoId, 'ai', 'single-pass');
   logPhase(transcript.videoId, 'ai → single-pass summary', {
-    model: SUMMARY_MODEL,
+    model: modelIdFor('summary'),
     transcriptChars: transcript.transcript.length,
     estTokens: estimateTokens(transcript.transcript),
   });
 
   try {
+    const model = resolveModel('summary');
     // TanStack AI: `chat({ outputSchema })` activates Ollama's native JSON
     // mode via the adapter, returns the parsed zod-validated object.
     //
@@ -508,7 +513,7 @@ async function generateSummarySinglePass(
     const object = (await withRetry(
       () =>
         chat({
-          adapter: ollamaAdapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: SUMMARY_SYSTEM },
             { role: 'user', content: userPrompt },
@@ -518,7 +523,7 @@ async function generateSummarySinglePass(
           // action steps / section bodies. Ollama default is 1.0, which
           // is great for chat but invites creative drift in structured
           // tasks where we want grounded prose.
-          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         }),
       {
         attempts: 2,
@@ -575,7 +580,7 @@ async function generateSummaryMapReduce(
     transcript.durationSec,
   );
   logPhase(transcript.videoId, 'ai → map-reduce summary', {
-    model: SUMMARY_MODEL,
+    model: modelIdFor('summary'),
     chunks: chunks.length,
     transcriptChars: transcript.transcript.length,
     concurrency: MAP_CONCURRENCY,
@@ -605,7 +610,7 @@ async function generateSummaryMapReduce(
     );
   };
 
-  const processChunk = async (i: number): Promise<void> => {
+  const processChunk = async (i: number, model: LocalModel): Promise<void> => {
     const chunk = chunks[i];
     const mapStart = performance.now();
     inFlightCount += 1;
@@ -629,7 +634,12 @@ async function generateSummaryMapReduce(
     const text = (await withRetry(
       () =>
         chat({
-          adapter: ollamaAdapter,
+          adapter: model.adapter,
+          // NO modelOptions, deliberately: the map step has always run at
+          // Ollama's default temperature. Giving it the sampling it
+          // "should" have is a generation-quality change wearing a
+          // refactor's clothes — if it is wanted, it is its own PR with
+          // its own before/after.
           messages: [
             { role: 'system', content: mapSystem },
             { role: 'user', content: mapUser },
@@ -661,14 +671,19 @@ async function generateSummaryMapReduce(
   // Shared cursor across worker promises. `cursor++` is atomic in JS's
   // single-threaded event loop — no locking needed.
   let cursor = 0;
-  const workers = Array.from({ length: MAP_CONCURRENCY }, async () => {
-    while (true) {
-      const i = cursor++;
-      if (i >= chunks.length) return;
-      await processChunk(i);
-    }
-  });
   try {
+    // One adapter shared by every map worker — resolved here, inside the
+    // try, and threaded down rather than resolved per chat(): per-chat
+    // resolution would give each parallel worker its own Ollama client,
+    // which is a real change to today's behaviour for no benefit.
+    const model = resolveModel('summary');
+    const workers = Array.from({ length: MAP_CONCURRENCY }, async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= chunks.length) return;
+        await processChunk(i, model);
+      }
+    });
     await Promise.all(workers);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'map step failed';
@@ -686,6 +701,7 @@ async function generateSummaryMapReduce(
 
   const displayTitle = meta.title ?? transcript.upstreamTitle;
   try {
+    const model = resolveModel('summary');
     const reduceUser = [
       displayTitle ? `Video title: ${displayTitle}` : null,
       meta.author ? `Channel: ${meta.author}` : null,
@@ -706,7 +722,7 @@ async function generateSummaryMapReduce(
     const object = (await withRetry(
       () =>
         chat({
-          adapter: ollamaAdapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: SUMMARY_SYSTEM },
             { role: 'user', content: reduceUser },
@@ -714,7 +730,7 @@ async function generateSummaryMapReduce(
           outputSchema: SummarySchema,
           // Same low-temp rationale as the single-pass call: structured
           // output + grounding-over-creativity.
-          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         }),
       {
         attempts: 2,
@@ -938,7 +954,7 @@ async function saveSummaryWithScores(args: {
     valueScoreSource: 'model',
     signalScores,
     signalScore,
-    aiModel: SUMMARY_MODEL,
+    aiModel: modelIdFor('summary'),
     transcriptSegments: args.transcriptSegments,
     keyTakeaways: safe.keyTakeaways,
     sections: args.finalSections,
@@ -1414,10 +1430,14 @@ export async function askAboutVideoService(
     const query = extractLatestUserQuery(messages);
     const retrieved = await getChatEvidenceForVideo(video, query);
     const system = buildChatSystemPrompt(video, retrieved);
+    const model = resolveModel('video-chat');
     const text = (await withRetry(
       () =>
         chat({
-          adapter: ollamaAdapterChat,
+          adapter: model.adapter,
+          // NO modelOptions, deliberately — unchanged from before the
+          // per-surface refactor. The streaming twin in api.chat.tsx does
+          // set one; this non-streaming path never has.
           messages: [
             { role: 'system', content: system },
             ...messages,
@@ -1616,21 +1636,22 @@ export async function regenerateVerdictForVideo(
 
   const started = performance.now();
   logPhase(videoId, 'verdict-regen → start', {
-    model: SUMMARY_MODEL,
+    model: modelIdFor('summary'),
     transcriptChars: cleanedTranscript.length,
   });
 
   try {
+    const model = resolveModel('summary');
     const object = (await withRetry(
       () =>
         chat({
-          adapter: ollamaAdapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: VERDICT_SYSTEM },
             { role: 'user', content: userPrompt },
           ] as never,
           outputSchema: VerdictOnlySchema,
-          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         }),
       {
         attempts: 2,

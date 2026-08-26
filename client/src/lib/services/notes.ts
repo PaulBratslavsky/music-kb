@@ -15,8 +15,7 @@
 // whatever the chat happened to surface.
 
 import { chat } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
-import { OLLAMA_HOST, OLLAMA_MODEL } from '#/lib/env';
+import { resolveModel } from '#/lib/services/model-policy';
 import { withRetry } from '#/lib/retry';
 import { strapiFetch, type StrapiQuery } from './strapi-client';
 import {
@@ -26,7 +25,6 @@ import {
 } from './transcript';
 import { fetchTranscriptByVideoIdService, type StrapiVideo } from './videos';
 import { getSkill } from '#/lib/skills';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -137,7 +135,10 @@ export async function deleteNoteService(
 // Summarizer — chat conversation + full transcript → long-form markdown note
 // =============================================================================
 
-const summaryAdapter = createOllamaChat(OLLAMA_MODEL, OLLAMA_HOST);
+// Surface key 'note-summarize' — OLLAMA_MODEL. Deliberately NOT the same
+// key as api.notes.compose.tsx's 'note-compose', which is
+// OLLAMA_SYNTHESIS_MODEL. They are one user-facing feature on two different
+// models, and the difference is invisible on a default .env.
 
 export type ConversationMessage = {
   role: 'user' | 'assistant';
@@ -281,16 +282,17 @@ export async function summarizeConversationToNote(input: {
   const systemPrompt = skill?.notePrompt ?? NOTE_SYSTEM;
 
   try {
+    const model = resolveModel('note-summarize');
     const raw = (await withRetry(
       () =>
         chat({
-          adapter: summaryAdapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ] as never,
           stream: false,
-          modelOptions: samplingOptions(OLLAMA_MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         }),
       { attempts: 2 },
     )) as string;
