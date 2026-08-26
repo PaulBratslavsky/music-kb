@@ -24,6 +24,7 @@ import { Route as ApiAskRouteImport } from './routes/api.ask'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
 import { Route as ApiDigestChatRouteImport } from './routes/api.digest-chat'
 import { Route as ApiLessonPlanRouteImport } from './routes/api.lesson-plan'
+import { Route as ApiLessonPlanVideoRouteImport } from './routes/api.lesson-plan-video'
 import { Route as ApiLessonWriteRouteImport } from './routes/api.lesson-write'
 import { Route as LearnVideoIdRouteImport } from './routes/learn.$videoId'
 import { Route as LessonsIndexRouteImport } from './routes/lessons.index'
@@ -106,6 +107,11 @@ const ApiLessonPlanRoute = ApiLessonPlanRouteImport.update({
   path: '/api/lesson-plan',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLessonPlanVideoRoute = ApiLessonPlanVideoRouteImport.update({
+  id: '/api/lesson-plan-video',
+  path: '/api/lesson-plan-video',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiLessonWriteRoute = ApiLessonWriteRouteImport.update({
   id: '/api/lesson-write',
   path: '/api/lesson-write',
@@ -153,6 +159,7 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/api/lesson-plan': typeof ApiLessonPlanRoute
+  '/api/lesson-plan-video': typeof ApiLessonPlanVideoRoute
   '/api/lesson-write': typeof ApiLessonWriteRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
@@ -176,6 +183,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/api/lesson-plan': typeof ApiLessonPlanRoute
+  '/api/lesson-plan-video': typeof ApiLessonPlanVideoRoute
   '/api/lesson-write': typeof ApiLessonWriteRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
@@ -200,6 +208,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/digest-chat': typeof ApiDigestChatRoute
   '/api/lesson-plan': typeof ApiLessonPlanRoute
+  '/api/lesson-plan-video': typeof ApiLessonPlanVideoRoute
   '/api/lesson-write': typeof ApiLessonWriteRoute
   '/learn/$videoId': typeof LearnVideoIdRoute
   '/lessons/$slug': typeof LessonsSlugRoute
@@ -225,6 +234,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/api/lesson-plan'
+    | '/api/lesson-plan-video'
     | '/api/lesson-write'
     | '/learn/$videoId'
     | '/lessons/$slug'
@@ -248,6 +258,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/api/lesson-plan'
+    | '/api/lesson-plan-video'
     | '/api/lesson-write'
     | '/learn/$videoId'
     | '/lessons/$slug'
@@ -271,6 +282,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/digest-chat'
     | '/api/lesson-plan'
+    | '/api/lesson-plan-video'
     | '/api/lesson-write'
     | '/learn/$videoId'
     | '/lessons/$slug'
@@ -295,6 +307,7 @@ export interface RootRouteChildren {
   ApiChatRoute: typeof ApiChatRoute
   ApiDigestChatRoute: typeof ApiDigestChatRoute
   ApiLessonPlanRoute: typeof ApiLessonPlanRoute
+  ApiLessonPlanVideoRoute: typeof ApiLessonPlanVideoRoute
   ApiLessonWriteRoute: typeof ApiLessonWriteRoute
   LearnVideoIdRoute: typeof LearnVideoIdRoute
   LessonsSlugRoute: typeof LessonsSlugRoute
@@ -410,6 +423,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLessonPlanRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/lesson-plan-video': {
+      id: '/api/lesson-plan-video'
+      path: '/api/lesson-plan-video'
+      fullPath: '/api/lesson-plan-video'
+      preLoaderRoute: typeof ApiLessonPlanVideoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/lesson-write': {
       id: '/api/lesson-write'
       path: '/api/lesson-write'
@@ -471,6 +491,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatRoute: ApiChatRoute,
   ApiDigestChatRoute: ApiDigestChatRoute,
   ApiLessonPlanRoute: ApiLessonPlanRoute,
+  ApiLessonPlanVideoRoute: ApiLessonPlanVideoRoute,
   ApiLessonWriteRoute: ApiLessonWriteRoute,
   LearnVideoIdRoute: LearnVideoIdRoute,
   LessonsSlugRoute: LessonsSlugRoute,

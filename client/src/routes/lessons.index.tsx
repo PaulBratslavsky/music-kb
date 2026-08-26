@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { BackendErrorPanel } from '#/components/BackendErrorPanel';
 import { Button } from '#/components/ui/button';
+import { ProgressStepList } from '#/components/LessonProgressPanel';
 import { listLessons } from '#/data/server-functions/lessons';
 import { streamLessonPlanSSE, streamLessonWriteSSE } from '#/lib/services/lesson-stream';
 import type { LessonPlanFrame } from '#/routes/api.lesson-plan';
@@ -156,175 +157,16 @@ export function SourcesList({ sources }: { sources: SourceVideo[] }) {
 }
 
 // -----------------------------------------------------------------------------
-// Progress rendering — the live step list. Completed steps stay visible with
-// their result (videos found, coverage verdict, outline proposed, per-section
-// block counts, grounding stats) — this is the demo, so nothing here
-// collapses or disappears once it lands.
+// Progress rendering — the live step list. Extracted to
+// #/components/LessonProgressPanel so the single-video Lesson tab
+// (learn.$videoId.tsx) can reuse the exact same rendering instead of a
+// second, differently-behaved progress UI — both entry points stream the
+// same LessonProgressEvent vocabulary. Re-exported here so this file's own
+// existing import (`./lessons.index`) in lessons.index.test.tsx keeps
+// working unchanged.
 // -----------------------------------------------------------------------------
 
-// Exported for direct testing (see lessons.index.test.tsx) — rendering the
-// full panel needs the fetch/SSE machinery mocked, so this piece is tested
-// in isolation against a plain event array.
-export function ProgressStepList({ events }: { events: LessonProgressEvent[] }) {
-  if (events.length === 0) return null;
-  return (
-    <ol className="mt-4 space-y-1.5 text-xs text-[var(--ink-soft)]">
-      {events.map((event, i) => (
-        <li
-          key={i}
-          className="rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)] px-3 py-2"
-        >
-          {renderProgressEvent(event)}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-// The model authors in markdown now, so a block the parser rejected — a bad
-// enum, an unknown directive, a diagram that would draw nothing — would
-// otherwise show up as nothing but a slightly shorter lesson. The count is
-// already on the wire (`dropped`); this puts it on the page.
-function RejectedBlocks({
-  count,
-  repaired,
-}: Readonly<{ count?: number; repaired?: number }>) {
-  if (!count && !repaired) return null;
-  return (
-    <span className="text-[var(--ink-muted)]">
-      {count ? ` ${count} block${count === 1 ? '' : 's'} rejected by the parser.` : ''}
-      {/* A repair is not a loss — the block is still in the lesson — but it
-          IS evidence the model produced something that would have failed
-          invisibly. The case that motivated this: a diagram whose own fret
-          window hid its own dots, which renders as a blank fretboard rather
-          than an error. Four of those were already sitting in published
-          lessons before anything reported them. */}
-      {repaired
-        ? ` ${repaired} repaired (e.g. a diagram whose fret window hid its own notes).`
-        : ''}
-    </span>
-  );
-}
-
-function renderProgressEvent(event: LessonProgressEvent) {
-  switch (event.type) {
-    case 'tier':
-      return (
-        <span>
-          Using the <strong>{event.tier === 'frontier' ? 'frontier' : 'local'}</strong> tier
-          (<code>{event.model}</code>).
-        </span>
-      );
-    case 'retrieve':
-      return (
-        <div>
-          <p>
-            Found {event.videos.length} of {event.considered} candidate video
-            {event.considered === 1 ? '' : 's'} above the relevance floor ({event.floor}).
-          </p>
-          {event.videos.length > 0 && (
-            <ul className="mt-1 ml-4 list-disc">
-              {event.videos.map((v) => (
-                <li key={v.documentId}>
-                  {v.title ?? v.youtubeVideoId} — {v.score.toFixed(2)}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      );
-    case 'coverage':
-      return event.covered ? (
-        <span>Coverage check passed — the library actually teaches this topic.</span>
-      ) : (
-        <span>
-          Coverage check failed — the library doesn&apos;t cover this topic.
-          {event.actualTopic ? ` Closest match: ${event.actualTopic}.` : ''}
-          {event.reason ? ` (${event.reason})` : ''}
-        </span>
-      );
-    case 'digest':
-      return (
-        <span>
-          {event.cacheHit ? 'Reused a cached cross-video digest' : 'Synthesized a new cross-video digest'}{' '}
-          ({event.ms}ms).
-        </span>
-      );
-    case 'outline':
-      return (
-        <div>
-          <p>
-            Outline ready: <strong>{event.title}</strong> ({event.level}).
-          </p>
-          <ol className="mt-1 ml-4 list-decimal">
-            {event.sections.map((heading, i) => (
-              <li key={i}>{heading}</li>
-            ))}
-          </ol>
-        </div>
-      );
-    case 'section':
-      return (
-        <span>
-          Section {event.index + 1}/{event.total} &ldquo;{event.heading}&rdquo; — {event.blocks} block
-          {event.blocks === 1 ? '' : 's'}
-          {/* Written from real transcript passages, or (0) from the source
-              summaries alone — worth showing, since a section that fell
-              back to summaries is the one most likely to read vaguely. */}
-          {typeof event.passages === 'number'
-            ? event.passages === 0
-              ? ', from the source summaries (no transcript passages matched).'
-              : ` from ${event.passages} transcript passage${event.passages === 1 ? '' : 's'}.`
-            : '.'}
-          <RejectedBlocks count={event.dropped} repaired={event.repaired} />
-        </span>
-      );
-    case 'illustrate':
-      return (
-        <span>
-          Illustrating {event.index + 1}/{event.total} &ldquo;{event.heading}&rdquo; —{' '}
-          {event.diagrams === 0
-            ? 'nothing needed a diagram.'
-            : `${event.diagrams} diagram${event.diagrams === 1 ? '' : 's'} added.`}
-          <RejectedBlocks count={event.dropped} repaired={event.repaired} />
-        </span>
-      );
-    case 'grounding':
-      return (
-        <span>
-          Grounded {event.grounded}/{event.total} citation{event.total === 1 ? '' : 's'} to a real
-          transcript timecode.
-        </span>
-      );
-    case 'retry':
-      return (
-        <span className="text-[var(--ink-muted)]">
-          Retrying {event.step}
-          {event.label ? ` "${event.label}"` : ''} (attempt {event.attempt}) — {event.reason}
-        </span>
-      );
-    case 'saved':
-      return (
-        <span>
-          Saved as <strong>{event.title}</strong> ({event.blockCount} block
-          {event.blockCount === 1 ? '' : 's'}).
-        </span>
-      );
-    case 'notice':
-      // Not a failure — the run continued. Red "Failed at" on a successful
-      // generation is worse than saying nothing, because it teaches the
-      // reader to distrust a pipeline that is working.
-      return <span className="text-[var(--ink-soft)]">{event.message}</span>;
-    case 'error':
-      return (
-        <span className="text-red-600 dark:text-red-400">
-          Failed at {event.step}: {event.message}
-        </span>
-      );
-    default:
-      return null;
-  }
-}
+export { ProgressStepList };
 
 type PlanPayload = Extract<LessonPlanFrame, { type: 'plan' }>;
 type SavedPayload = Extract<LessonProgressEvent, { type: 'saved' }>;

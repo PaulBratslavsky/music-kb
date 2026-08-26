@@ -191,6 +191,75 @@ export async function getLessonBySlugWithStatus(
 }
 
 // -----------------------------------------------------------------------------
+// Single-video lookup — does a lesson already exist FOR this one video?
+// -----------------------------------------------------------------------------
+//
+// Used by the learn page's Lesson tab: if a single-video lesson already
+// exists for the video being viewed, show it instead of the generate form.
+// Deliberately narrower than "any lesson that cites this video" — a library
+// lesson that happens to draw on this video as one of five sources is not
+// what that tab means by "a lesson for this video", so both lookups below
+// only match a lesson whose ENTIRE resolved source set is this one video.
+export type LessonForVideo = {
+  documentId: string;
+  title: string;
+  slug: string;
+  summary: string | null;
+};
+
+function toLessonForVideo(l: { documentId: string; title: string; slug: string; summary: string | null }): LessonForVideo {
+  return { documentId: l.documentId, title: l.title, slug: l.slug, summary: l.summary };
+}
+
+/**
+ * Looks up a single-video lesson for `documentId`/`youtubeVideoId` two ways,
+ * same fallback order `getLessonBySlugWithStatus` already uses for a single
+ * lesson's own `videos` list: the populated `videos` relation first (the
+ * common case for anything saved by `saveLessonService`), then a scan of
+ * `body` blocks' `source.videoId` for lessons saved before that relation
+ * was threaded through. Either way, only returns a match when the lesson's
+ * resolved source set has exactly one video — this one.
+ */
+export async function findLessonForVideoService(
+  documentId: string,
+  youtubeVideoId: string,
+): Promise<LessonForVideo | null> {
+  const byRelation = await strapiFetch<
+    Array<{ documentId: string; title: string; slug: string; summary: string | null; videos: { documentId: string }[] }>
+  >('GET', '/api/lessons', {
+    query: {
+      filters: { videos: { documentId: { $eq: documentId } } },
+      fields: ['title', 'slug', 'summary'],
+      populate: { videos: { fields: ['documentId'] } },
+      pagination: { pageSize: 10 },
+    },
+  });
+  if (byRelation.ok) {
+    const match = (byRelation.data ?? []).find((l) => (l.videos ?? []).length === 1);
+    if (match) return toLessonForVideo(match);
+  }
+
+  // Fallback: pre-relation lessons. Bounded to a personal-KB-scale library
+  // (CLAUDE.md: <1000 videos, lessons are a small fraction of that), so a
+  // full scan is cheap enough not to warrant a dedicated Strapi query.
+  const all = await strapiFetch<
+    Array<{ documentId: string; title: string; slug: string; summary: string | null; body: LessonBlock[] }>
+  >('GET', '/api/lessons', {
+    query: {
+      fields: ['title', 'slug', 'summary'],
+      populate: { body: { populate: '*' } },
+      pagination: { pageSize: 200 },
+    },
+  });
+  if (!all.ok) return null;
+  const match = (all.data ?? []).find((l) => {
+    const ids = deriveSourceVideoIds(l.body ?? []);
+    return ids.length === 1 && ids[0] === youtubeVideoId;
+  });
+  return match ? toLessonForVideo(match) : null;
+}
+
+// -----------------------------------------------------------------------------
 // Duration — computed, not modelled.
 // -----------------------------------------------------------------------------
 //

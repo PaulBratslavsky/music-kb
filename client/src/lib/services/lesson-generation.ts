@@ -121,6 +121,7 @@ import {
 } from '#/lib/services/lesson-model';
 import { friendlyOllamaError } from '#/lib/services/ollama-errors';
 import { samplingOptions } from '#/lib/services/ollama-model-options';
+import { chooseProseSource } from '#/lib/services/prose-grounding';
 import {
   findEvidenceForQuote,
   loadStoredIndex,
@@ -255,6 +256,19 @@ export type LessonProgressEvent =
        * that is the only frame today's UI renders in the run log.
        */
       unsourced?: number;
+      /**
+       * How many blocks in this section were left uncited by the model and
+       * grounded HERE instead — BM25-matched against the source transcripts
+       * and attached only above a confidence bar (see `chooseProseSource`).
+       *
+       * Reported next to `unsourced` rather than folded into the citation
+       * total on purpose: a lesson whose prose is cited only because a
+       * retrieval pass rescued it is a different artefact from one the model
+       * cited itself, and the difference is invisible in the finished page.
+       * If this number is doing most of the work, the write prompt is the
+       * thing to fix.
+       */
+      autoSourced?: number;
     }
   | {
       // The illustrate pass ticks off per section, same as 'section' above,
@@ -1309,6 +1323,17 @@ type GroundingContext = {
    * the field values that caused it.
    */
   warn: (reason: string, meta?: Record<string, unknown>) => void;
+  /**
+   * Called when grounding CHANGED a block without discarding it. Separate
+   * from `warn` because the two mean opposite things to a reader of the run
+   * log: `warn` is "content you asked for is not here", this is "content
+   * gained something the model did not supply". The one caller today is
+   * auto-grounded prose, and it logs the evidence — which rare terms
+   * matched, and how far ahead of the runner-up video — because an
+   * attachment nobody can audit is the failure mode this feature is one bad
+   * threshold away from.
+   */
+  note: (reason: string, meta?: Record<string, unknown>) => void;
 };
 
 // Reader-facing text must never contain a raw video id. The context text
@@ -1639,6 +1664,14 @@ export type GroundingStats = {
   dropped: number;
   /** Text blocks that name a source in their own words but carry no `src`. */
   unsourced: number;
+  /**
+   * Text blocks the model left uncited that were grounded here instead, by
+   * BM25-matching their own text against the source transcripts — see
+   * `chooseProseSource`. Counted separately from the model's own citations
+   * because "auto-grounding is doing most of the work" is a fact about the
+   * prompt worth being able to see.
+   */
+  autoSourced: number;
   /** Diagrams whose `useParam` was switched off (root or caption mismatch). */
   fixedUseParam: number;
 };
@@ -1658,7 +1691,7 @@ function groundParsedBlocks(
   ground: GroundingContext,
 ): { items: ParsedBlock[]; stats: GroundingStats } {
   const out: ParsedBlock[] = [];
-  const stats: GroundingStats = { dropped: 0, unsourced: 0, fixedUseParam: 0 };
+  const stats: GroundingStats = { dropped: 0, unsourced: 0, autoSourced: 0, fixedUseParam: 0 };
   for (const item of parsed) {
     const block = item.block;
 
@@ -1774,18 +1807,60 @@ function groundParsedBlocks(
           line: item.line,
         });
     } else if (CITEABLE_TEXT_COMPONENTS.has(block.__component)) {
-      // No `src` at all. Fine for a general statement; NOT fine for a block
-      // that names a source in its own text — see findSourcingClaim.
+      // No `src` at all. The model authors in markdown, so this is the
+      // COMMON case for prose, not an exception — a bare paragraph has
+      // nowhere to put a citation, and asking for a directive on every
+      // paragraph would be heavy syntax on the most common block resting on
+      // exactly the memory that already failed.
+      //
+      // So try to ground it the way a timecode is grounded: BM25 the
+      // paragraph's own text against the source transcripts and attach a
+      // source only when the match is confident. `chooseProseSource` owns
+      // that judgement and its thresholds; everything it declines stays
+      // uncited on purpose (see its header — coverage is not the target).
       const text = groundingTextOf(block);
-      const claim = findSourcingClaim(text, ground);
-      if (claim) {
-        ground.warn('block names a source in its own text but carries no citation', {
-          component: block.__component,
-          claim,
-          line: item.line,
-          text: truncate(text, 200),
-        });
-        stats.unsourced += 1;
+      const decision = chooseProseSource(text, ground.bm25ByVideoId.keys(), ground.bm25ByVideoId);
+      if (decision.attach) {
+        // The MOMENT still comes from the one existing grounding path, so an
+        // auto-grounded citation is timestamped by the same code every
+        // model-supplied one goes through — including its refusal to
+        // timestamp a weak match at all.
+        const source = resolveBlockSource(decision.videoId, text, ground);
+        if (source) {
+          block.source = source;
+          stats.autoSourced += 1;
+          ground.note('citation auto-grounded — prose matched a source transcript', {
+            component: block.__component,
+            line: item.line,
+            videoId: decision.videoId,
+            score: Math.round(decision.score * 10) / 10,
+            shared: decision.shared,
+            distinctive: decision.distinctive,
+            runnerUpShared: decision.runnerUpShared,
+            terms: decision.distinctiveTerms.slice(0, 8),
+            timeSec: source.timeSec ?? null,
+            text: truncate(text, 160),
+          });
+        }
+      } else {
+        // Left uncited. Fine for a general statement; NOT fine for a block
+        // that names a source in its own text — see findSourcingClaim. This
+        // check is unchanged and still runs on exactly the blocks it always
+        // reported on: the ones the reader has no citation to follow. A
+        // block auto-grounded above is no longer one of those — its
+        // attribution became reachable, which is the defect this check
+        // exists to surface.
+        const claim = findSourcingClaim(text, ground);
+        if (claim) {
+          ground.warn('block names a source in its own text but carries no citation', {
+            component: block.__component,
+            claim,
+            line: item.line,
+            declined: decision.reason,
+            text: truncate(text, 200),
+          });
+          stats.unsourced += 1;
+        }
       }
     }
     out.push(item);
@@ -2545,6 +2620,7 @@ export async function writeLesson(
     titleByVideoId,
     parameter: outline.parameter,
     warn: (reason, meta) => logPhase(topic, `block ✗ dropped — ${reason}`, meta),
+    note: (reason, meta) => logPhase(topic, `block ✓ ${reason}`, meta),
   };
 
   // The write pass's own source material — see `retrieveSectionPassages`.
@@ -2581,6 +2657,7 @@ export async function writeLesson(
     let sectionDropped = 0;
     let sectionRepaired = 0;
     let sectionUnsourced = 0;
+    let sectionAutoSourced = 0;
 
     // Retrieved ONCE per section, not per attempt — BM25 is deterministic,
     // so a retry would get the identical passages; re-running it would only
@@ -2655,6 +2732,7 @@ export async function writeLesson(
           // server-log-only event.
           sectionRepaired = issues.filter((i) => i.severity === 'warning').length;
           sectionUnsourced = grounded.stats.unsourced;
+          sectionAutoSourced = grounded.stats.autoSourced;
           break;
         }
         // Zero usable blocks is treated the same as a failed call: retry
@@ -2712,6 +2790,7 @@ export async function writeLesson(
         dropped: sectionDropped,
         repaired: sectionRepaired,
         unsourced: sectionUnsourced,
+        autoSourced: sectionAutoSourced,
       });
       emit(onProgress, {
         type: 'section',
@@ -2723,6 +2802,7 @@ export async function writeLesson(
         dropped: sectionDropped,
         repaired: sectionRepaired,
         unsourced: sectionUnsourced,
+        autoSourced: sectionAutoSourced,
       });
       // An unlinked sourcing claim cannot be repaired here without guessing
       // which video it came from, so it is surfaced instead — and `error`
@@ -3015,4 +3095,285 @@ export async function writeLesson(
   });
 
   return { ok: true, lesson, sources, tier: lessonModel.tier, model: lessonModel.model };
+}
+
+// -----------------------------------------------------------------------------
+// Single-video lesson — a different PLAN phase, the same WRITE phase.
+// -----------------------------------------------------------------------------
+//
+// Turns ONE video already in the library into a lesson. See the brief this
+// implements ("Why it is a different pipeline, not a filtered one"): for a
+// single video, retrieval, coverage and the digest are all answered before
+// generation starts — the source IS this video, it by definition covers
+// itself, and a digest of one video is a worse summary of it. So this skips
+// all three and goes straight to the outline call.
+//
+// `writeLesson` above is reused COMPLETELY UNCHANGED for phase 2 — every
+// section call, the illustrate pass, citation grounding, and assembly are
+// the exact same code the library path runs, not a parallel copy. That is
+// what "sections are written from real transcript passages" (this module's
+// biggest quality lever) means here too: `writeLesson` always retrieves
+// each section's passages from the source videos' own BM25 indexes
+// (`retrieveSectionPassages`), and for a single-video lesson those sources
+// are just the one video — nothing about that retrieval had to change for
+// this path to benefit from it.
+//
+// The one piece NOT shared is the outline call itself, because what feeds
+// it is genuinely different (this video's own transcript, not a cross-video
+// digest) — see `sampleTranscriptOverviewPassages` below. Its retry shape
+// intentionally mirrors `planLesson`'s outline loop above (thin outline →
+// retry once, invalid shape → retry once, thrown error → retry once) so the
+// two entry points behave the same way to a reader, even though the loop
+// itself is a second small copy rather than an extracted helper — factoring
+// it out would mean editing `planLesson`'s body, and this file was being
+// edited concurrently by another task at the time this was written (see the
+// brief's amendments). The part the brief warns will "drift silently" if
+// forked — block-building — does not fork: it's the same `writeLesson` call.
+
+/**
+ * A neutral, empty `Digest` — satisfies `DigestSchema` (every field is an
+ * unconstrained string/array, so an all-empty object validates) so
+ * `writeLesson`'s `WriteLessonRequestSchema` accepts it without a real
+ * cross-video synthesis ever running. `buildDigestContinuityText` reads it
+ * as "no throughline to add" and `buildContradictionCallouts` reads
+ * `contradictions: []` as "nothing to append" — both already handle an
+ * empty digest correctly, so this is genuinely "skip the digest", not a
+ * disguised digest of one video. Exported so the `/api/lesson-plan-video`
+ * route can hand it back to the browser as the same `digest` field
+ * `/api/lesson-plan`'s `plan` frame carries, which is what lets the SAME
+ * `/api/lesson-write` route, unchanged, finish a single-video lesson.
+ */
+export const NO_DIGEST: Digest = {
+  title: '',
+  description: '',
+  overallTheme: '',
+  sharedThemes: [],
+  uniqueInsights: [],
+  contradictions: [],
+  viewingOrder: [],
+  bottomLine: '',
+};
+
+export type PlanSingleVideoLessonInput = { videoId: string };
+
+export type PlanSingleVideoLessonResult =
+  | { ok: true; outline: LessonOutline; source: SourceVideo; tier: ModelTier; model: string }
+  | { ok: false; error: string };
+
+// Below this many BM25 retrieval chunks (~150 words each — see
+// transcript.ts's RETRIEVAL_CHUNK_WORDS), a transcript is too thin to write
+// a multi-section lesson from: `retrieveSectionPassages` needs real,
+// distinct passages per section, and a handful of chunks cannot support
+// even the outline's MIN_OUTLINE_SECTIONS (2) sections each getting their
+// own material. Refusing here means refusing before ANY model call, per
+// the brief's guard rail.
+const MIN_TRANSCRIPT_CHUNKS_FOR_SINGLE_VIDEO_LESSON = 5;
+
+// Deliberately coarse and query-free — at outline time there is no query
+// yet, only the whole video. Evenly-spaced samples across every chunk give
+// the outline call a feel for the video's real arc (what it actually
+// covers, in order) instead of only its 400-char summary blurb. Section
+// generation gets its own, sharper, per-section retrieval afterward via
+// `retrieveSectionPassages` inside `writeLesson` — this is intentionally
+// coarser, just enough for the outline to propose sections the video has
+// material for.
+const OUTLINE_TRANSCRIPT_SAMPLES = 8;
+const OUTLINE_SAMPLE_MAX_CHARS = 350;
+
+function sampleTranscriptOverviewPassages(
+  videoId: string,
+  chunks: TranscriptChunk[],
+): SectionPassage[] {
+  if (chunks.length === 0) return [];
+  const n = Math.min(OUTLINE_TRANSCRIPT_SAMPLES, chunks.length);
+  const out: SectionPassage[] = [];
+  for (let i = 0; i < n; i++) {
+    const idx = Math.min(chunks.length - 1, Math.floor((i * chunks.length) / n));
+    const chunk = chunks[idx];
+    const text = truncate(stripInlineTimecodes(chunk.text), OUTLINE_SAMPLE_MAX_CHARS);
+    if (text) out.push({ videoId, timeSec: chunk.timeSec, text });
+  }
+  return out;
+}
+
+// Reuses `formatSectionPassages` (the exact rendering `writeLesson` uses
+// for section passages) rather than a bespoke format, so a passage looks
+// the same to the model whether it's outline-time overview material or
+// section-time retrieval material.
+function buildTranscriptOverviewText(passages: SectionPassage[]): string {
+  if (passages.length === 0) return '';
+  return [
+    "Passages sampled across this video's own transcript — its real words. Ground the outline in these specifics, not generalities:",
+    formatSectionPassages(passages),
+  ].join('\n');
+}
+
+/**
+ * Phase 1 for a SINGLE video, not the library — resolves the model tier,
+ * checks this video actually has a usable transcript, and drafts an
+ * outline from its context card plus real transcript samples. Does NOT
+ * retrieve, does NOT run the coverage check, does NOT resolve or
+ * synthesize a digest (see this section's header comment for why), and
+ * does NOT write section content or persist anything — that's
+ * `writeLesson`'s job, unchanged, given this function's `ok: true` output
+ * (wrapped as a one-element `sources` array plus `NO_DIGEST`) back.
+ */
+export async function planSingleVideoLesson(
+  input: PlanSingleVideoLessonInput,
+  onProgress?: ProgressFn,
+): Promise<PlanSingleVideoLessonResult> {
+  const videoId = input.videoId.trim();
+  if (!videoId) return { ok: false, error: 'videoId is required.' };
+
+  const video = await fetchVideoByVideoIdService(videoId);
+  if (!video) {
+    const message = 'This video is not in the library yet.';
+    logPhase(videoId, 'context ✗ video not found');
+    emit(onProgress, { type: 'error', step: 'context', message });
+    return { ok: false, error: message };
+  }
+
+  // The BM25 transcript index (`transcriptSegments`) is written in the SAME
+  // Strapi call that marks `summaryStatus: 'generated'` (see
+  // `saveSummaryWithScores` in learning.ts) — there is no state where a
+  // transcript is cached but the index isn't. So checking for the index
+  // covers "no transcript" AND "summary not generated yet" in one honest
+  // guard: this is the deliberate choice the brief asks for on a video
+  // whose summary hasn't run yet — refuse rather than proceed on a raw
+  // transcript alone, because `retrieveSectionPassages` (the reason this
+  // path can beat the library one on specificity) has nothing to search
+  // without this exact index.
+  const stored = loadStoredIndex(video.transcriptSegments);
+  if (!stored) {
+    const message =
+      video.summaryStatus === 'pending'
+        ? "This video's summary hasn't finished generating yet — a lesson needs the indexed transcript summary generation produces. Wait for it to finish, then try again."
+        : video.summaryStatus === 'failed'
+          ? 'Summary generation failed for this video, so there is no indexed transcript to build a lesson from. Retry summary generation first.'
+          : video.summaryStatus === 'skipped'
+            ? 'This video has no transcript (music-only videos skip the transcript pipeline), so there is nothing to build a lesson from.'
+            : 'This video has no transcript yet — generate its summary first.';
+    logPhase(videoId, 'context ✗ no transcript index', { summaryStatus: video.summaryStatus });
+    emit(onProgress, { type: 'error', step: 'context', message });
+    return { ok: false, error: message };
+  }
+  if (stored.bm25.chunks.length < MIN_TRANSCRIPT_CHUNKS_FOR_SINGLE_VIDEO_LESSON) {
+    const message = `This video's transcript is too short to build a lesson from (${stored.bm25.chunks.length} retrieval chunk${stored.bm25.chunks.length === 1 ? '' : 's'}, need at least ${MIN_TRANSCRIPT_CHUNKS_FOR_SINGLE_VIDEO_LESSON}).`;
+    logPhase(videoId, 'context ✗ transcript too short', { chunks: stored.bm25.chunks.length });
+    emit(onProgress, { type: 'error', step: 'context', message });
+    return { ok: false, error: message };
+  }
+
+  const lessonModel = resolveLessonModel();
+  logPhase(videoId, `model ✓ ${lessonModel.tier}`, { model: lessonModel.model });
+  emit(onProgress, { type: 'tier', tier: lessonModel.tier, model: lessonModel.model });
+
+  const topic = video.summaryTitle ?? video.videoTitle ?? 'this video';
+  const contextText = buildVideoContextText(video);
+  const overviewPassages = sampleTranscriptOverviewPassages(video.youtubeVideoId, stored.bm25.chunks);
+  const overviewText = buildTranscriptOverviewText(overviewPassages);
+
+  type OutlineAttemptOutcome =
+    | { kind: 'ok'; outline: LessonOutline }
+    | { kind: 'invalid' }
+    | { kind: 'error'; message: string };
+
+  async function attemptOutline(): Promise<OutlineAttemptOutcome> {
+    try {
+      const raw = await chat({
+        adapter: lessonModel.adapter,
+        messages: [
+          { role: 'system', content: getOutlineSystemWithGuide() },
+          { role: 'user', content: buildOutlinePrompt(topic, contextText, overviewText) },
+        ] as never,
+        outputSchema: LessonOutlineSchema,
+        modelOptions: buildModelOptions(lessonModel, 0.3),
+      });
+      const sanitized = sanitizeOutline(raw);
+      return sanitized ? { kind: 'ok', outline: sanitized } : { kind: 'invalid' };
+    } catch (err) {
+      return {
+        kind: 'error',
+        message: redactAnthropicKey(
+          err instanceof Error ? err.message : 'Lesson outline generation failed',
+        ),
+      };
+    }
+  }
+
+  let outline: LessonOutline | null = null;
+  let outlineFailureMessage: string | null = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const outcome = await attemptOutline();
+    const isLastAttempt = attempt === 2;
+
+    if (outcome.kind === 'ok') {
+      const thin = outcome.outline.sections.length < MIN_OUTLINE_SECTIONS;
+      if (!thin || isLastAttempt) {
+        outline = outcome.outline;
+        if (thin) {
+          logPhase(
+            videoId,
+            `outline ⚠ still thin after retry (${outcome.outline.sections.length} section(s), target ≥${MIN_OUTLINE_SECTIONS})`,
+            { title: outcome.outline.title },
+          );
+        }
+        break;
+      }
+      logPhase(
+        videoId,
+        `outline ⚠ thin (${outcome.outline.sections.length} section(s), target ≥${MIN_OUTLINE_SECTIONS}) — retrying once`,
+        { title: outcome.outline.title },
+      );
+      emit(onProgress, { type: 'retry', step: 'outline', attempt, reason: 'thin outline' });
+      continue;
+    }
+
+    if (outcome.kind === 'invalid') {
+      if (isLastAttempt) {
+        outlineFailureMessage = 'The model returned an unusable lesson outline.';
+        break;
+      }
+      logPhase(videoId, `outline ✗ unusable shape (attempt ${attempt}) — retrying once`);
+      emit(onProgress, { type: 'retry', step: 'outline', attempt, reason: 'unusable shape' });
+      continue;
+    }
+
+    if (isLastAttempt) {
+      outlineFailureMessage = friendlyModelError(lessonModel.tier, outcome.message);
+      break;
+    }
+    logPhase(videoId, `outline ✗ failed (attempt ${attempt}) — retrying once`, {
+      error: outcome.message,
+    });
+    emit(onProgress, { type: 'retry', step: 'outline', attempt, reason: outcome.message });
+  }
+
+  if (!outline) {
+    const message = outlineFailureMessage ?? 'The model returned an unusable lesson outline.';
+    logPhase(videoId, 'outline ✗ failed after retry', { error: message });
+    emit(onProgress, { type: 'error', step: 'outline', message });
+    return { ok: false, error: message };
+  }
+
+  logPhase(videoId, 'outline ✓', { title: outline.title, sections: outline.sections.length });
+  emit(onProgress, {
+    type: 'outline',
+    title: outline.title,
+    level: outline.level,
+    sections: outline.sections.map((s) => s.heading),
+  });
+
+  const source: SourceVideo = {
+    documentId: video.documentId,
+    youtubeVideoId: video.youtubeVideoId,
+    title: video.summaryTitle ?? video.videoTitle,
+    // Not a cosine similarity — there is no retrieval step for a
+    // single-video lesson (see this section's header). 1 stands in for
+    // "the only, exact source", the closest honest value in SourceVideo's
+    // score field, which this pipeline otherwise always fills from cosine.
+    score: 1,
+  };
+
+  return { ok: true, outline, source, tier: lessonModel.tier, model: lessonModel.model };
 }

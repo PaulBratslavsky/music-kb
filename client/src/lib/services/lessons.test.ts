@@ -5,6 +5,7 @@ vi.mock('./strapi-client', () => ({ strapiFetch: vi.fn() }));
 import { strapiFetch } from './strapi-client';
 import {
   computeLessonDuration,
+  findLessonForVideoService,
   getLessonBySlugWithStatus,
   listLessonsWithStatus,
   saveLessonService,
@@ -413,5 +414,132 @@ describe('computeLessonDuration', () => {
         { __component: 'lesson.param-picker', id: 1, label: 'Key' } as unknown as LessonBlock,
       ]),
     ).toBe('1 min');
+  });
+});
+
+// Backs the learn page's Lesson tab: "if a lesson already exists for this
+// video, show it instead of the generate form." Two lookups, same fallback
+// order getLessonBySlugWithStatus already uses for a lesson's own `videos`
+// list — the populated relation first, then a scan of `body` blocks'
+// `source.videoId` for lessons saved before that relation existed. Either
+// way, only a lesson whose ENTIRE resolved source set is this one video
+// counts as "a lesson for this video" — a library lesson that merely cites
+// it among several sources must not hide the generate form.
+describe('findLessonForVideoService', () => {
+  it('matches via the populated videos relation when the lesson has exactly this one source', async () => {
+    mocked.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        {
+          documentId: 'lesson-1',
+          title: 'Drop D Basics',
+          slug: 'drop-d-basics',
+          summary: 'A short intro.',
+          videos: [{ documentId: 'video-doc-1' }],
+        },
+      ],
+    } as never);
+
+    const result = await findLessonForVideoService('video-doc-1', 'vid1');
+    expect(result).toEqual({
+      documentId: 'lesson-1',
+      title: 'Drop D Basics',
+      slug: 'drop-d-basics',
+      summary: 'A short intro.',
+    });
+    // Only the relation query ran — no need for the fallback scan.
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT match a lesson that cites this video among several sources', async () => {
+    mocked.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        {
+          documentId: 'lesson-multi',
+          title: 'Barre Chords Across the Library',
+          slug: 'barre-chords',
+          summary: null,
+          videos: [{ documentId: 'video-doc-1' }, { documentId: 'video-doc-2' }],
+        },
+      ],
+    } as never);
+    // Fallback scan also finds nothing single-video for this id.
+    mocked.mockResolvedValueOnce({ ok: true, data: [] } as never);
+
+    const result = await findLessonForVideoService('video-doc-1', 'vid1');
+    expect(result).toBeNull();
+  });
+
+  it('falls back to scanning body source.videoId for a pre-relation lesson', async () => {
+    mocked.mockResolvedValueOnce({ ok: true, data: [] } as never); // relation: no match
+    mocked.mockResolvedValueOnce({
+      ok: true,
+      data: [
+        {
+          documentId: 'lesson-old',
+          title: 'Legacy Lesson',
+          slug: 'legacy-lesson',
+          summary: 'Predates the videos relation.',
+          body: [
+            { __component: 'lesson.prose', id: 1, body: 'text', source: { videoId: 'vid1' } },
+          ],
+        },
+      ],
+    } as never);
+
+    const result = await findLessonForVideoService('video-doc-1', 'vid1');
+    expect(result).toEqual({
+      documentId: 'lesson-old',
+      title: 'Legacy Lesson',
+      slug: 'legacy-lesson',
+      summary: 'Predates the videos relation.',
+    });
+  });
+
+  it('returns null when nothing matches either lookup', async () => {
+    mocked.mockResolvedValueOnce({ ok: true, data: [] } as never);
+    mocked.mockResolvedValueOnce({ ok: true, data: [] } as never);
+    expect(await findLessonForVideoService('video-doc-1', 'vid1')).toBeNull();
+  });
+
+  it('treats a dead backend on the relation query as "no match" rather than throwing', async () => {
+    mocked.mockResolvedValueOnce({ ok: false, status: 0, error: 'down' } as never);
+    mocked.mockResolvedValueOnce({ ok: false, status: 0, error: 'down' } as never);
+    expect(await findLessonForVideoService('video-doc-1', 'vid1')).toBeNull();
+  });
+});
+
+// The single-video path (lesson-generation.ts's planSingleVideoLesson +
+// the existing writeLesson) saves through this exact same saveLessonService
+// — no parallel save path exists for it. This is the single-video-shaped
+// case of the collision test above: one source, generating "again" for the
+// same video must never overwrite the first lesson, only add a `-2`.
+describe('saveLessonService — single-video-shaped input', () => {
+  it('appends -2 rather than overwriting when a second single-video lesson collides', async () => {
+    mocked.mockImplementation(async (method, path, opts) => {
+      if (method === 'GET' && path === '/api/lessons') {
+        const candidate = (
+          opts?.query?.filters as { slug?: { $eq?: string } } | undefined
+        )?.slug?.$eq;
+        return { ok: true, data: candidate === 'one-video-lesson' ? [{ slug: candidate }] : [] } as never;
+      }
+      if (method === 'POST' && path === '/api/lessons') {
+        const body = (opts?.body as { data: { slug: string } }).data;
+        return { ok: true, data: { documentId: 'doc-2nd', slug: body.slug } } as never;
+      }
+      return { ok: true, data: [] } as never;
+    });
+
+    const sources: SourceVideo[] = [
+      { documentId: 'video-doc-1', youtubeVideoId: 'vid1', title: 'The Only Source', score: 1 },
+    ];
+    const result = await saveLessonService(
+      makeLesson({ title: 'One Video Lesson', slug: 'one-video-lesson' }),
+      sources,
+    );
+
+    expect(result).toEqual({ ok: true, slug: 'one-video-lesson-2', documentId: 'doc-2nd' });
+    expect(mocked.mock.calls.filter(([m]) => m === 'POST')).toHaveLength(1);
   });
 });
