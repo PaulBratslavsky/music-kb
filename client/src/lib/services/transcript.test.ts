@@ -450,6 +450,30 @@ describe('findEvidenceForQuote', () => {
     const index = buildBM25Index(chunks);
     expect(findEvidenceForQuote('unrelated xyz', index, 0.5)).toBeNull();
   });
+
+  // `score` cannot be compared between two videos — each index has its own
+  // idf table over its own chunk count — so anything asking "which of these
+  // videos did this text come from?" needs a scale-free measure instead.
+  // These two fields are it: what overlapped, and which of those overlaps are
+  // rare enough inside this transcript to be evidence rather than furniture.
+  // See `chooseProseSource`.
+  it('reports which query terms matched, and which of them are rare in this video', () => {
+    // 'workflows' is in every chunk (furniture); 'flowjen' is in one (evidence).
+    const chunks = Array.from({ length: 20 }, (_, i) => ({
+      id: i,
+      text: i === 3 ? 'workflows flowjen automation' : `workflows generic filler ${i}`,
+      startWord: i * 100,
+      timeSec: i * 60,
+    }));
+    const index = buildBM25Index(chunks);
+
+    const evidence = findEvidenceForQuote('flowjen workflows', index, 0);
+    expect(evidence).not.toBeNull();
+    expect(evidence?.timeSec).toBe(180);
+    expect(evidence?.sharedTerms).toEqual(expect.arrayContaining(['flowjen', 'workflows']));
+    expect(evidence?.distinctiveTerms).toContain('flowjen');
+    expect(evidence?.distinctiveTerms).not.toContain('workflows');
+  });
 });
 
 // ---------------------------------------------------------------------------
