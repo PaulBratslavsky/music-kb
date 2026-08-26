@@ -20,6 +20,7 @@ import {
   correctPitchLabels,
   lessonBlockSchema,
   lessonBodySchema,
+  lessonParameterSchema,
 } from './lesson-blocks';
 
 /**
@@ -230,6 +231,10 @@ describe('theory diagrams: the COMBINATION is validated, not just the enums', ()
     expect(result.success).toBe(false);
     expect(messages(result)).toContain('voices a TRIAD');
     expect(messages(result)).toContain('intent="arpeggio"');
+    // The refusal has to name the legal set, not just say no: this message is
+    // read by a model that then has to pick a different quality, and "maj7 is
+    // not a triad" without the list leaves it guessing which ones are.
+    expect(messages(result)).toContain('Legal values: major, minor, augmented, diminished, maj, min, aug, dim');
   });
 
   it('accepts every legacy triad spelling for intent="chord"', () => {
@@ -485,6 +490,239 @@ describe('refusals whose alternative is a silent gap', () => {
   });
 });
 
+describe('bounds: the value ONE STEP past legal is the one that gets tried', () => {
+  // Every bound below is the only thing between a plausible-looking value and
+  // a diagram that draws the wrong thing (or a Strapi write that overflows a
+  // column). Each case asserts BOTH sides of the edge on purpose: a bound
+  // that is merely LOOSENED — .max(5) to .max(11), .min(1) to .min(0) — still
+  // accepts every legal value, so a test that only tries a wildly illegal
+  // number never notices.
+  const dotDiagram = (dot: Record<string, unknown>) => ({
+    __component: 'lesson.diagram',
+    mode: 'explicit',
+    dots: [dot],
+  });
+
+  const theoryChord = (fields: Record<string, unknown>) => ({
+    __component: 'lesson.diagram',
+    mode: 'theory',
+    intent: 'chord',
+    root: 'C',
+    quality: 'maj',
+    stringSet: 'e–B–G',
+    ...fields,
+  });
+
+  const chordDiagramWithFirstString = (first: Record<string, unknown>) => {
+    const strings = sixOpenStrings();
+    strings[0] = first as any;
+    return { __component: 'lesson.chord-diagram', strings };
+  };
+
+  it('neck dot string: 5 is the low E, 6 is off a six-string board', () => {
+    const legal = parseBlock(dotDiagram({ string: 5, fret: 1 }));
+    expect(legal.success, messages(legal)).toBe(true);
+    expect(
+      parseBlock(dotDiagram({ string: 6, fret: 1 })).success,
+      'string 6 does not exist — a wider max silently turns the neck into a 12-string',
+    ).toBe(false);
+  });
+
+  it('neck dot fret: 0 is the open string, -1 is not a position', () => {
+    const legal = parseBlock(dotDiagram({ string: 0, fret: 0 }));
+    expect(legal.success, messages(legal)).toBe(true);
+    expect(parseBlock(dotDiagram({ string: 0, fret: -1 })).success, 'there is no fret behind the nut').toBe(false);
+  });
+
+  it('chord string fret: 1 is the first fret, 0 contradicts state="open"', () => {
+    const fretted = (fret: number) => parseBlock(chordDiagramWithFirstString({ string: 0, state: 'fretted', fret }));
+    expect(fretted(1).success, messages(fretted(1))).toBe(true);
+    expect(
+      fretted(0).success,
+      'fret 0 IS the open string, which the field\'s own describe() spells state="open"',
+    ).toBe(false);
+  });
+
+  it('diagram inversion: 2 is the second inversion, 3 is not one a triad has', () => {
+    const legal = parseBlock(theoryChord({ inversion: 2 }));
+    expect(legal.success, messages(legal)).toBe(true);
+    expect(
+      parseBlock(theoryChord({ inversion: 3 })).success,
+      'a three-note chord has three inversions, 0-2 — nothing rejects a 5th one further down',
+    ).toBe(false);
+  });
+
+  it('diagram patternIndex: 1 is the first pattern, 0 is not a scale degree', () => {
+    // The superRefine below only guards the UPPER bound (patternIndex >
+    // noteCount), so `.min(1)` is the entire lower guard — nothing downstream
+    // would refuse pattern 0.
+    const pattern = (patternIndex: number) =>
+      parseBlock({
+        __component: 'lesson.diagram',
+        mode: 'theory',
+        intent: 'pattern',
+        root: 'A',
+        scaleType: 'major',
+        patternIndex,
+      });
+    expect(pattern(1).success, messages(pattern(1))).toBe(true);
+    expect(pattern(0).success, 'pattern N starts on scale degree N, and there is no degree 0').toBe(false);
+  });
+
+  it('caption: 255 characters fit the Strapi column, 256 do not', () => {
+    // Not a rendering concern — `caption` is a Strapi `string` column, so an
+    // over-length one is accepted here and then fails at write time, far from
+    // the block that caused it.
+    const caption = (n: number) => parseBlock({ __component: 'lesson.natural-notes', caption: 'x'.repeat(n) });
+    expect(caption(255).success, messages(caption(255))).toBe(true);
+    const over = caption(256);
+    expect(over.success).toBe(false);
+    expect(messages(over)).toContain('max 255 characters');
+  });
+
+  it('prose body: an empty string is exactly the silent gap this block refuses', () => {
+    expect(parseBlock({ __component: 'lesson.prose', body: 'x' }).success).toBe(true);
+    expect(
+      parseBlock({ __component: 'lesson.prose', body: '' }).success,
+      'an empty prose block renders as nothing at all, with no error anywhere',
+    ).toBe(false);
+  });
+
+  it('video-ref videoId: 32 characters pass, 33 do not', () => {
+    const ref = (n: number) => parseBlock({ __component: 'lesson.video-ref', videoId: 'a'.repeat(n) });
+    expect(ref(32).success, messages(ref(32))).toBe(true);
+    expect(ref(33).success, 'a youtubeVideoId is 11 characters; 33 is a documentId or a URL').toBe(false);
+  });
+
+  it('degree-chips degrees: one chip is a row, zero chips is a blank strip', () => {
+    expect(parseBlock({ __component: 'lesson.degree-chips', degrees: ['1'] }).success).toBe(true);
+    const empty = parseBlock({ __component: 'lesson.degree-chips', degrees: [] });
+    expect(empty.success).toBe(false);
+    expect(messages(empty)).toContain('degrees must contain at least one entry.');
+  });
+
+  it('table headers: one column is a table, zero columns is not', () => {
+    expect(parseBlock({ __component: 'lesson.table', headers: ['h'], rows: [['c']] }).success).toBe(true);
+    // `rows: [[]]` rather than `[['c']]` deliberately: a zero-column header
+    // with a one-cell row is ALSO caught by the row-width superRefine, which
+    // would make this test pass for a reason that has nothing to do with the
+    // bound it is here to pin. A zero-cell row matches a zero-column header,
+    // so `.min(1)` on `headers` is the only check left standing.
+    const headerless = parseBlock({ __component: 'lesson.table', headers: [], rows: [[]] });
+    expect(headerless.success).toBe(false);
+    expect(messages(headerless)).toContain('headers must contain at least one column.');
+  });
+
+  it('step title: a step must be titled', () => {
+    expect(parseBlock({ __component: 'lesson.step', number: 1, title: 'x' }).success).toBe(true);
+    const untitled = parseBlock({ __component: 'lesson.step', number: 1 });
+    expect(untitled.success, 'an untitled step renders as a bare number with a body under it').toBe(false);
+    expect(messages(untitled)).toContain('title:');
+  });
+});
+
+describe('keyboard diagrams in theory mode need BOTH halves of the chord', () => {
+  // resolveDiagramMarks() returns [] without either one, which renders as an
+  // empty gap and not an error. These are two INDEPENDENT superRefine
+  // branches — deleting either leaves the other passing — so they need a test
+  // each rather than one fixture missing both.
+  const keyboard = (fields: Record<string, unknown>) => ({ __component: 'lesson.keyboard-diagram', mode: 'theory', ...fields });
+
+  it('requires root', () => {
+    const result = parseBlock(keyboard({ quality: 'major' }));
+    expect(result.success).toBe(false);
+    expect(messages(result)).toContain('root is required when mode="theory"');
+  });
+
+  it('requires quality', () => {
+    const result = parseBlock(keyboard({ root: 'C' }));
+    expect(result.success).toBe(false);
+    expect(messages(result)).toContain('quality is required when mode="theory"');
+  });
+
+  it('lets useParam stand in for root, but never for quality', () => {
+    // The reader-controlled key supplies a root at render time and supplies
+    // nothing else, so `useParam` is not a way out of the quality branch.
+    const withParam = parseBlock(keyboard({ useParam: true, quality: 'major' }));
+    expect(withParam.success, messages(withParam)).toBe(true);
+    expect(parseBlock(keyboard({ useParam: true })).success, 'no quality means no marks to draw').toBe(false);
+  });
+});
+
+describe('enums refuse the plausible near-miss, not just the absurd value', () => {
+  // An enum widened to z.string() keeps accepting every legal value, so these
+  // all turn on a WRONG-BUT-BELIEVABLE input: a fourth instrument, a German
+  // note name, a typo'd state, a third orientation.
+  it.each([
+    [
+      'lesson.diagram',
+      { __component: 'lesson.diagram', mode: 'explicit', instrument: 'ukulele', dots: [{ string: 0, fret: 1 }] },
+    ],
+    [
+      'lesson.neck-pattern',
+      {
+        __component: 'lesson.neck-pattern',
+        instrument: 'ukulele',
+        patterns: [
+          { label: 'a', dots: [{ string: 0, fret: 1 }] },
+          { label: 'b', dots: [{ string: 0, fret: 2 }] },
+        ],
+      },
+    ],
+  ])('%s rejects instrument="ukulele"', (_component, block) => {
+    expect(
+      parseBlock(block).success,
+      'instrument is the key correctPitchLabels indexes TUNING_MIDI with — see the KNOWN GAPS test',
+    ).toBe(false);
+  });
+
+  /** Every field typed by pitchClass(), each reached through its real block. */
+  const PITCH_SITES: Array<[string, (pc: string) => { success: boolean; error?: any }]> = [
+    [
+      'lesson.diagram root',
+      (pc) => parseBlock({ __component: 'lesson.diagram', mode: 'theory', intent: 'chord', root: pc, quality: 'maj', stringSet: 'e–B–G' }),
+    ],
+    [
+      'lesson.keyboard-diagram root',
+      (pc) => parseBlock({ __component: 'lesson.keyboard-diagram', mode: 'theory', root: pc, quality: 'major' }),
+    ],
+    [
+      'a keyboard mark pc',
+      (pc) => parseBlock({ __component: 'lesson.keyboard-diagram', mode: 'explicit', marks: [{ pc }] }),
+    ],
+    ['the lesson parameter default', (pc) => lessonParameterSchema.safeParse({ name: 'key', default: pc })],
+  ];
+
+  // pitchClass() is one factory shared by four fields, so widening it once
+  // opens all four at the same time — hence one case per site rather than one
+  // representative.
+  it.each(PITCH_SITES)('%s takes C# and refuses H', (_site, parse) => {
+    const legal = parse('C#');
+    expect(legal.success, messages(legal)).toBe(true);
+    expect(parse('H').success, '"H" is B in German notation and is not a pitch class here').toBe(false);
+  });
+
+  it('chord string state: "muted" is a state, "freted" is a typo', () => {
+    const withState = (state: string) => {
+      const strings = sixOpenStrings();
+      strings[0] = { string: 0, state } as any;
+      return parseBlock({ __component: 'lesson.chord-diagram', strings });
+    };
+    expect(withState('muted').success, messages(withState('muted'))).toBe(true);
+    expect(
+      withState('freted').success,
+      'a typo\'d state draws neither a dot nor an ×, and the superRefine only looks for "fretted"',
+    ).toBe(false);
+  });
+
+  it('chord diagram orientation: "horizontal" is one, "diagonal" is not', () => {
+    const oriented = (orientation: string) =>
+      parseBlock({ __component: 'lesson.chord-diagram', strings: sixOpenStrings(), orientation });
+    expect(oriented('horizontal').success, messages(oriented('horizontal'))).toBe(true);
+    expect(oriented('diagonal').success, 'a chord box runs one of two ways').toBe(false);
+  });
+});
+
 describe('correctPitchLabels', () => {
   // Pure arithmetic, run before every lesson write, and it already caught a
   // real 13% wrong-note rate on live diagrams. The client's
@@ -627,6 +865,32 @@ describe('KNOWN GAPS — these pin CURRENT behaviour, not desired behaviour', ()
       Object.fromEntries(Object.entries(block).filter(([, v]) => v !== null)),
     );
     expect(parseBody(scrubbed).success, messages(parseBody(scrubbed))).toBe(true);
+  });
+
+  it('leaves correctPitchLabels no defence of its own beyond the instrument enum', () => {
+    // TUNING_MIDI has a guitar key and a bass key, and pitchClassAt reads
+    // `TUNING_MIDI[instrument].length` with no guard at all. So a third
+    // instrument reaching the write path is not a wrong diagram, it is a
+    // TypeError thrown out of a tool's execute() — and the enum on
+    // `instrument` is the ENTIRE thing preventing it.
+    //
+    // Both halves are load-bearing: the first pins that the schema refuses a
+    // fourth instrument, the second pins what is waiting downstream if that
+    // ever stops being true. Fix the runtime path and this test should be
+    // updated, not deleted.
+    const ukulele = (label: string) => ({
+      __component: 'lesson.diagram',
+      mode: 'explicit',
+      instrument: 'ukulele',
+      dots: [{ string: 0, fret: 1, label }],
+    });
+
+    expect(parseBlock(ukulele('C')).success).toBe(false);
+    expect(() => correctPitchLabels([ukulele('C')] as any)).toThrow(TypeError);
+    // Only a dot making a PITCH claim gets that far — a degree label never
+    // reaches the tuning lookup, which is why the crash is intermittent
+    // rather than immediate.
+    expect(() => correctPitchLabels([ukulele('R')] as any)).not.toThrow();
   });
 
   it('blames intent="chord" when intent was omitted on an obviously-scale diagram', () => {

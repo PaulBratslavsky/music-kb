@@ -5,7 +5,7 @@
 // `passWithNoTests`); the rest are edits to the test files themselves, which
 // only a test that READS those files can see:
 //
-//   - `describe.skip` on the theory-diagram block silently drops 24 of 77
+//   - `describe.skip` on the theory-diagram block silently drops 24 of 100
 //     tests, and the run still reports success.
 //   - `it.skip` on the two single-point-of-failure gates does the same for
 //     the assertions that matter most.
@@ -22,7 +22,7 @@ const SRC = join(__dirname, '..');
 
 /** Files whose disappearance or muting must fail the run. */
 const REQUIRED = [
-  { path: 'mcp/tools/lesson-blocks.test.ts', minCases: 35 },
+  { path: 'mcp/tools/lesson-blocks.test.ts', minCases: 55 },
 ];
 
 describe('server suite integrity', () => {
@@ -46,7 +46,7 @@ describe('server suite integrity', () => {
       // A blunt floor, not an exact count — it should not fight normal
       // additions, only notice a collapse. Counts DECLARATIONS, which is
       // lower than vitest's reported total because `it.each` expands one
-      // declaration into many (39 declarations -> 77 tests today).
+      // declaration into many (60 declarations -> 100 tests today).
       const src = readFileSync(full, 'utf8');
       const cases = [...src.matchAll(/^\s*(?:it|test)\b/gm)].length;
       expect(cases).toBeGreaterThanOrEqual(minCases);
