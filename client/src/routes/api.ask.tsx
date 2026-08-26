@@ -8,7 +8,7 @@ import {
   type RetrievedPassage,
 } from '#/lib/services/ask-library';
 import { buildLibraryTools } from '#/lib/services/library-tools';
-import { OLLAMA_HOST, OLLAMA_SYNTHESIS_MODEL as CHAT_MODEL } from '#/lib/env';
+import { OLLAMA_HOST, OLLAMA_SYNTHESIS_MODEL } from '#/lib/env';
 import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 // Streaming library-QA endpoint. Parallels /api/chat in shape:
@@ -118,7 +118,7 @@ export const Route = createFileRoute('/api/ask')({
           perVideoCount.set(p.video.documentId, seen + 1);
         }
         console.log(
-          `[${new Date().toISOString().slice(11, 23)}] [ask/${CHAT_MODEL}] "${question}" → pool: ${uniqueVideoCount} videos / ${passages.length} passages · seed: ${seedAnchors} anchors → synthesizing`,
+          `[${new Date().toISOString().slice(11, 23)}] [ask/${OLLAMA_SYNTHESIS_MODEL}] "${question}" → pool: ${uniqueVideoCount} videos / ${passages.length} passages · seed: ${seedAnchors} anchors → synthesizing`,
         );
 
         const userPrompt = [
@@ -127,7 +127,7 @@ export const Route = createFileRoute('/api/ask')({
           formatSeedForPrompt(passages),
         ].join('\n');
 
-        const adapter = createOllamaChat(CHAT_MODEL, OLLAMA_HOST);
+        const adapter = createOllamaChat(OLLAMA_SYNTHESIS_MODEL, OLLAMA_HOST);
         // Progressive retrieval: the model only sees #1 candidate's
         // passages up-front. The `load_passages` tool (built per-request
         // with the pool closed over) lets it expand to any of the 4
@@ -146,7 +146,7 @@ export const Route = createFileRoute('/api/ask')({
             { role: 'user', content: userPrompt },
           ] as never,
           tools,
-          modelOptions: samplingOptions(CHAT_MODEL, 0.4),
+          modelOptions: samplingOptions(OLLAMA_SYNTHESIS_MODEL, 0.4),
         });
 
         // Build a combined stream: one CITATIONS frame up front, then
@@ -157,7 +157,7 @@ export const Route = createFileRoute('/api/ask')({
         const citationsFrame = `data: ${JSON.stringify({
           type: 'CITATIONS',
           citations: passages.map(toCitationPayload),
-          model: CHAT_MODEL,
+          model: OLLAMA_SYNTHESIS_MODEL,
         })}\n\n`;
 
         const baseResponse = toServerSentEventsResponse(stream);

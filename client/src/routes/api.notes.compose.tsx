@@ -9,7 +9,7 @@ import { cleanTranscript } from '#/lib/services/transcript';
 import { getSkill } from '#/lib/skills';
 import {
   OLLAMA_HOST,
-  OLLAMA_SYNTHESIS_MODEL as CHAT_MODEL,
+  OLLAMA_SYNTHESIS_MODEL,
 } from '#/lib/env';
 import { samplingOptions } from '#/lib/services/ollama-model-options';
 
@@ -189,14 +189,14 @@ export const Route = createFileRoute('/api/notes/compose')({
           `[${new Date().toISOString().slice(11, 23)}] [notes/compose ${body.videoId}/${skill.slug}${currentContent ? ' · refine' : ' · new'}] "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}"`,
         );
 
-        const adapter = createOllamaChat(CHAT_MODEL, OLLAMA_HOST);
+        const adapter = createOllamaChat(OLLAMA_SYNTHESIS_MODEL, OLLAMA_HOST);
         const stream = chat({
           adapter,
           messages: [
             { role: 'system', content: skill.composerPrompt },
             { role: 'user', content: userPrompt },
           ] as never,
-          modelOptions: samplingOptions(CHAT_MODEL, 0.3),
+          modelOptions: samplingOptions(OLLAMA_SYNTHESIS_MODEL, 0.3),
         });
 
         return toServerSentEventsResponse(stream);

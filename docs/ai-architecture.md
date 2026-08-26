@@ -144,6 +144,7 @@ because the client's vitest is the repo's only test runner:
 | Per-tool MCP permissions | `lib/mcp-tool-permissions.test.ts` |
 | Authoring guide ↔ Strapi schema | `lib/lesson/authoring-guide.test.ts` (bidirectional) |
 | Declared-but-unrendered fields | `components/lesson/render-reachability.test.ts` |
+| Embedding contract (version, model default, text-builders, prefixes, truncation) | `lib/services/embeddings.parity.test.ts` |
 
 `docs/lesson-authoring.md` deserves a special mention: it is the single source of
 truth for lesson authoring, read at runtime by **both** the in-app generator
@@ -152,16 +153,27 @@ document, two consumers, one drift test in both directions.
 
 ## Known gaps
 
-1. **`EMBEDDING_VERSION` has no parity test.** It is hardcoded in
-   `client/src/lib/env.ts:65` and read from env with a `'3'` default in
-   `server/src/mcp/utils/embeddings.ts:23`. The comment at `env.ts:64` says
-   "Mirror the bump in server/src/mcp/utils/embeddings.ts" — a manual instruction
-   where every sibling invariant above has an automated guard. Drift means an
-   MCP-driven reindex writes vectors the client considers stale, or the client
-   silently trusts vectors built from a different text-builder. This is the
-   cheapest high-value fix on the list.
+1. **Ollama host resolution is split.** The client resolves its host from
+   `OLLAMA_BASE_URL` (`client/src/lib/env.ts`), the MCP embedding utils from
+   `OLLAMA_HOST` (`server/src/mcp/utils/embeddings.ts`), and **neither key
+   appears in `server/.env.example`**, which otherwise carries no `OLLAMA_*`
+   keys at all. Point the client at a remote Ollama and the MCP reindex stays on
+   localhost — same model *name*, possibly different weights or quantization,
+   both vectors written and labelled current. It is builder-drift severity
+   through a config door, and the embedding parity guard names it in its "what
+   this cannot catch" list because source parity cannot reach it. If a remote or
+   deployed Strapi is ever real, this breaks the MCP reindex before the parity
+   question even arises.
 
-2. **Model routing is scattered.** Ten module-scope `createOllamaChat(...)` calls
+2. **`lesson-generation.ts` trusts vectors every other surface rejects.**
+   `rankVideosByTopic` filters on `Array.isArray(v.summaryEmbedding) &&
+   length > 0` and never calls `embeddingStatus`, unlike the four call sites in
+   `data/server-functions/videos.ts` which all gate on `=== 'current'`. So
+   lesson generation ranks source videos against stale vectors. Fixing it is a
+   behavior change (fewer source videos when the library is stale) and needs its
+   own reasoning about whether degraded ranking beats no ranking.
+
+3. **Model routing is scattered.** Ten module-scope `createOllamaChat(...)` calls
    bind their model at import time. `lesson-model.ts` demonstrates the better
    shape — one resolver returning adapter + tier + the matching friendly-error
    mapper — and the cost of not generalizing it showed up when the digest needed
@@ -169,18 +181,15 @@ document, two consumers, one drift test in both directions.
    parameter. A `resolveModel(surface)` would let any surface be promoted to
    frontier by configuration instead of by code change.
 
-3. **The two tool systems duplicate retrieval.** `library-tools.ts` and the MCP
+4. **The two tool systems duplicate retrieval.** `library-tools.ts` and the MCP
    `searchVideos` / `getVideo` / `crossSearchTranscripts` answer the same
    questions with separate implementations. Merging them wholesale would undo the
    protocol-free local path, which is a deliberate choice — but the retrieval core
    underneath both could be one module.
 
-4. **`server/` has no test runner.** Every server-side guarantee is pinned from the
+5. **`server/` has no test runner.** Every server-side guarantee is pinned from the
    client suite by reading files off disk. That is honest and it works, but it can
    only check *static* agreement, never behaviour.
    `server/src/mcp/tools/lesson-blocks.ts` is 1051 lines of validation logic with
    no executable test.
 
-5. **`OLLAMA_SYNTHESIS_MODEL` is imported `as CHAT_MODEL`** in `api.ask.tsx` and
-   `api.notes.compose.tsx`, so those files read as though they use the chat model.
-   A local rename hiding a real distinction.

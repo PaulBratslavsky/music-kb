@@ -88,12 +88,12 @@ The Video row carries two independent embedding artifacts at different granulari
 
 | Field | Notes |
 |---|---|
-| `summaryEmbedding` (json) | `number[]` — single vector per video, ~768-dim from `nomic-embed-text`. Built from `(title + summaryOverview + keyTakeaways + section headings + tags)`. Powers Related Videos and library-wide semantic search on `/feed`. |
+| `summaryEmbedding` (json) | `number[]` — single vector per video, ~768-dim from `nomic-embed-text`. Built from `(video title + summary title + summary description + summaryOverview + keyTakeaways + section headings + tags + the music-extraction block)` — see `buildEmbeddingText` in `client/src/lib/services/embeddings.ts` for the authoritative list. Powers Related Videos and library-wide semantic search on `/feed`. |
 | `embeddingModel` | The Ollama model that produced `summaryEmbedding`. Compound invalidation key with `embeddingVersion`. |
 | `embeddingVersion` | Integer version of the **text-builder** in `client/src/lib/services/embeddings.ts`. **Bump alongside any change to which fields feed the embedder.** Without a bump, old vectors silently survive a meaning change. |
 | `embeddingGeneratedAt` | Mostly admin-facing. |
 
-A row is "stale" when stored `embeddingModel ≠ env.OLLAMA_EMBEDDING_MODEL` OR stored `embeddingVersion ≠ env.EMBEDDING_VERSION`. The Settings panel offers backfill scoped to `missing` / `stale` / `all`.
+A row is "stale" when stored `embeddingModel ≠` the resolved `OLLAMA_EMBEDDING_MODEL` OR stored `embeddingVersion ≠` the `EMBEDDING_VERSION` **code constant** in `client/src/lib/env.ts`. `EMBEDDING_VERSION` is not an env var on either side — it is a source literal in `client/src/lib/env.ts` and in `server/src/mcp/utils/embeddings.ts`, and `client/src/lib/services/embeddings.parity.test.ts` fails the build if the two drift. The Settings panel offers backfill scoped to `missing` / `stale` / `all`.
 
 #### Tier 2: per-passage embeddings (moment search)
 

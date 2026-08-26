@@ -6,24 +6,47 @@
 // (model, version, text-builder fields) for stored vectors to be usable
 // across them.
 //
-// Upgradability: change `OLLAMA_EMBEDDING_MODEL` or `EMBEDDING_VERSION`
-// in the server env and the matching value in `client/src/lib/env.ts`;
-// existing vectors flag as stale, `reindexEmbeddings` sweeps them up.
+// Upgradability: bump `EMBEDDING_VERSION` HERE and in
+// `client/src/lib/env.ts` in the same commit — both are source literals and
+// neither is env-configurable, because the two halves are read by two
+// different processes with two different .env files, so an override on one
+// side alone can only ever produce divergence. Existing vectors then flag as
+// stale and `reindexEmbeddings` sweeps them up.
+//
+// This file deliberately does NOT read `process.env.EMBEDDING_VERSION`. It
+// used to, with a parseInt + silent clamp, and that was a hole rather than a
+// feature: the key appears in no `.env` or `.env.example` in this repo, its
+// client counterpart is a plain literal so an override could only diverge the
+// two, and parseInt leniency meant `EMBEDDING_VERSION=1e3` silently pinned the
+// server to v1 while `EMBEDDING_VERSION=` (empty) fell through to 3.
+//
+// `OLLAMA_EMBEDDING_MODEL` *is* env-readable on both sides — swapping embedding
+// models is a real feature — but the two DEFAULTS below must match the
+// client's. All of this is pinned by
+// client/src/lib/services/embeddings.parity.test.ts, which fails the build if
+// any of it drifts. (That guard strips comments before it looks for an env
+// read, which is why the sentence above can name the variable it is banning.)
 
+// NOTE: the client resolves its Ollama host from OLLAMA_BASE_URL
+// (client/src/lib/env.ts), this side from OLLAMA_HOST, and neither key appears
+// in server/.env.example. Point the client at a remote Ollama and this MCP
+// reindex stays on localhost — same model NAME, possibly different weights,
+// both vectors labelled current. Known, tracked separately; the parity guard
+// names it in its "what this cannot catch" list.
 const OLLAMA_HOST = (process.env.OLLAMA_HOST ?? 'http://localhost:11434').replace(
   /\/v1\/?$/,
   '',
 );
+// `?.trim() ||`, not `??` — matches readEnv() in client/src/lib/env.ts.
+// `OLLAMA_EMBEDDING_MODEL=` (empty) must fall back, not resolve to ''; an empty
+// model name here would stamp every MCP-written row `embeddingModel: ''` and
+// the client would read all of them as stale forever.
 const OLLAMA_EMBEDDING_MODEL =
-  process.env.OLLAMA_EMBEDDING_MODEL ?? 'nomic-embed-text';
-// v3 default matches the client — v2 introduced task prefixes
-// (`search_query: / search_document:`), v3 added the music-extraction
-// block to the text-builder. Keep server + client defaults aligned so
-// MCP-driven reindex produces the same embeddings as the in-app reindex.
-const EMBEDDING_VERSION = (() => {
-  const parsed = parseInt(process.env.EMBEDDING_VERSION ?? '3', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
-})();
+  process.env.OLLAMA_EMBEDDING_MODEL?.trim() || 'nomic-embed-text';
+// v2 introduced task prefixes (`search_query: / search_document:`), v3 added
+// the music-extraction block to the text-builder. Mirrors EMBEDDING_VERSION in
+// client/src/lib/env.ts.
+const EMBEDDING_VERSION = 3;
 
 export const CURRENT_EMBEDDING_MODEL = OLLAMA_EMBEDDING_MODEL;
 export const CURRENT_EMBEDDING_VERSION = EMBEDDING_VERSION;
