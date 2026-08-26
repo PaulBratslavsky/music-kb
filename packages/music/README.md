@@ -38,7 +38,7 @@ it is deliberately not a full barrel.
 
 ```bash
 yarn --cwd packages/music test    # 195 tests
-yarn test                         # from the repo root: this package + the client
+yarn test                         # from the repo root: this package + server + client + web
 ```
 
 Tests for theory modules live beside them; the older `__tests__/` folder came

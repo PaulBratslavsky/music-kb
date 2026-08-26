@@ -172,8 +172,13 @@ But some knowledge has to agree on both sides, and **`server/` cannot import
 tsconfig, and fixing that means changing how the whole Strapi server compiles. So
 that knowledge is duplicated, and the duplication is pinned by tests.
 
-Those tests live in the **client** suite and read the server's files off disk,
-because the client's vitest is the repo's only test runner:
+Those tests live in the **client** suite and read the server's files off disk.
+`server/` has had its own vitest since 2026-08-26, so that placement is no
+longer forced — but it is still correct, and for the original reason: these
+guards assert that two *files* agree, and the client cannot import the server's
+copy without breaking the separate-installs rule (two zod instances, two React
+majors). Reading server source as TEXT is what makes a text-level comparison
+possible at all. The server's own suite is for what it can *execute*.
 
 | Invariant | Guard |
 |---|---|
@@ -233,9 +238,22 @@ document, two consumers, one drift test in both directions.
    protocol-free local path, which is a deliberate choice — but the retrieval core
    underneath both could be one module.
 
-5. **`server/` has no test runner.** Every server-side guarantee is pinned from the
-   client suite by reading files off disk. That is honest and it works, but it can
-   only check *static* agreement, never behaviour.
-   `server/src/mcp/tools/lesson-blocks.ts` is 1051 lines of validation logic with
-   no executable test.
+5. ~~**`server/` has no test runner.**~~ **Fixed** (2026-08-26). `server/` now
+   owns a vitest (`yarn --cwd server test`, wired into the root `yarn test` as
+   the second leg), and `server/src/mcp/tools/lesson-blocks.ts` has 77
+   behavioural tests in `lesson-blocks.test.ts`. Note what shipped, because it
+   is narrower than the entry proposed: **one** test file, importing only its
+   target and vitest — no `strapi` mock, no bootstrap, and the other 28 MCP
+   tools are still covered only end-to-end by `server/scripts/test-mcp.mjs`.
+
+   Two things the runner deliberately did *not* buy. Vitest resolves through
+   Vite, which understands `packages/music`'s `exports` map, so a server *test*
+   can import `@music-kb/music` where server *source* still cannot (see "What
+   crosses the boundary"). That escape hatch was declined: it would put `tonal`
+   in `server/node_modules` and invite an import from `src/` that fails `tsc`
+   with TS2307 — and the tables it would have derived are already pinned by
+   `theory-intent-parity.test.ts`, which throws rather than silently passing if
+   the constant is renamed. And server test files are excluded from
+   `server/tsconfig.json` (which is what keeps them out of the Strapi build),
+   so **they are typechecked by nothing**.
 

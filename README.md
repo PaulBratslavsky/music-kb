@@ -288,7 +288,7 @@ yarn dev            # Strapi + client only (skip the Ollama env setup)
 yarn client         # Client only (expects Strapi already running)
 yarn server         # Strapi only
 yarn web            # The companion SPA only
-yarn test           # Every vitest suite: packages/music, client, web
+yarn test           # Every vitest suite: packages/music, server, client, web
 ```
 
 Four packages under a task-runner root. **Each owns its dependencies** —

@@ -172,14 +172,18 @@ apply:
 ## Working on the web app
 
 ```bash
-yarn install                  # from the repo root — one install, every workspace
+yarn install:all              # from the repo root — four separate installs
 yarn --cwd web dev --port 5180
 yarn --cwd web build          # tsc -b && vite build — what Vercel runs
-yarn test                     # packages/music + client + web
+yarn test                     # packages/music + server + client + web
 ```
 
-Never run `npm install` or a bare `yarn` inside `web/` — it fights the root
-lockfile.
+There is **no workspace and no hoisting** — each of `packages/music`, `server`,
+`client` and `web` owns its own `node_modules` and `yarn.lock`, deliberately, so
+that Strapi's React 18 and the two apps' React 19 can never meet (CLAUDE.md,
+"Install per package"). A bare `yarn install` inside `web/` is therefore the
+right thing when you are changing only `web/`; there is no root lockfile for it
+to fight.
 
 Use the **build**, not `tsc --noEmit`, as the gate: `--noEmit` has passed
 here while `tsc -b` caught real type errors. The root `.githooks/pre-push`
