@@ -4,12 +4,16 @@
 // the headings already exist and are the one thing in the body that
 // legitimately describes the lesson's shape.
 //
-// Deliberately INLINE, not sticky. A two-column layout is queued next
-// (.superpowers/sdd/lesson-two-col/brief.md) with a sticky video panel on
-// the right; a second sticky element in the content column competing for
-// scroll-anchored space would just have to be torn out the moment that
-// lands. This renders once, at the top of the content column, and scrolls
-// away with the rest of the lesson like any other block.
+// Deliberately INLINE, not sticky, and it stayed in the content column
+// when the two-column layout landed (lessons.$slug.tsx). Moving it into
+// the sticky video panel was the obvious alternative and is the wrong
+// trade: the panel is the one region that never scrolls away, so a table
+// of contents there permanently spends the vertical space the video
+// needs — worst at the `lg` widths where that space is tightest, and the
+// lesson chat panel is still to come. Below `lg` the panel sits BELOW the
+// lesson, where a table of contents is worthless: you reach it after
+// reading. This renders once, at the top of the content column, and
+// scrolls away with the rest of the lesson like any other block.
 //
 // The collapse is a native <details>/<summary> — no client state, so no
 // SSR/hydration mismatch (docs/ssr-client-fallback.md) and no viewport

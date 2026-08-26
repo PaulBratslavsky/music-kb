@@ -7,9 +7,13 @@
 // heading) when there's nothing to show, which is the normal case for
 // hand-written lessons.
 //
-// Links open in a new tab (`target="_blank"`), same as the inline
-// citations in LessonBody's SourceNote — a lesson is meant to be
-// self-contained; following a source should never navigate away from it.
+// Links, and deliberately still `target="_blank"` — this section did NOT
+// become buttons when the inline citations did. The two have different
+// jobs now: LessonVideoPanel is the interactive list (click a source, it
+// plays in place beside the lesson), and this is the scrolled-to-end,
+// printable summary of provenance plus the way into the full /learn page
+// for a video. Turning it into a second copy of the panel's controls
+// would leave the reader no route to the video's own page at all.
 
 import { Link } from '@tanstack/react-router';
 import type { LessonSourceVideo } from '#/lib/services/lessons';
