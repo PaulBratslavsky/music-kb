@@ -51,5 +51,8 @@
   },
   "strapi": {
     "uuid": false
+  },
+  "resolutions": {
+    "vite": "5.4.21"
   }
 }
