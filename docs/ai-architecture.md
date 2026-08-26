@@ -193,6 +193,3 @@ document, two consumers, one drift test in both directions.
    `server/src/mcp/tools/lesson-blocks.ts` is 1051 lines of validation logic with
    no executable test.
 
-6. **`OLLAMA_SYNTHESIS_MODEL` is imported `as CHAT_MODEL`** in `api.ask.tsx` and
-   `api.notes.compose.tsx`, so those files read as though they use the chat model.
-   A local rename hiding a real distinction.
