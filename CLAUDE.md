@@ -44,23 +44,32 @@ All run from the **repo root** unless noted.
 | `yarn client` | Client only (assumes Strapi is up). |
 | `yarn seed` | Imports `server/seed-data/seed.tar.gz`. **Run before starting Strapi** — needs exclusive write to SQLite. |
 | `yarn web` | The companion SPA's dev server only. |
-| `yarn test` | All three suites: `packages/music`, then `client`, then `web`. |
+| `yarn test` | All four suites: `packages/music`, then `server`, then `client`, then `web`. |
 | `yarn export` | Exports current Strapi DB to `server/seed-data/seed.tar.gz`. |
 
 ### Tests
 
 ```bash
-yarn test                                      # every suite (463 tests)
-yarn --cwd packages/music test                 # the shared theory layer (195)
-yarn --cwd client test                         # the KB app (264)
+yarn test                                      # every suite (1592 tests)
+yarn --cwd packages/music test                 # the shared theory layer (279)
+yarn --cwd server test                         # the MCP lesson-block schema (103)
+yarn --cwd client test                         # the KB app (1201)
+yarn --cwd web test                            # the companion SPA (9)
 yarn --cwd client test path/to/file.test.ts    # single file
 yarn --cwd client test -t "name fragment"      # filter by test name
 yarn --cwd client test:e2e                     # Playwright smoke (needs stack up)
 ```
 
-Unit tests are vitest. **They live in two places**: theory tests in
-`packages/music/src/`, app tests in `client/src/`. A bare
-`yarn --cwd client test` silently skips 199 of them — use the root script. The server has no test suite.
+Unit tests are vitest. **They live in four places**: theory tests in
+`packages/music/src/`, app tests in `client/src/`, SPA tests in `web/src/`,
+and — since 2026-08-26 — server tests in `server/src/`. A bare
+`yarn --cwd client test` silently skips 391 of them — use the root script.
+The server suite is deliberately small and dependency-free (vitest + the file
+under test, no `strapi` mock, no bootstrap): it executes
+`server/src/mcp/tools/lesson-blocks.ts`, which the five client-side parity
+tests can only read as *text*. **Server test files are typechecked by nothing** —
+`server/tsconfig.json` excludes `**/*.test.*` (which is what keeps them out of
+the Strapi build) and vitest strips types without checking them.
 Playwright e2e specs live in `client/e2e/*.spec.ts` and assume the full
 stack is already running (`yarn dev`/`yarn start` from the repo root) —
 they do not boot it. They guard the seroval server→client boundary on the
@@ -72,6 +81,7 @@ plugin-free) holds the `test.include`/`exclude` that keep vitest out of `e2e/`.
 
 ```bash
 cd client && npx tsc --noEmit                  # client typecheck (no project-wide script)
+cd server && npx tsc --noEmit                  # server typecheck (test files are excluded)
 yarn --cwd web build                           # tsc -b && vite build — web's honest gate
 ```
 
@@ -156,7 +166,7 @@ The **official Strapi MCP server** (built into 5.47+) serves `/mcp`, gated by ad
   - **`client/` `/lessons`** — the `api::lesson.lesson` Strapi collection, rendered from a dynamic zone of typed blocks (`LessonBody.tsx`). This is where AI-generated lessons land. It holds no hardcoded lessons.
 
   The client used to carry duplicate copies of all 8 hand-written lessons; they were deleted once this split was made. If you find yourself re-adding a hardcoded lesson route under `client/src/routes/lessons.*.tsx`, or translating a `web/` lesson into Strapi blocks, stop — that is undoing this decision. Design notes: `docs/superpowers/specs/2026-08-20-strapi-lessons-design.md`.
-- **Theory changes hit both apps at once.** `packages/music` has no version skew to hide behind — break it and you break two builds. Its 195 tests are the guard; run them.
+- **Theory changes hit both apps at once.** `packages/music` has no version skew to hide behind — break it and you break two builds. Its 279 tests are the guard; run them.
 - **`__component` must be the FIRST key when writing a dynamic zone over REST.** Strapi's own GET response serialises it *last*, so round-tripping a lesson body straight back is rejected with `Invalid key __component at body` — an error that names the key and says nothing about ordering. Reorder before PUT (`{ __component: b.__component, ...b }`). Two more shapes Strapi returns but won't accept back: component `id`s that belong to the entity, and `null` for an empty component array (`dots must be a array type, but the final value was: null`) — strip both; absent is how Strapi spells empty on the way in. `server/scripts/repair-diagram-windows.mjs` does all three and is the worked example.
 - **`yarn seed` requires Strapi stopped.** SQLite needs exclusive write access for the import; running it against a live Strapi corrupts the DB.
 - **Bump `EMBEDDING_VERSION` when changing the text-builder.** Otherwise old vectors silently survive a meaning-changing edit.

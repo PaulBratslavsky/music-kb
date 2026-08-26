@@ -20,7 +20,8 @@
     "music-tags": "node scripts/seed-music-tags.mjs",
     "lessons:seed": "node scripts/seed-lessons.mjs",
     "upgrade": "npx @strapi/upgrade latest",
-    "upgrade:dry": "npx @strapi/upgrade latest --dry"
+    "upgrade:dry": "npx @strapi/upgrade latest --dry",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
@@ -41,7 +42,8 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=20.0.0 <=24.x.x",
@@ -49,5 +51,8 @@
   },
   "strapi": {
     "uuid": false
+  },
+  "resolutions": {
+    "vite": "5.4.21"
   }
 }

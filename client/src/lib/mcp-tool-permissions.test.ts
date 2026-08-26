@@ -15,11 +15,16 @@
 // permission from every token holding it).
 //
 // It lives in the client suite for the same reason
-// components/lesson/block-vocabulary.test.ts does: the server has no test
-// runner, and this is the established place for assertions that read server
-// source at test time. As there, the server files are read as TEXT, never
-// imported — CLAUDE.md's rule is that `client` never imports from `server/`
-// (separate installs, separate zod instances).
+// components/lesson/block-vocabulary.test.ts does: this is the established
+// place for assertions that read server source at test time. The server has
+// had its own vitest since 2026-08-26 (`server/src/mcp/tools/
+// lesson-blocks.test.ts`), so converting this file to execute
+// `mcpToolActionDefs()` instead of reading it is now possible — but it would
+// be a different test, checking the derivation rather than the agreement
+// between two files, and the agreement is what drifts. As in the sibling
+// parity tests, the server files are read as TEXT, never imported —
+// CLAUDE.md's rule is that `client` never imports from `server/` (separate
+// installs, separate zod instances).
 
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';

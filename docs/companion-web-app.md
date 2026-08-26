@@ -164,22 +164,31 @@ apply:
   bass plays single notes, so finding the nearest root anywhere on the neck
   is the point. Guitar pins the voicing; bass does not. This is intentional
   in both apps.
-- **The web app has no tests of its own yet.** Every spec it had was a
-  test of the theory layer, and those went into `packages/music` with the
-  code they cover. `yarn --cwd web test` runs `--passWithNoTests` until
-  component tests land there.
+- **The web app tests its own state, not its components.** Every spec that
+  was really a theory test went into `packages/music` with the code it
+  covers; what stayed behind is the 9 tests in `web/src/state/` — URL
+  round-tripping (`useAppState.test.ts`: arpeggio serialization, and an
+  unknown `?mode=` falling back instead of throwing) and the inversion
+  stepper (`resolve.inversion.test.ts`: that stepping actually relights
+  different keys rather than just changing the label). Rendering is still
+  uncovered — `yarn --cwd web build` is the honest gate there, and
+  `yarn --cwd web test` keeps `--passWithNoTests` until component tests land.
 
 ## Working on the web app
 
 ```bash
-yarn install                  # from the repo root — one install, every workspace
+yarn install:all              # from the repo root — four separate installs
 yarn --cwd web dev --port 5180
 yarn --cwd web build          # tsc -b && vite build — what Vercel runs
-yarn test                     # packages/music + client + web
+yarn test                     # packages/music + server + client + web
 ```
 
-Never run `npm install` or a bare `yarn` inside `web/` — it fights the root
-lockfile.
+There is **no workspace and no hoisting** — each of `packages/music`, `server`,
+`client` and `web` owns its own `node_modules` and `yarn.lock`, deliberately, so
+that Strapi's React 18 and the two apps' React 19 can never meet (CLAUDE.md,
+"Install per package"). A bare `yarn install` inside `web/` is therefore the
+right thing when you are changing only `web/`; there is no root lockfile for it
+to fight.
 
 Use the **build**, not `tsc --noEmit`, as the gate: `--noEmit` has passed
 here while `tsc -b` caught real type errors. The root `.githooks/pre-push`

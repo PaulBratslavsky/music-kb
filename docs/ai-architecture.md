@@ -172,8 +172,13 @@ But some knowledge has to agree on both sides, and **`server/` cannot import
 tsconfig, and fixing that means changing how the whole Strapi server compiles. So
 that knowledge is duplicated, and the duplication is pinned by tests.
 
-Those tests live in the **client** suite and read the server's files off disk,
-because the client's vitest is the repo's only test runner:
+Those tests live in the **client** suite and read the server's files off disk.
+`server/` has had its own vitest since 2026-08-26, so that placement is no
+longer forced — but it is still correct, and for the original reason: these
+guards assert that two *files* agree, and the client cannot import the server's
+copy without breaking the separate-installs rule (two zod instances, two React
+majors). Reading server source as TEXT is what makes a text-level comparison
+possible at all. The server's own suite is for what it can *execute*.
 
 | Invariant | Guard |
 |---|---|
@@ -233,9 +238,41 @@ document, two consumers, one drift test in both directions.
    protocol-free local path, which is a deliberate choice — but the retrieval core
    underneath both could be one module.
 
-5. **`server/` has no test runner.** Every server-side guarantee is pinned from the
-   client suite by reading files off disk. That is honest and it works, but it can
-   only check *static* agreement, never behaviour.
-   `server/src/mcp/tools/lesson-blocks.ts` is 1051 lines of validation logic with
-   no executable test.
+5. ~~**`server/` has no test runner.**~~ **Fixed** (2026-08-26). `server/` now
+   owns a vitest (`yarn --cwd server test`, wired into the root `yarn test` as
+   the second leg), and `server/src/mcp/tools/lesson-blocks.ts` has 100
+   behavioural tests in `lesson-blocks.test.ts`, plus 3 in
+   `__suite-integrity.test.ts` that fail the run if the suite is deleted or
+   muted (103 total). Note what shipped, because it is narrower than the entry
+   proposed: **one** file under test, its suite importing only that target and
+   vitest — no `strapi` mock, no bootstrap, and the other 28 MCP tools are
+   still covered only end-to-end by `server/scripts/test-mcp.mjs`.
+
+   What the 100 cover, since "the schema has tests" is the easy thing to
+   over-read: the block vocabulary's *refusals*. Every field bound is pinned on
+   **both** sides of its edge (fret 0 legal / −1 not; caption 255 legal / 256
+   not), because a loosened bound still accepts every legal value and a test
+   that only tries an absurd input never notices. Every enum is pinned against
+   a plausible near-miss rather than garbage (`instrument: 'ukulele'`,
+   `pc: 'H'`, `state: 'freted'`), and the theory-mode `superRefine` branches are
+   pinned one test per branch, since deleting either leaves the other passing.
+   Seven refusals are asserted by message *content*, not merely by failing —
+   these messages are read by a model that then has to correct itself, so a
+   refusal that stops naming the legal set (`Legal values: …`) is a real
+   regression even though the block is still rejected. Verified by mutation
+   testing: an adversarial audit ran 40 mutations, of which 19 survived the
+   original 77 tests; each of those 19 is now confirmed to turn this suite red,
+   and the numeric bounds were re-checked against off-by-one loosenings
+   (`.max(5)` → `.max(6)`) rather than only the audit's wider ones.
+
+   Two things the runner deliberately did *not* buy. Vitest resolves through
+   Vite, which understands `packages/music`'s `exports` map, so a server *test*
+   can import `@music-kb/music` where server *source* still cannot (see "What
+   crosses the boundary"). That escape hatch was declined: it would put `tonal`
+   in `server/node_modules` and invite an import from `src/` that fails `tsc`
+   with TS2307 — and the tables it would have derived are already pinned by
+   `theory-intent-parity.test.ts`, which throws rather than silently passing if
+   the constant is renamed. And server test files are excluded from
+   `server/tsconfig.json` (which is what keeps them out of the Strapi build),
+   so **they are typechecked by nothing**.
 

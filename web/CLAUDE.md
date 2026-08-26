@@ -31,7 +31,7 @@ run a bare `npm install` here, it would fight the root lockfile.
 
 - `yarn --cwd web dev` — dev server (Vite picks a free port; `--port 5180` is habit)
 - `yarn --cwd web build` — production build (`tsc -b && vite build`)
-- `yarn test` from the root — the shared package's suite plus both apps'
+- `yarn test` from the root — the shared package's suite plus server, client and web
 
 After non-trivial changes run the **build**, not `tsc --noEmit`: `--noEmit` has
 passed here while `tsc -b` caught real type errors. `.githooks/pre-push` runs

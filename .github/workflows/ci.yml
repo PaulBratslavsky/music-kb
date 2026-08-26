@@ -15,7 +15,7 @@
 #
 # Caching keys on every lockfile, so a change in any package busts it.
 #
-# `yarn test` runs from the *root* on purpose: it chains all three suites.
+# `yarn test` runs from the *root* on purpose: it chains all four suites.
 # Running it from client/ is a bare `vitest run` and silently covers less
 # than half — the trap CLAUDE.md warns about, on the one package whose
 # breakage takes down two apps. Counts live in CLAUDE.md, not here, so they
@@ -59,7 +59,7 @@ jobs:
         run: npx tsc --noEmit
         working-directory: server
 
-      # Root script — all three suites; see CLAUDE.md for the counts.
+      # Root script — all four suites; see CLAUDE.md for the counts.
       - name: Test all workspaces
         run: yarn test
 
