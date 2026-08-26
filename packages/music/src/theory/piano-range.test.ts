@@ -8,14 +8,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { midiFromPitchOctave } from './notes';
+import { fitPianoRange } from './piano-range';
 
-/** Same rule the picker uses to fit the board to a voicing. */
-function fit(midis: number[]) {
-  const lo = Math.min(...midis);
-  const hi = Math.max(...midis);
-  const baseMidi = Math.floor(lo / 12) * 12;
-  return { baseMidi, octaves: Math.max(2, Math.ceil((hi - baseMidi + 1) / 12)) };
-}
+// The shipping function, not a copy of its rule. This file used to declare
+// its own `fit` and verify THAT — which passes just as happily when the
+// pickers and the chord card have drifted away from it.
+const fit = (midis: number[]) => fitPianoRange(midis);
 
 describe('piano board range for a voicing', () => {
   const EmOverB = [
@@ -49,5 +47,49 @@ describe('piano board range for a voicing', () => {
   it('never collapses to fewer than two octaves', () => {
     const closed = [60, 64, 67]; // C4 E4 G4 — fits in one
     expect(fit(closed).octaves).toBe(2);
+  });
+});
+
+describe('a chord card fits the voicing exactly (minOctaves: 1)', () => {
+  const Gm = [
+    midiFromPitchOctave('G', 4),
+    midiFromPitchOctave('A#', 4),
+    midiFromPitchOctave('D', 5),
+  ];
+  const GmOverD = [
+    midiFromPitchOctave('D', 4),
+    midiFromPitchOctave('G', 4),
+    midiFromPitchOctave('A#', 4),
+  ];
+
+  it('a voicing inside one octave draws one octave', () => {
+    expect(fitPianoRange([60, 64, 67], { minOctaves: 1 }).octaves).toBe(1);
+  });
+
+  it('a voicing that crosses a C boundary draws two', () => {
+    // G4-A#4-D5 straddles C5, so one octave cannot hold it.
+    expect(fitPianoRange(Gm, { minOctaves: 1 }).octaves).toBe(2);
+  });
+
+  it('the two chords that share a pitch-class set draw different pictures', () => {
+    // Gm and Gm/D light the identical pitch classes. The card can only tell
+    // them apart by where the notes SIT, which is the whole reason it draws
+    // absolute pitch instead of pitch classes.
+    const a = fitPianoRange(Gm, { minOctaves: 1 });
+    const b = fitPianoRange(GmOverD, { minOctaves: 1 });
+    const offsets = (midis: number[], base: number) => midis.map((m) => m - base);
+    expect(offsets(Gm, a.baseMidi)).not.toEqual(offsets(GmOverD, b.baseMidi));
+  });
+
+  it('the bass is the leftmost drawn key in an inversion', () => {
+    const { baseMidi } = fitPianoRange(GmOverD, { minOctaves: 1 });
+    const offsets = GmOverD.map((m) => m - baseMidi);
+    expect(Math.min(...offsets)).toBe(GmOverD[0] - baseMidi); // D4 first
+    expect(offsets.every((o) => o >= 0)).toBe(true);
+  });
+
+  it('an empty voicing still yields a drawable board', () => {
+    expect(fitPianoRange([], { minOctaves: 1 })).toEqual({ baseMidi: 60, octaves: 1 });
+    expect(fitPianoRange([])).toEqual({ baseMidi: 60, octaves: 2 });
   });
 });
