@@ -216,6 +216,25 @@ export function supportsCaged(scaleType: ScaleType): boolean {
   return scaleType === 'major' || WINDOW_BOXES[scaleType] != null;
 }
 
+/**
+ * Every position this scale type can actually be DRAWN in — the legal
+ * values a validator should quote back when it refuses one, the same shape
+ * `arpeggioPositions()` answers for a chord quality.
+ *
+ * `availablePositions()` alone is not that list: it reports the numbered
+ * boxes only, so it answers `[]` for the five modes even though
+ * `realizeCagedShape` draws every one of them in the universal `'2oct'`
+ * window. Quoting the bare numbers at an author would tell them a Dorian
+ * box is impossible when what is impossible is a *numbered* Dorian box.
+ * So `'2oct'` is appended for every scale type, and this list is never
+ * empty.
+ */
+export function scalePositions(
+  scaleType: ScaleType,
+): Exclude<ScalePosition, 'all'>[] {
+  return [...availablePositions(scaleType), '2oct'];
+}
+
 export function shapeName(
   position: Exclude<ScalePosition, 'all'>,
   scaleType: ScaleType,

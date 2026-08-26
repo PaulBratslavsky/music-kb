@@ -133,6 +133,7 @@ import {
   buildMusicExtractionText,
   fetchVideoByDocumentIdService,
   fetchVideoByVideoIdService,
+  listAllVideoTranscriptIndexesService,
   listAllVideosForEmbeddingWithStatusService,
   type StrapiVideo,
 } from '#/lib/services/videos';
@@ -686,6 +687,29 @@ async function resolveFullVideos(
     }),
   );
   return { videos, missing };
+}
+
+// Every indexed transcript in the WHOLE library — `chooseProseSource`'s
+// corpus-rarity population (see prose-grounding.ts's "Distinctiveness has
+// two scopes"), not this lesson's source set. Best-effort: this feeds a
+// confidence gate on auto-grounded citations, not a correctness-critical
+// read, so a fetch failure logs and falls back to an empty map — which
+// makes the library-rarity gate vacuous (within-video-only distinctiveness,
+// the pre-fix behavior) rather than blocking the write entirely.
+async function fetchLibraryIndexes(topic: string): Promise<Map<string, BM25Index>> {
+  const indexes = new Map<string, BM25Index>();
+  try {
+    const rows = await listAllVideoTranscriptIndexesService();
+    for (const row of rows) {
+      const stored = loadStoredIndex(row.transcriptSegments);
+      if (stored) indexes.set(row.youtubeVideoId, stored.bm25);
+    }
+  } catch (err) {
+    logPhase(topic, 'grounding ⚠ could not load the library-wide transcript index', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return indexes;
 }
 
 type DigestResolution =
@@ -1302,6 +1326,19 @@ function buildSectionPrompt(
 type GroundingContext = {
   validVideoIds: Set<string>;
   bm25ByVideoId: Map<string, BM25Index>;
+  /**
+   * Every indexed transcript in the WHOLE library, not just this lesson's
+   * sources — `chooseProseSource`'s corpus-rarity population (see that
+   * module's "Distinctiveness has two scopes"). A term that looks rare
+   * inside the winning video only counts as evidence if it is ALSO rare
+   * across this wider set; the lesson's own 1–5 sources are too small a
+   * sample to tell "nobody else says this" from "nobody else in THIS
+   * lesson happened to". Best-effort: a corpus fetch failure leaves this
+   * empty rather than failing the write, which makes the library-rarity
+   * gate vacuous (falls back to within-video-only distinctiveness) rather
+   * than blocking generation over a diagnostic-quality signal.
+   */
+  libraryIndexes: Map<string, BM25Index>;
   /** youtubeVideoId -> display title, for stripLeakedVideoIds below. */
   titleByVideoId: Map<string, string>;
   /**
@@ -1819,7 +1856,12 @@ function groundParsedBlocks(
       // that judgement and its thresholds; everything it declines stays
       // uncited on purpose (see its header — coverage is not the target).
       const text = groundingTextOf(block);
-      const decision = chooseProseSource(text, ground.bm25ByVideoId.keys(), ground.bm25ByVideoId);
+      const decision = chooseProseSource(
+        text,
+        ground.bm25ByVideoId.keys(),
+        ground.bm25ByVideoId,
+        ground.libraryIndexes,
+      );
       if (decision.attach) {
         // The MOMENT still comes from the one existing grounding path, so an
         // auto-grounded citation is timestamped by the same code every
@@ -1985,8 +2027,20 @@ const ILLUSTRATION_SYSTEM = [
   '',
   'The five directives available here, and nothing else:',
   '',
-  '::diagram{after=2 instrument=guitar mode=theory root=C quality=major stringSet="e–B–G" inversion=0 fromFret=3 toFret=8 src=VIDEO_ID}',
+  '::diagram{after=2 intent=chord root=C quality=major stringSet="e–B–G" inversion=0 src=VIDEO_ID}',
   'The caption goes in the body — say why the shape sits where it does, not that it is a triad.',
+  '::',
+  '',
+  '::diagram{intent=scale root=G scaleType=major position=2}',
+  'Box 2 repeats the same seven notes a whole step up from open position.',
+  '::',
+  '',
+  '::diagram{intent=arpeggio root=A quality=min7 position=1}',
+  'Every note here is one of the four in the chord — nothing passing, nothing added.',
+  '::',
+  '',
+  '::diagram{intent=pattern root=E scaleType=minor patternIndex=3}',
+  'Three notes on every string, so the picking hand keeps one repeating motion.',
   '::',
   '',
   '::diagram{mode=explicit fromFret=5 toFret=8}',
@@ -2027,8 +2081,11 @@ const ILLUSTRATION_SYSTEM = [
   '::',
   '',
   'Which to reach for: ::diagram is a stretch of neck — "where do these notes live". ::chord-diagram is the songbook chord box — "how do I hold this chord", and ANY lesson naming a chord the reader is meant to play should show one. ::neck-pattern is several shapes over ONE neck, for a system that spans it (five pentatonic boxes, seven three-note-per-string shapes) — two or more patterns, never one. ::natural-notes is a fixed reference strip, used ONCE, where a lesson first asks the reader to locate a root by name. ::keyboard-diagram is pitch-class addressed, for a piano.',
-  'PREFER mode="theory" (root+quality, and stringSet on ::diagram) over mode="explicit" — theory mode cannot be musically wrong the way hand-placed dots can. Use explicit mode when theory mode genuinely cannot express the shape: a scale box, a specific fret window, a voicing that is not a plain triad. In explicit mode the four dot styles are what turn one diagram into two layers — `hollow` for background scale tones (omit their label), `light` for the foreground chord tones, `ringed` for the notes the hand actually holds, `dim` to fade the rest of the scale right back. A diagram where every dot is plain is usually a diagram that could have taught more.',
-  'quality is TRIADS ONLY: major, minor, augmented, or diminished — never a seventh-chord quality. stringSet MUST use an EN DASH (–) between letters, e.g. "e–B–G", never a hyphen — a hyphenated lookalike is rejected.',
+  'ASK FOR A SHAPE BY NAME. On ::diagram, `intent` says what the diagram is OF and the theory layer works out where every dot goes and what it is called: intent=chord (root+quality+stringSet, one triad grip), intent=scale (root+scaleType+position, one box), intent=arpeggio (root+quality+position, the chord\'s tones in one hand position), intent=pattern (root+scaleType+patternIndex, one three-notes-per-string shape). You never type a fret and you never type a dot label in theory mode. A shape you ask for is right in every key; a shape you type frets for is right only if you got the arithmetic right, and nothing checks it.',
+  'mode="explicit" is the ESCAPE HATCH, not the default — for a shape the four intents genuinely cannot express: a lick or phrase fragment, a partial voicing, a deliberate omission, or two layers of meaning on one neck. NEVER hand-place dots for a scale box, an arpeggio position, a three-notes-per-string pattern or a triad; those are intents. In explicit mode the four dot styles are what turn one diagram into two layers — `hollow` for background scale tones (omit their label), `light` for the foreground chord tones, `ringed` for the notes the hand actually holds, `dim` to fade the rest of the scale right back. A diagram where every dot is plain is usually a diagram that could have taught more.',
+  'intent=chord voices a TRIAD: quality is major, minor, augmented or diminished there, never a seventh. intent=arpeggio takes the wider set — 5, maj, min, dim, aug, sus2, sus4, 6, m6, maj7, min7, dom7, m7b5, dim7, mMaj7, 7sus4, add9, madd9, 7b5, 7#5 — so a seventh chord is shown as an arpeggio, not as a triad with a wrong name. A 9th, 11th, 13th or altered quality has no arpeggio shape and is rejected; do not ask for one.',
+  'NOT EVERY COMBINATION EXISTS, and asking for one that does not gets the whole diagram dropped. majorPentatonic has boxes 1 and 5 only. dorian, phrygian, lydian, mixolydian and locrian have NO numbered box — position=2oct is the only position they take. patternIndex runs 1 to the number of notes in the scale: 7 for major and the modes, 6 for blues, 5 for the pentatonics. When in doubt, position=2oct works for every scale and every arpeggio quality.',
+  'stringSet MUST use an EN DASH (–) between letters, e.g. "e–B–G", never a hyphen — a hyphenated lookalike is rejected.',
   'String indices everywhere: 0 = the HIGHEST-pitched string (high e), increasing toward the lowest (5 = low E). This is the opposite of most tab numbering. fret 0 = open.',
   'Set `src` on EVERY illustration you can: the exact id shown in [brackets] next to the source video whose material the illustration shows. Nearly every diagram in a section written from one source belongs to that source — omit `src` only when the illustration genuinely draws on no single one. Never invent or guess an id.',
   '`useParam` goes on a theory-mode diagram ONLY when the user prompt below says this lesson declares a reader-controlled key picker AND this diagram\'s root IS that key. A diagram of a different scale degree — the vi chord, the vii° — keeps its own fixed root and omits useParam, because the picker replaces the root outright and would leave the caption describing a chord that is no longer on screen. Always set `root` alongside it as the fallback.',
@@ -2587,9 +2644,12 @@ export async function writeLesson(
 
   // Re-fetch full videos (with transcriptSegments) for context + grounding —
   // phase 1 only sent back the lightweight SourceVideo shape over the wire.
-  const { videos: fullVideos, missing } = await resolveFullVideos(
-    sources.map((s) => s.youtubeVideoId),
-  );
+  // Run alongside the library-wide index fetch below — the two are
+  // independent reads and neither blocks on the other.
+  const [{ videos: fullVideos, missing }, libraryIndexes] = await Promise.all([
+    resolveFullVideos(sources.map((s) => s.youtubeVideoId)),
+    fetchLibraryIndexes(topic),
+  ]);
   if (fullVideos.length === 0) {
     const message = 'Could not reload the selected source videos to write the lesson.';
     logPhase(topic, 'context ✗ no source videos resolved', { missing });
@@ -2617,6 +2677,7 @@ export async function writeLesson(
   const ground: GroundingContext = {
     validVideoIds,
     bm25ByVideoId,
+    libraryIndexes,
     titleByVideoId,
     parameter: outline.parameter,
     warn: (reason, meta) => logPhase(topic, `block ✗ dropped — ${reason}`, meta),

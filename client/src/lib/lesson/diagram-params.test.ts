@@ -4,17 +4,25 @@ import { createElement } from 'react';
 import { render, cleanup } from '@testing-library/react';
 import { MiniNeck, type NeckDot } from '#/components/lesson/MiniNeck';
 import {
+  diagramShapeName,
+  irrelevantTheoryFields,
   isOnNeck,
   resolveDiagramDots,
   resolveDiagramMarks,
   resolveNeckWindow,
+  validateTheoryDiagram,
   visibleNeckDots,
   widenNeckWindow,
+  DIAGRAM_QUALITIES,
   NECK_MAX_FRET,
   type DiagramBlock,
   type KeyboardDiagramBlock,
   type NeckInstrument,
 } from './diagram-params';
+import { getChordPitchClasses } from '@music-kb/music/theory/chords';
+import { getScalePitchClasses } from '@music-kb/music/theory/scales';
+import { pitchClassAt } from '@music-kb/music/instruments/neck';
+import { PITCH_CLASSES, SCALE_TYPES, type PitchClass } from '@music-kb/music/types';
 
 describe('resolveDiagramDots', () => {
   it('returns explicit dots unchanged in explicit mode', () => {
@@ -81,6 +89,209 @@ describe('resolveDiagramDots', () => {
       inversion: 0,
     };
     expect(resolveDiagramDots(block)).toEqual([]);
+  });
+});
+
+// =============================================================================
+// Theory intents — the author says WHAT, the theory layer decides WHERE
+// =============================================================================
+
+const theory = (extra: Partial<DiagramBlock>): DiagramBlock => ({
+  instrument: 'guitar',
+  mode: 'theory',
+  ...extra,
+});
+
+/** The pitch class MiniNeck will actually sound at this dot. */
+const pcOf = (dot: { string: number; fret: number }) =>
+  pitchClassAt(dot.string, dot.fret, 'guitar');
+
+describe('theory intents realize dots from the theory layer', () => {
+  it('intent="scale" draws a CAGED box made only of that scale’s notes', () => {
+    const dots = resolveDiagramDots(
+      theory({ intent: 'scale', root: 'G', scaleType: 'major', position: '2' }),
+    );
+    const pcs = getScalePitchClasses({ root: 'G', type: 'major' });
+    expect(dots.length).toBeGreaterThan(5);
+    for (const dot of dots) expect(pcs).toContain(pcOf(dot));
+    // ...and its roots are labelled as roots, not as "1".
+    expect(dots.filter((d) => d.root).every((d) => d.label === 'R')).toBe(true);
+    expect(dots.some((d) => d.root)).toBe(true);
+  });
+
+  it('intent="arpeggio" draws only chord tones, labelled by what they do in the chord', () => {
+    const dots = resolveDiagramDots(
+      theory({ intent: 'arpeggio', root: 'A', quality: 'min7', position: '1' }),
+    );
+    const tones = getChordPitchClasses('A', 'min7');
+    expect(dots.length).toBeGreaterThan(3);
+    for (const dot of dots) expect(tones).toContain(pcOf(dot));
+    // R / b3 / 5 / b7 — the degree map of a minor 7th, nothing invented.
+    expect(new Set(dots.map((d) => d.label))).toEqual(new Set(['R', 'b3', '5', 'b7']));
+  });
+
+  it('intent="pattern" draws three notes on every string', () => {
+    const dots = resolveDiagramDots(
+      theory({ intent: 'pattern', root: 'E', scaleType: 'minor', patternIndex: 1 }),
+    );
+    const pcs = getScalePitchClasses({ root: 'E', type: 'minor' });
+    expect(dots).toHaveLength(18);
+    for (const dot of dots) expect(pcs).toContain(pcOf(dot));
+    for (let s = 0; s < 6; s += 1) {
+      expect(dots.filter((d) => d.string === s), `string ${s}`).toHaveLength(3);
+    }
+  });
+
+  it('a block with no intent is still the triad it always was', () => {
+    const withIntent = resolveDiagramDots(
+      theory({ intent: 'chord', root: 'C', quality: 'major', stringSet: 'e–B–G' }),
+    );
+    const without = resolveDiagramDots(
+      theory({ root: 'C', quality: 'major', stringSet: 'e–B–G' }),
+    );
+    expect(without).toEqual(withIntent);
+    expect(without).toHaveLength(3);
+  });
+
+  it('the short quality spellings mean the same thing as the long ones', () => {
+    expect(resolveDiagramDots(theory({ root: 'C', quality: 'maj', stringSet: 'e–B–G' }))).toEqual(
+      resolveDiagramDots(theory({ root: 'C', quality: 'major', stringSet: 'e–B–G' })),
+    );
+  });
+
+  it('useParam re-realizes the shape in the reader’s key, for every intent', () => {
+    const block = theory({ intent: 'scale', root: 'C', scaleType: 'minorPentatonic', position: '1', useParam: true });
+    const inC = resolveDiagramDots(block, 'C');
+    const inF = resolveDiagramDots(block, 'F');
+    expect(inF).not.toEqual(inC);
+    for (const dot of inF) {
+      expect(getScalePitchClasses({ root: 'F', type: 'minorPentatonic' })).toContain(pcOf(dot));
+    }
+  });
+
+  // The claim the whole change rests on: what the theory layer says exists
+  // is what draws, everywhere, in every key.
+  it('every quality the schema offers realizes an arpeggio from every root', () => {
+    for (const quality of DIAGRAM_QUALITIES) {
+      for (const root of PITCH_CLASSES) {
+        const dots = resolveDiagramDots(theory({ intent: 'arpeggio', root, quality, position: '1' }));
+        expect(dots.length, `${root} ${quality}`).toBeGreaterThan(0);
+        expect(dots.some((d) => d.root), `${root} ${quality} has no root dot`).toBe(true);
+      }
+    }
+  });
+
+  it('every scale type realizes its two-octave window from every root', () => {
+    for (const scaleType of SCALE_TYPES) {
+      for (const root of PITCH_CLASSES) {
+        const dots = resolveDiagramDots(theory({ intent: 'scale', root, scaleType, position: '2oct' }));
+        expect(dots.length, `${root} ${scaleType}`).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe('validateTheoryDiagram refuses a COMBINATION by name', () => {
+  it('names the boxes a scale actually has', () => {
+    const problem = validateTheoryDiagram(
+      theory({ intent: 'scale', root: 'C', scaleType: 'majorPentatonic', position: '2' }),
+    );
+    expect(problem?.field).toBe('position');
+    // The legal set, quoted — not "the diagram came out empty".
+    expect(problem?.message).toContain('1, 5, 2oct');
+  });
+
+  it('says a mode has no numbered box rather than letting one render blank', () => {
+    const problem = validateTheoryDiagram(
+      theory({ intent: 'scale', root: 'D', scaleType: 'dorian', position: '3' }),
+    );
+    expect(problem?.field).toBe('position');
+    expect(problem?.message).toContain('2oct');
+    expect(problem?.message).toContain('no numbered CAGED boxes');
+  });
+
+  it('refuses a chord quality the triad voicer cannot voice, and points at the arpeggio intent', () => {
+    const problem = validateTheoryDiagram(
+      theory({ intent: 'chord', root: 'C', quality: 'maj7', stringSet: 'e–B–G' }),
+    );
+    expect(problem?.field).toBe('quality');
+    expect(problem?.message).toContain('intent="arpeggio"');
+  });
+
+  it('refuses a quality with more than four tones as an arpeggio, saying why', () => {
+    const problem = validateTheoryDiagram(theory({ intent: 'arpeggio', root: 'C', quality: '13', position: '1' }));
+    expect(problem?.field).toBe('quality');
+    expect(problem?.message).toContain('maj7');
+  });
+
+  it('caps patternIndex at the number of notes the scale has, not a flat 7', () => {
+    expect(
+      validateTheoryDiagram(theory({ intent: 'pattern', root: 'A', scaleType: 'minorPentatonic', patternIndex: 6 }))
+        ?.message,
+    ).toContain('between 1 and 5');
+    expect(
+      validateTheoryDiagram(theory({ intent: 'pattern', root: 'A', scaleType: 'minorPentatonic', patternIndex: 5 })),
+    ).toBeNull();
+  });
+
+  it('rejects an intent it does not have, naming the four', () => {
+    const problem = validateTheoryDiagram(theory({ intent: 'tapping', root: 'C' }));
+    expect(problem?.field).toBe('intent');
+    expect(problem?.message).toContain('chord, scale, arpeggio, pattern');
+  });
+
+  // The invariant that keeps the parser and the renderer from disagreeing:
+  // a refusal and an empty realization are the same event.
+  it('a combination it accepts always realizes dots, and one it refuses never does', () => {
+    const blocks: DiagramBlock[] = [];
+    for (const scaleType of SCALE_TYPES) {
+      for (const position of ['1', '2', '3', '4', '5', '2oct']) {
+        blocks.push(theory({ intent: 'scale', root: 'C', scaleType, position }));
+        blocks.push(theory({ intent: 'pattern', root: 'C', scaleType, patternIndex: Number(position === '2oct' ? 7 : position) }));
+      }
+    }
+    for (const quality of [...DIAGRAM_QUALITIES, '13', 'alt']) {
+      for (const position of ['1', '5', '2oct']) {
+        blocks.push(theory({ intent: 'arpeggio', root: 'C', quality, position }));
+      }
+    }
+    for (const block of blocks) {
+      const accepted = validateTheoryDiagram(block) === null;
+      const drew = resolveDiagramDots(block).length > 0;
+      expect(drew, `${JSON.stringify(block)} — accepted=${accepted} drew=${drew}`).toBe(accepted);
+    }
+  });
+});
+
+describe('labels and names come from the realization', () => {
+  it('every dot carries a computed degree, and its pitch class agrees with the label', () => {
+    const dots = resolveDiagramDots(theory({ intent: 'arpeggio', root: 'C', quality: 'dom7', position: '2' }));
+    const degrees: Record<string, PitchClass> = { R: 'C', '3': 'E', '5': 'G', b7: 'A#' };
+    for (const dot of dots) {
+      expect(dot.label, JSON.stringify(dot)).toBeTruthy();
+      expect(degrees[dot.label as string], `label ${dot.label}`).toBe(pcOf(dot));
+    }
+  });
+
+  it('names the shape from the same position the dots came from', () => {
+    expect(diagramShapeName(theory({ intent: 'scale', root: 'C', scaleType: 'major', position: '1' }))).toBe('E-shape');
+    expect(diagramShapeName(theory({ intent: 'scale', root: 'C', scaleType: 'blues', position: '3' }))).toBe('Box 3');
+    expect(diagramShapeName(theory({ intent: 'arpeggio', root: 'C', quality: 'maj', position: '2oct' }))).toBe('2 octaves');
+    expect(diagramShapeName(theory({ intent: 'pattern', root: 'C', scaleType: 'major', patternIndex: 3 }))).toBe('Pattern 3');
+  });
+});
+
+describe('irrelevantTheoryFields', () => {
+  it('names the fields an intent will not read', () => {
+    expect(
+      irrelevantTheoryFields(theory({ intent: 'scale', root: 'C', scaleType: 'major', position: '1', stringSet: 'e–B–G' })),
+    ).toEqual(['stringSet']);
+  });
+
+  it('says nothing when every field set is one the intent uses', () => {
+    expect(
+      irrelevantTheoryFields(theory({ intent: 'chord', root: 'C', quality: 'major', stringSet: 'e–B–G', inversion: 1 })),
+    ).toEqual([]);
   });
 });
 

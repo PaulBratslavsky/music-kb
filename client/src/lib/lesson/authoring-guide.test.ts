@@ -195,16 +195,30 @@ describe('lesson-authoring.md — reverse drift (guide → schema)', () => {
     ).not.toContain(token);
   });
 
-  it('does not give the removed diagram.scale field a place in the lesson.diagram reference entry', () => {
+  it('does not give the removed diagram.scale field a place in the lesson.diagram field table', () => {
     // Narrower than a blind substring check on "scale" (too common an
-    // English word to ban outright) — this greps specifically inside the
-    // lesson.diagram block-reference entry for a `scale` FIELD row, the
-    // only place a resurrected `diagram.scale` could plausibly reappear.
+    // English word to ban outright) — this greps specifically inside
+    // lesson.diagram's FIELD table for a `scale` row, the only place a
+    // resurrected removed field could plausibly reappear.
+    //
+    // Scoped to the field table rather than the whole reference entry
+    // because that entry now also carries an INTENT table whose first
+    // column legitimately contains `scale` — the intent named `scale`,
+    // realized by realizeCagedShape(), which is a value of the `intent`
+    // field and not a field of its own. The removed thing was a `scale`
+    // FIELD; that is what stays banned.
     const diagramSection = guide.slice(
       guide.indexOf('### `lesson.diagram`'),
       guide.indexOf('### `lesson.neck-dot`'),
     );
-    expect(diagramSection).not.toMatch(/\|\s*`scale`\s*\|/);
+    const tableStart = diagramSection.indexOf('| Field | Type | Notes |');
+    expect(tableStart, "lesson.diagram's field table is gone — this guard is checking nothing").toBeGreaterThan(-1);
+    const rest = diagramSection.slice(tableStart);
+    const fieldTable = rest.slice(0, rest.indexOf('\n\n'));
+    expect(fieldTable).not.toMatch(/\|\s*`scale`\s*\|/);
+    // ...and the intent table really is where `scale` lives now, so this
+    // test cannot pass by the field table having quietly disappeared.
+    expect(diagramSection).toMatch(/\|\s*`scale`\s*\|/);
   });
 });
 

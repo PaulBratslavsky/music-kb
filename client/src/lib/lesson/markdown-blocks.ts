@@ -91,11 +91,18 @@ import { normalizePitchClass } from '@music-kb/music/theory/notes';
 import { pitchClassAt } from '@music-kb/music/instruments/neck';
 import {
   asNeckInstrument,
+  irrelevantTheoryFields,
   isOnNeck,
   resolveDiagramDots,
   resolveDiagramMarks,
+  validateTheoryDiagram,
   visibleNeckDots,
   widenNeckWindow,
+  DIAGRAM_INTENTS,
+  DIAGRAM_POSITIONS,
+  DIAGRAM_QUALITIES,
+  DIAGRAM_SCALE_TYPES,
+  MAX_PATTERN_INDEX,
   NECK_MAX_FRET,
   NECK_STRING_COUNT,
   type DiagramBlock,
@@ -233,10 +240,14 @@ export const DIRECTIVE_ATTRIBUTES: Record<LessonDirectiveName, readonly string[]
   diagram: [
     'instrument',
     'mode',
+    'intent',
     'root',
     'quality',
     'stringSet',
     'inversion',
+    'scaleType',
+    'position',
+    'patternIndex',
     'useParam',
     'fromFret',
     'toFret',
@@ -324,6 +335,11 @@ const PARAM_PICKER_LABEL_MAX = 40;
 const PATTERN_LABEL_MAX = 40;
 const PATTERN_SUB_MAX = 160;
 
+/**
+ * `lesson.keyboard-diagram` still voices a triad and nothing else — it has
+ * no `intent`, so its `quality` stays the four names it has always taken.
+ * `lesson.diagram` uses the wider `DIAGRAM_QUALITIES` instead (below).
+ */
 const TRIAD_QUALITIES = ['major', 'minor', 'augmented', 'diminished'] as const;
 const STRING_SET_NAMES = STRING_SETS.map((s) => s.name);
 
@@ -856,10 +872,14 @@ function buildDiagram(ctx: BuildContext, a: AttrReader): Built {
 
   const instrument = a.enumOf('instrument', ['guitar', 'bass'] as const) ?? 'guitar';
   const mode = a.enumOf('mode', ['theory', 'explicit'] as const) ?? 'theory';
+  const intent = a.enumOf('intent', DIAGRAM_INTENTS);
   const root = a.enumOf('root', PITCH_CLASSES);
-  const quality = a.enumOf('quality', TRIAD_QUALITIES);
+  const quality = a.enumOf('quality', DIAGRAM_QUALITIES);
   const stringSet = a.enumOf('stringSet', STRING_SET_NAMES);
   const inversion = a.int('inversion', { min: 0, max: 2 });
+  const scaleType = a.enumOf('scaleType', DIAGRAM_SCALE_TYPES);
+  const position = a.enumOf('position', DIAGRAM_POSITIONS);
+  const patternIndex = a.int('patternIndex', { min: 1, max: MAX_PATTERN_INDEX });
   const useParam = a.bool('useParam');
   const fromFret = a.int('fromFret', { min: 0 });
   const toFret = a.int('toFret', { min: 0 });
@@ -869,10 +889,14 @@ function buildDiagram(ctx: BuildContext, a: AttrReader): Built {
   a.rejectUnknown(legal);
 
   const block: LessonBlock = { __component: 'lesson.diagram', id: 0, instrument, mode };
+  if (intent) block.intent = intent;
   if (root) block.root = root;
   if (quality) block.quality = quality;
   if (stringSet) block.stringSet = stringSet;
   if (inversion !== undefined) block.inversion = inversion;
+  if (scaleType) block.scaleType = scaleType;
+  if (position) block.position = position;
+  if (patternIndex !== undefined) block.patternIndex = patternIndex;
   if (useParam) block.useParam = true;
   if (fromFret !== undefined) block.fromFret = fromFret;
   if (toFret !== undefined) block.toFret = toFret;
@@ -896,28 +920,70 @@ function buildDiagram(ctx: BuildContext, a: AttrReader): Built {
     a.warn('mode="theory" ignores hand-placed dots — set mode="explicit" to use them. Entries ignored.');
   }
 
-  // triadVoicing() computes frets from STANDARD_TUNING_MIDI — guitar, always.
-  // On a bass the same string indices are a different tuning AND a shorter
-  // board, so a theory-mode bass diagram is not "a bit off", it names the
-  // wrong notes (and half of them fall off a 4-string neck entirely). It
-  // schema-validates, so nothing else catches it.
+  // Every theory realizer computes frets from STANDARD_TUNING_MIDI —
+  // guitar, always. On a bass the same string indices are a different
+  // tuning AND a shorter board, so a theory-mode bass diagram is not "a bit
+  // off", it names the wrong notes (and half of them fall off a 4-string
+  // neck entirely). It schema-validates, so nothing else catches it.
   if (mode === 'theory' && neck === 'bass') {
     err(
-      'mode="theory" voices triads with guitar tuning, so on a bass it draws the wrong notes on strings that may not exist. Use mode="explicit" with hand-placed dots for a bass. Dropped.',
+      'mode="theory" realizes shapes with guitar tuning, so on a bass it draws the wrong notes on strings that may not exist. Use mode="explicit" with hand-placed dots for a bass. Dropped.',
     );
     return null;
   }
 
+  // THE COMBINATION CHECK. Fields being individually legal says nothing
+  // about the shape existing: `intent=scale scaleType=majorPentatonic
+  // position=2` is four valid enum values naming a box that scale does not
+  // ship. Realizing it returns [] and the resolve check below would drop
+  // the block with a message about zero dots — technically caught, but the
+  // author is told the diagram was empty rather than that box 2 is not one
+  // of the boxes. So the combination is refused by name first, quoting the
+  // legal values from the theory layer itself.
+  if (mode === 'theory') {
+    // `useParam` swaps the root in at RENDER time only. Everything before
+    // that — this check, the window repair, the stored block itself — sees
+    // the block's own `root`, so a useParam diagram without one resolves to
+    // nothing everywhere except in front of a reader.
+    if (useParam && !root) {
+      err(
+        'useParam needs a `root` too — the reader\'s chosen key replaces it at render time, but every check before that (and the stored block) reads the block\'s own root. Dropped.',
+      );
+      return null;
+    }
+    // Then validate the shape at every value the parameter can take rather
+    // than only the block's own root — a combination that realizes in C and
+    // not in F# is still a broken diagram.
+    const roots: (string | undefined)[] = useParam ? PITCH_CLASSES : [undefined];
+    for (const value of roots) {
+      const problem = validateTheoryDiagram(block as unknown as DiagramBlock, value);
+      if (problem) {
+        err(
+          `${problem.message}${value ? ` (fails at parameter value "${value}" — a useParam diagram has to work in all 12 keys.)` : ''} Dropped.`,
+        );
+        return null;
+      }
+    }
+    const ignored = irrelevantTheoryFields(block as unknown as DiagramBlock);
+    if (ignored.length > 0) {
+      a.warn(
+        `intent="${block.intent ?? 'chord'}" does not read ${ignored.map((f) => `\`${f}\``).join(', ')} — the value is stored but draws nothing. Check the intent is the one you meant.`,
+      );
+    }
+  }
+
   // THE resolve check. Kept from the schema era on purpose: it runs the
   // renderer's OWN resolver, so it catches the failures schema validity
-  // never could — a theory-mode diagram missing one of root/quality/
-  // stringSet renders as a completely empty gap with no error anywhere.
+  // never could — and, now, the ones the combination check can't see
+  // either: a realization is deterministic, which is not the same as
+  // non-empty (a box that slides off the end of the board realizes to
+  // nothing), and an explicit diagram has no combination to check at all.
   const resolved = resolveDiagramDots(block as unknown as DiagramBlock);
   if (resolved.length === 0) {
     err(
       mode === 'explicit'
         ? 'mode="explicit" resolved to zero dots — an explicit diagram needs at least one `- string=… fret=…` entry. Dropped.'
-        : `mode="theory" resolved to zero dots (root=${JSON.stringify(block.root ?? null)}, quality=${JSON.stringify(block.quality ?? null)}, stringSet=${JSON.stringify(block.stringSet ?? null)}). All three are required in theory mode. Dropped.`,
+        : `mode="theory" intent="${block.intent ?? 'chord'}" resolved to zero dots (root=${JSON.stringify(block.root ?? null)}, quality=${JSON.stringify(block.quality ?? null)}, stringSet=${JSON.stringify(block.stringSet ?? null)}, scaleType=${JSON.stringify(block.scaleType ?? null)}, position=${JSON.stringify(block.position ?? null)}, patternIndex=${JSON.stringify(block.patternIndex ?? null)}). Dropped.`,
     );
     return null;
   }

@@ -317,34 +317,79 @@ which puts them all over one neck. And for a piano/keyboard use
 different shape (no strings, no frets), which is why it is a separate
 block rather than an `instrument: "piano"` option here.
 
+**You do not place the dots. You say what the diagram is OF, and the
+theory layer places them.** That is what `intent` is for. Each intent
+reads a different handful of fields and is realized by a different
+function in `@music-kb/music`:
+
+| `intent` | fields it reads | realized by |
+|---|---|---|
+| `chord` (default) | `root`, `quality`, `stringSet`, `inversion` | `triadVoicing()` — one triad grip on three adjacent strings |
+| `scale` | `root`, `scaleType`, `position` | `realizeCagedShape()` — one box of the scale |
+| `arpeggio` | `root`, `quality`, `position` | `realizeArpeggio()` — the chord's tones inside one hand position |
+| `pattern` | `root`, `scaleType`, `patternIndex` | `threeNotesPerString()` — one 3NPS pattern across all six strings |
+
+Every dot's **label is computed** — the degree it plays in the chord or
+scale (`R`, `3`, `b3`, `5`, `b7`). You never write a label in theory
+mode, and you never write a fret.
+
 | Field | Type | Notes |
 |---|---|---|
-| `instrument` | enum, required, default `guitar` | `guitar` or `bass` **only** — this is a different enum from the lesson-level `instrument` field, see below |
-| `mode` | enum, required, default `theory` | `theory` computes dots at render time from music parameters; `explicit` renders exactly the hand-placed `dots` you give it |
-| `root` | enum (pitch class) | **required when `mode: "theory"` and `useParam` is false or omitted.** See "The conditional-required trap" below |
-| `quality` | enum | **required when `mode: "theory"`.** `major`, `minor`, `augmented`, `diminished` — **triads only.** Seventh-chord qualities existed in an earlier version of this schema and were removed — the theory layer only voices triads, so a 7th-chord quality can't be rendered. Never emit one, even one that sounds plausible by analogy to these four. |
-| `stringSet` | enum | **required when `mode: "theory"`.** One of `e–B–G`, `B–G–D`, `G–D–A`, `D–A–E`. **These separators are EN DASHES (U+2013, "–"), not hyphens (U+002D, "-").** A hyphenated lookalike like `e-B-G` is a different string, fails the enum, and — on the MCP path — is rejected with a message telling you the fix; on any other path that skips MCP's `superRefine`, it silently renders an empty diagram. `stringSet` cannot be marked `required` in the Strapi schema itself, because `explicit` mode doesn't use it at all — that conditional requirement is real but invisible to anyone just reading the schema JSON, which is why it's spelled out here in prose. |
-| `inversion` | integer, 0–2 | `0` = root position, `1` = first inversion, `2` = second. Only meaningful in `mode: "theory"`; ignored in `explicit`. |
-| `useParam` | boolean, default `false` | when true, the lesson-level `parameter`'s current reader-chosen key supplies `root` at render time instead of this block's own `root` |
+| `instrument` | enum, required, default `guitar` | `guitar` or `bass` **only** — this is a different enum from the lesson-level `instrument` field, see below. Every theory realizer uses guitar tuning, so `mode: "theory"` on a `bass` is rejected on both paths; a bass diagram must be `explicit`. |
+| `mode` | enum, required, default `theory` | `theory` realizes dots from music parameters; `explicit` renders exactly the hand-placed `dots` you give it. **`explicit` is the escape hatch, not the default** — see "When to reach for explicit mode" below |
+| `intent` | enum, default `chord` | `chord`, `scale`, `arpeggio`, `pattern` — what the diagram is of. Only read in `mode: "theory"` |
+| `root` | enum (pitch class) | **required in `mode: "theory"` for every intent.** See "The conditional-required trap" below |
+| `quality` | enum | **required for `intent: "chord"` and `intent: "arpeggio"`.** `intent: "chord"` voices a **triad**, so only `major`, `minor`, `augmented`, `diminished` (or the short spellings `maj`, `min`, `aug`, `dim`) work there. `intent: "arpeggio"` takes any of: `5`, `maj`, `min`, `dim`, `aug`, `sus2`, `sus4`, `6`, `m6`, `maj7`, `min7`, `dom7`, `m7b5`, `dim7`, `mMaj7`, `7sus4`, `add9`, `madd9`, `7b5`, `7#5` — exactly the qualities with four distinct tones or fewer. A 9th, 11th, 13th or altered quality is **not** in the list: inside one hand position a five- or six-note chord lights up half the window and stops reading as an arpeggio, so it is rejected rather than approximated. |
+| `stringSet` | enum | **required for `intent: "chord"`.** One of `e–B–G`, `B–G–D`, `G–D–A`, `D–A–E`. **These separators are EN DASHES (U+2013, "–"), not hyphens (U+002D, "-").** A hyphenated lookalike like `e-B-G` is a different string, fails the enum, and — on the MCP path — is rejected with a message telling you the fix; on any other path that skips MCP's `superRefine`, it silently renders an empty diagram. `stringSet` cannot be marked `required` in the Strapi schema itself, because the other intents and `explicit` mode don't use it at all — that conditional requirement is real but invisible to anyone just reading the schema JSON, which is why it's spelled out here in prose. |
+| `inversion` | integer, 0–2 | `0` = root position, `1` = first inversion, `2` = second. Only meaningful for `intent: "chord"`. |
+| `scaleType` | enum | **required for `intent: "scale"` and `intent: "pattern"`.** One of `major`, `minor`, `harmonicMinor`, `melodicMinor`, `dorian`, `phrygian`, `lydian`, `mixolydian`, `locrian`, `majorPentatonic`, `minorPentatonic`, `blues`. |
+| `position` | enum | **required for `intent: "scale"` and `intent: "arpeggio"`.** `1`–`5` are the numbered CAGED boxes; `2oct` is the universal two-octave window anchored on the 6th-string root. A **string**, not a number, because `2oct` is one of the values. **Which numbers are legal depends on what you are drawing** — see "Not every combination exists" below. |
+| `patternIndex` | integer, 1–7 | **required for `intent: "pattern"`.** Pattern N starts on scale degree N, so the real maximum is the number of notes in the scale: 7 for `major` and the modes, 6 for `blues`, 5 for the pentatonics. |
+| `useParam` | boolean, default `false` | when true, the lesson-level `parameter`'s current reader-chosen key supplies `root` at render time instead of this block's own `root`. Set `root` **as well** — everything before render time (the parse-time checks, the stored block) reads the block's own root. |
 | `dots` | repeatable `lesson.neck-dot` | **required (non-empty) when `mode: "explicit"`.** Ignored in `theory` mode. |
-| `fromFret` / `toFret` | integer, min 0 | the fret window shown |
+| `fromFret` / `toFret` | integer, min 0 | the fret window shown. Set both or neither — a half-set window is ignored by the renderer and dropped by the parser. |
 | `caption` | string | max 255 chars — a Strapi `string` column, hard cap, no auto-truncation. Shorten before saving, don't rely on the backend to do it for you. |
 | `source` | component | see `lesson.source` above |
 
+**Not every combination exists, and an illegal one is refused by name.**
+The fields being individually legal says nothing about the shape existing.
+`majorPentatonic` ships boxes `1` and `5` only. The five modes —
+`dorian`, `phrygian`, `lydian`, `mixolydian`, `locrian` — ship **no**
+numbered box at all and take `2oct` only. `13` and `alt` have no arpeggio.
+A `minorPentatonic` scale has five patterns, not seven. Ask for one of
+those combinations and both authoring paths reject the block with a
+message naming the legal values for the scale or quality you asked
+about — they do not render an empty neck, and they do not quietly draw
+something near it. Read the message and pick a legal value; do not retry
+the same combination in a different key, because the refusal is about the
+shape, not the key.
+
 **The conditional-required trap.** Reading `diagram.json` alone, `root`,
-`quality`, and `stringSet` all look optional — none carries
-`"required": true`. They aren't optional in practice: in `mode: "theory"`,
-missing any one of the three makes `resolveDiagramDots()` return `[]`,
+`quality`, `stringSet`, `scaleType`, `position` and `patternIndex` all
+look optional — none carries `"required": true`. They aren't optional in
+practice: in `mode: "theory"` the fields an intent reads are required *by
+that intent*, and missing one makes `resolveDiagramDots()` return `[]`,
 which renders as a completely empty diagram with **no error anywhere** —
 not a validation failure, not a console warning outside dev mode, just a
-gap where a chord shape should be. Both authoring paths catch it, and
-neither by schema validity: the MCP path with a `superRefine` naming the
-missing field, and the markdown parser by running the renderer's own
-`resolveDiagramDots()` on every parsed diagram and dropping any that
-resolves to nothing, with the line number and the three field values. It
-is the single most common way a diagram block goes silently wrong, which
-is why it is checked by executing the resolver rather than by inspecting
-the shape.
+gap where a shape should be. Both authoring paths catch it, and neither
+by schema validity: the MCP path with a `superRefine` naming the missing
+field and the legal values, and the markdown parser by running the
+renderer's own combination check and then the renderer's own
+`resolveDiagramDots()` on every parsed diagram, dropping any that resolves
+to nothing, with the line number and every field value. It is the single
+most common way a diagram block goes silently wrong, which is why it is
+checked by executing the resolver rather than by inspecting the shape.
+
+**When to reach for `explicit` mode.** When the shape is one the theory
+layer genuinely cannot express: a lick or a phrase fragment, a partial
+voicing, a fingering with a deliberate omission or added note, a
+comparison that needs two shapes' worth of dots on one neck with the
+style flags carrying the distinction. Those are real, and `explicit` is
+how you draw them. What `explicit` is **not** for is a scale box, an
+arpeggio position, a 3NPS pattern or a triad — anything on the intent
+table above. Typing frets for one of those is typing out an answer the
+theory layer computes correctly every time, in every key, and a hand-typed
+fret is a fact nothing checks.
 
 **"Instrument" means two different things depending on which object you're
 looking at.** The lesson record's own `instrument` field (`guitar`,
@@ -363,16 +408,32 @@ root note, so it renders distinctly from the other dots. Same field name,
 unrelated types, unrelated meaning.
 
 **As a directive.** Theory mode carries everything in attributes and uses
-the body as the caption:
+the body as the caption. One example per intent:
 
 ```
-::diagram{root=C quality=major stringSet=e–B–G inversion=0 fromFret=3 toFret=8}
+::diagram{intent=chord root=C quality=major stringSet=e–B–G inversion=0 fromFret=3 toFret=8}
 The third is the middle dot — two frets above the root, not three.
+::
+
+::diagram{intent=scale root=G scaleType=major position=2}
+Box 2 sits a whole step above the open position and repeats the same seven notes.
+::
+
+::diagram{intent=arpeggio root=A quality=min7 position=1}
+Every note here is one of the four in the chord — nothing passing, nothing added.
+::
+
+::diagram{intent=pattern root=E scaleType=minor patternIndex=3}
+Three notes on every string, so the picking hand keeps one repeating motion.
 ::
 ```
 
+`intent` may be omitted; a diagram with no intent is a `chord`, which is
+what every diagram written before intents existed is.
+
 Explicit mode adds one `-` line per dot (see `lesson.neck-dot` below);
-non-`-` lines are still the caption:
+non-`-` lines are still the caption. Reach for it only for a shape the
+intents above cannot express:
 
 ```
 ::diagram{mode=explicit instrument=guitar fromFret=5 toFret=8}
@@ -890,23 +951,53 @@ the order named, not a sentence describing what the shapes look like. A
 progression described in prose and never shown is exactly the gap the
 write/illustrate split above exists to close.
 
+**Ask for a shape by name; never draw one dot at a time.** A scale box, an
+arpeggio position, a three-notes-per-string pattern and a triad voicing
+are all things you *request* — `intent` plus a root and a position — and
+the theory layer works out where the dots go and what each one is called.
+This is the same rule this project already applies twice elsewhere: a
+timecode is BM25-grounded against the real transcript rather than taken
+from the model, and a pitch label is recomputed from the tuning rather
+than trusted. A fret position is the same kind of fact. Writing
+`mode: "explicit"` with hand-placed dots for a shape on the intent table
+is the largest remaining way to put a musically wrong picture in a lesson:
+it validates, it renders, and nothing anywhere checks that the fifth is
+where you said it was.
+
+Two practical consequences when you are composing:
+
+- **You cannot draw a scale box you do not know the frets of. Good.** Ask
+  for `intent=scale scaleType=minorPentatonic position=3` and the box is
+  correct in all twelve keys. If the combination does not exist, you get
+  told which ones do — that refusal is information about the instrument,
+  not an obstacle to route around with `explicit`.
+- **Do not copy fret numbers out of a transcript into dots.** A tutorial
+  saying "put your finger on the 5th fret of the A string" is a claim about
+  one key. The intent version travels: it stays right when the reader picks
+  a different root with a `param-picker`, and the caption stays honest
+  because the shape moved with it.
+
 **The resolve check is not optional, and it is not a style preference.**
 Diagrams are schema-valid without being renderable, and nothing catches
-that except actually resolving them. `root`/`quality`/`stringSet` missing
-or wrong in `mode: "theory"`, or an empty/malformed `dots`/`marks` in
+that except actually resolving them. A field an intent needs missing or
+wrong in `mode: "theory"`, or an empty/malformed `dots`/`marks` in
 `mode: "explicit"`, all render as a blank gap with no error anywhere (see
 the conditional-required trap under `lesson.diagram` above) — Half A's
 field constraints tell you what's *accepted*, not what actually *draws
-something*. The in-app pipeline resolve-checks every generated diagram
-against the exact renderer function (`resolveDiagramDots`/
-`resolveDiagramMarks` in `client/src/lib/lesson/diagram-params.ts`) and
-drops anything that resolves to zero dots/marks before it reaches the
-lesson body — a diagram that draws nothing is worse than no diagram at
-all, because it renders as an invisible gap with no error. When composing
-by hand via MCP, there is no equivalent safety net — double-check
-`root`+`quality`+`stringSet` (theory mode) or a non-empty `dots`/`marks`
-array (explicit mode) against Half A before shipping a diagram block,
-since a validation pass is not the same guarantee as a render.
+something*. The in-app pipeline runs two checks on every generated
+diagram: the **combination check**, which refuses an intent whose
+parameters name a shape that does not exist and quotes the legal values
+back; and then the **resolve check**, against the exact renderer function
+(`resolveDiagramDots`/`resolveDiagramMarks` in
+`client/src/lib/lesson/diagram-params.ts`), which drops anything that
+resolves to zero dots/marks before it reaches the lesson body — a diagram
+that draws nothing is worse than no diagram at all, because it renders as
+an invisible gap with no error. The MCP path runs the same combination
+check inside the tool's schema, so a bad combination comes back as a
+tool-call error naming the field and the legal values; what it cannot
+check for you is a non-empty `dots` array in `explicit` mode being the
+shape you meant, so verify that one against Half A yourself — a validation
+pass is not the same guarantee as a render.
 
 ### Sequencing blocks — the combinations that read well
 

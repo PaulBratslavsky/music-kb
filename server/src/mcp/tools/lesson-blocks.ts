@@ -36,6 +36,152 @@ const TRIAD_QUALITIES = ['major', 'minor', 'augmented', 'diminished'] as const;
 const STRING_SETS = ['e–B–G', 'B–G–D', 'G–D–A', 'D–A–E'] as const;
 
 // -----------------------------------------------------------------------------
+// Theory-mode intents: which COMBINATIONS the theory layer can actually draw
+// -----------------------------------------------------------------------------
+//
+// A theory diagram names what it is OF — a chord, a scale box, an arpeggio
+// position, a 3NPS pattern — and @music-kb/music realizes the dots. Which
+// means the interesting validation is not "is this a legal enum value" but
+// "is this a legal COMBINATION": `intent="scale" scaleType="majorPentatonic"
+// position="2"` is four legal values naming a box that scale does not ship,
+// and realizing it produces an empty array that renders as a blank
+// fretboard with no error anywhere. Four blank fretboards reached published
+// lessons exactly that way, which is why the tables below exist and why
+// every refusal quotes the legal set back.
+//
+// Duplicated from @music-kb/music rather than imported, for the same reason
+// as STANDARD_TUNING_MIDI above: server/tsconfig.json is CommonJS with
+// Node10 resolution and the package's subpath exports need
+// bundler/node16 — confirmed by adding the dependency and watching
+// `tsc --noEmit` fail with TS2307. `client/src/lib/lesson/theory-intent-
+// parity.test.ts` reads this file as TEXT (client never imports server/)
+// and asserts every table below still equals what `arpeggioPositions()`,
+// `scalePositions()` and `getScalePitchClasses()` actually answer. Add a
+// shape source in packages/music and that test fails here until this file
+// catches up — which is the point: the duplication is checked, not trusted.
+const DIAGRAM_INTENTS = ['chord', 'scale', 'arpeggio', 'pattern'] as const;
+
+/** The whole position vocabulary — the scale boxes' own, minus 'all'. */
+const DIAGRAM_POSITIONS = ['1', '2', '3', '4', '5', '2oct'] as const;
+
+/**
+ * The long spellings `lesson.diagram.quality` has taken since it could only
+ * voice triads, and their canonical `ChordQuality` names. Exact aliases:
+ * `major` IS `maj`. Kept because the stored lessons are full of them.
+ */
+const LEGACY_TRIAD_SPELLINGS: ReadonlyArray<readonly [string, string]> = [
+  ['major', 'maj'],
+  ['minor', 'min'],
+  ['augmented', 'aug'],
+  ['diminished', 'dim'],
+];
+
+/**
+ * Every position each quality has an arpeggio shape in — `arpeggioPositions()`
+ * in packages/music, tabulated.
+ *
+ * Written out per quality rather than as "all six for everything" so that a
+ * future shape source covering only some positions has a place to say so,
+ * and so the parity test compares a table against a table.
+ *
+ * The qualities NOT here (9, maj9, m9, 11, m11, 13, m13, 7b9, 7#9, alt)
+ * have more than four distinct tones. Inside one hand position a five- or
+ * six-note chord lights up half the window and the picture stops being an
+ * arpeggio and starts being a scale box, so the theory layer refuses them
+ * by tone count — and so does this schema, by not listing them.
+ */
+const ARPEGGIO_POSITIONS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['5', ['1', '2', '3', '4', '5', '2oct']],
+  ['maj', ['1', '2', '3', '4', '5', '2oct']],
+  ['min', ['1', '2', '3', '4', '5', '2oct']],
+  ['dim', ['1', '2', '3', '4', '5', '2oct']],
+  ['aug', ['1', '2', '3', '4', '5', '2oct']],
+  ['sus2', ['1', '2', '3', '4', '5', '2oct']],
+  ['sus4', ['1', '2', '3', '4', '5', '2oct']],
+  ['6', ['1', '2', '3', '4', '5', '2oct']],
+  ['m6', ['1', '2', '3', '4', '5', '2oct']],
+  ['maj7', ['1', '2', '3', '4', '5', '2oct']],
+  ['min7', ['1', '2', '3', '4', '5', '2oct']],
+  ['dom7', ['1', '2', '3', '4', '5', '2oct']],
+  ['m7b5', ['1', '2', '3', '4', '5', '2oct']],
+  ['dim7', ['1', '2', '3', '4', '5', '2oct']],
+  ['mMaj7', ['1', '2', '3', '4', '5', '2oct']],
+  ['7sus4', ['1', '2', '3', '4', '5', '2oct']],
+  ['add9', ['1', '2', '3', '4', '5', '2oct']],
+  ['madd9', ['1', '2', '3', '4', '5', '2oct']],
+  ['7b5', ['1', '2', '3', '4', '5', '2oct']],
+  ['7#5', ['1', '2', '3', '4', '5', '2oct']],
+];
+
+/**
+ * Every position each scale type has a box for — `scalePositions()` in
+ * packages/music, tabulated. NOT uniform, which is the whole point:
+ * majorPentatonic ships boxes 1 and 5 only, and the five modes ship no
+ * numbered box at all. `'2oct'` is on every row because the two-octave
+ * window is universal.
+ */
+const SCALE_POSITIONS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['major', ['1', '2', '3', '4', '5', '2oct']],
+  ['minor', ['1', '2', '3', '4', '5', '2oct']],
+  ['harmonicMinor', ['1', '2', '3', '4', '5', '2oct']],
+  ['melodicMinor', ['1', '2', '3', '4', '5', '2oct']],
+  ['dorian', ['2oct']],
+  ['phrygian', ['2oct']],
+  ['lydian', ['2oct']],
+  ['mixolydian', ['2oct']],
+  ['locrian', ['2oct']],
+  ['majorPentatonic', ['1', '5', '2oct']],
+  ['minorPentatonic', ['1', '2', '3', '4', '5', '2oct']],
+  ['blues', ['1', '2', '3', '4', '5', '2oct']],
+];
+
+/**
+ * How many notes each scale has — which is how many three-notes-per-string
+ * patterns it has, since pattern N starts on scale degree N.
+ */
+const SCALE_NOTE_COUNTS: ReadonlyArray<readonly [string, number]> = [
+  ['major', 7],
+  ['minor', 7],
+  ['harmonicMinor', 7],
+  ['melodicMinor', 7],
+  ['dorian', 7],
+  ['phrygian', 7],
+  ['lydian', 7],
+  ['mixolydian', 7],
+  ['locrian', 7],
+  ['majorPentatonic', 5],
+  ['minorPentatonic', 5],
+  ['blues', 6],
+];
+
+const SCALE_TYPES = SCALE_POSITIONS.map(([type]) => type) as [string, ...string[]];
+const ARPEGGIO_POSITION_MAP = new Map(ARPEGGIO_POSITIONS);
+const SCALE_POSITION_MAP = new Map(SCALE_POSITIONS);
+const SCALE_NOTE_COUNT_MAP = new Map(SCALE_NOTE_COUNTS);
+const CANONICAL_QUALITY = new Map(LEGACY_TRIAD_SPELLINGS);
+
+/** The `quality` values `intent="chord"` can voice — triadVoicing() does triads and nothing else. */
+const CHORD_INTENT_QUALITIES = [
+  ...LEGACY_TRIAD_SPELLINGS.map(([spelling]) => spelling),
+  ...LEGACY_TRIAD_SPELLINGS.map(([, canonical]) => canonical),
+] as [string, ...string[]];
+
+/**
+ * Every `quality` the block accepts: the four legacy spellings, then every
+ * quality with an arpeggio shape. Derived from the tables above, never
+ * hand-listed a second time.
+ */
+const DIAGRAM_QUALITIES = [
+  ...LEGACY_TRIAD_SPELLINGS.map(([spelling]) => spelling),
+  ...ARPEGGIO_POSITIONS.map(([quality]) => quality),
+] as [string, ...string[]];
+
+/** A block `quality` under its canonical name, folding the legacy spellings in. */
+function canonicalQuality(value: string): string {
+  return CANONICAL_QUALITY.get(value) ?? value;
+}
+
+// -----------------------------------------------------------------------------
 // Pitch labels are computed, not trusted — same rule as timecodes
 // -----------------------------------------------------------------------------
 //
@@ -323,17 +469,32 @@ const diagramBlock = z
     mode: z
       .enum(['theory', 'explicit'])
       .describe(
-        '"theory" computes dots at render time from root/quality/stringSet/inversion. "explicit" renders exactly the hand-placed `dots` you provide.',
+        '"theory" realizes the dots from music parameters at render time — see `intent` for which parameters. ' +
+          '"explicit" renders exactly the hand-placed `dots` you provide, and is the ESCAPE HATCH: reach for it only when the shape is one theory cannot express (a lick, a partial voicing, a fingering with a deliberate omission). A scale box, an arpeggio position or a triad drawn in explicit mode is a shape you typed frets for that the theory layer would have computed correctly.',
+      ),
+    intent: z
+      .enum(DIAGRAM_INTENTS)
+      .default('chord')
+      .describe(
+        'What the diagram is OF, when mode="theory". You choose what to show; the theory layer decides where the dots go, and labels every dot with the degree it computed. ' +
+          '"chord" = one triad voicing (needs root + quality + stringSet, optional inversion). ' +
+          '"scale" = one CAGED/box scale position (needs root + scaleType + position). ' +
+          '"arpeggio" = the chord\'s tones inside one hand position (needs root + quality + position). ' +
+          '"pattern" = one three-notes-per-string pattern (needs root + scaleType + patternIndex). ' +
+          'The COMBINATION is validated, not just the fields: an illegal pair (e.g. position "2" of a majorPentatonic scale, which ships boxes 1 and 5 only) is rejected here naming the legal values, rather than rendering an empty neck.',
       ),
     root: pitchClass()
       .optional()
       .describe('Required when mode="theory" UNLESS useParam is true (then the reader-controlled key wins at render).'),
     quality: z
-      .enum(TRIAD_QUALITIES)
+      .enum(DIAGRAM_QUALITIES)
       .optional()
-      .describe('Required when mode="theory". One of: major, minor, augmented, diminished.'),
+      .describe(
+        `Required for intent="chord" and intent="arpeggio". intent="chord" voices a TRIAD, so only ${CHORD_INTENT_QUALITIES.join(', ')} work there. ` +
+          `intent="arpeggio" takes any of: ${DIAGRAM_QUALITIES.join(', ')} — exactly the qualities with four distinct tones or fewer, which is what has an arpeggio SHAPE rather than a scale-box-shaped smear. A 9th/11th/13th/altered quality is not in the list and is rejected, not approximated.`,
+      ),
     stringSet: stringSetSchema.optional().describe(
-      'Required when mode="theory" — picks which three strings voice the triad. ' + stringSetSchema.description,
+      'Required for intent="chord" — picks which three strings voice the triad. Ignored by the scale/arpeggio/pattern intents. ' + stringSetSchema.description,
     ),
     inversion: z
       .number()
@@ -341,7 +502,29 @@ const diagramBlock = z
       .min(0)
       .max(2)
       .optional()
-      .describe('0 = root position, 1 = first inversion, 2 = second inversion. Defaults to 0. Only meaningful in mode="theory".'),
+      .describe('0 = root position, 1 = first inversion, 2 = second inversion. Defaults to 0. Only meaningful for intent="chord".'),
+    scaleType: z
+      .enum(SCALE_TYPES)
+      .optional()
+      .describe(
+        `Required for intent="scale" and intent="pattern". One of: ${SCALE_TYPES.join(', ')}.`,
+      ),
+    position: z
+      .enum(DIAGRAM_POSITIONS)
+      .optional()
+      .describe(
+        'Required for intent="scale" and intent="arpeggio": which hand position on the neck. "1"–"5" are the numbered CAGED boxes; "2oct" is the universal two-octave window anchored on the 6th-string root, which every scale and every arpeggio quality has. ' +
+          'A STRING, not a number, because "2oct" is one of the values. Which numbers are legal depends on the scale: majorPentatonic has 1 and 5; dorian, phrygian, lydian, mixolydian and locrian have no numbered box at all and take "2oct" only.',
+      ),
+    patternIndex: z
+      .number()
+      .int()
+      .min(1)
+      .max(7)
+      .optional()
+      .describe(
+        'Required for intent="pattern": which three-notes-per-string pattern, 1-based. Pattern N starts on scale degree N, so the real maximum is the number of notes in the scale — 7 for major and the modes, 6 for blues, 5 for the pentatonics.',
+      ),
     useParam: z
       .boolean()
       .default(false)
@@ -369,28 +552,120 @@ const diagramBlock = z
       return;
     }
     // mode === 'theory'
+    const issue = (path: string, message: string) =>
+      ctx.addIssue({ code: 'custom', path: [path], message });
+
+    // Every theory realizer computes frets from the GUITAR's standard
+    // tuning. On a bass the same string indices are a different tuning and
+    // a shorter board, so the shape is not "a bit off" — it names the wrong
+    // notes on strings that may not exist.
+    if (block.instrument === 'bass') {
+      issue(
+        'instrument',
+        'mode="theory" realizes shapes with guitar tuning, so on a bass it draws the wrong notes on strings that may not exist. Use mode="explicit" with hand-placed dots for a bass diagram.',
+      );
+      return;
+    }
     if (!block.useParam && !block.root) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['root'],
-        message:
-          'root is required when mode="theory" and useParam is false (or omitted) — resolveDiagramDots() returns [] without it, which renders as an empty gap, not an error.',
-      });
+      issue(
+        'root',
+        'root is required when mode="theory" and useParam is false (or omitted) — resolveDiagramDots() returns [] without it, which renders as an empty gap, not an error.',
+      );
     }
-    if (!block.quality) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['quality'],
-        message:
-          'quality is required when mode="theory" — resolveDiagramDots() returns [] without it, which renders as an empty gap, not an error.',
-      });
+
+    const intent = block.intent ?? 'chord';
+
+    if (intent === 'chord') {
+      if (!block.quality) {
+        issue(
+          'quality',
+          `quality is required for intent="chord" — resolveDiagramDots() returns [] without it, which renders as an empty gap, not an error. Legal values: ${CHORD_INTENT_QUALITIES.join(', ')}.`,
+        );
+      } else if (!CHORD_INTENT_QUALITIES.includes(block.quality)) {
+        issue(
+          'quality',
+          `intent="chord" voices a TRIAD, and quality="${block.quality}" is not one. Legal values: ${CHORD_INTENT_QUALITIES.join(', ')}. To show a four-note chord, use intent="arpeggio" — it draws the chord's tones across a hand position instead of as one grip.`,
+        );
+      }
+      if (!block.stringSet) {
+        issue(
+          'stringSet',
+          `stringSet is required for intent="chord" (it picks which three strings voice the triad) — resolveDiagramDots() returns [] without it. Legal values: ${STRING_SETS.join(', ')} (EN DASH U+2013 separators).`,
+        );
+      }
+      return;
     }
-    if (!block.stringSet) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['stringSet'],
-        message: `stringSet is required when mode="theory" (needed to place dots on strings) — resolveDiagramDots() returns [] without it. Legal values: ${STRING_SETS.join(', ')} (EN DASH U+2013 separators).`,
-      });
+
+    if (intent === 'arpeggio') {
+      if (!block.quality) {
+        issue(
+          'quality',
+          `quality is required for intent="arpeggio". Legal values: ${DIAGRAM_QUALITIES.join(', ')}.`,
+        );
+        return;
+      }
+      const legal = ARPEGGIO_POSITION_MAP.get(canonicalQuality(block.quality));
+      if (!legal) {
+        issue(
+          'quality',
+          `quality="${block.quality}" has no arpeggio shape — more than four distinct tones fills a hand position and stops reading as an arpeggio. Legal values: ${DIAGRAM_QUALITIES.join(', ')}.`,
+        );
+        return;
+      }
+      if (!block.position) {
+        issue(
+          'position',
+          `position is required for intent="arpeggio". Legal values for quality="${block.quality}": ${legal.join(', ')}.`,
+        );
+      } else if (!legal.includes(block.position)) {
+        issue(
+          'position',
+          `position="${block.position}" is not one quality="${block.quality}" offers. Legal values: ${legal.join(', ')}.`,
+        );
+      }
+      return;
+    }
+
+    // scale + pattern both need a scale type.
+    if (!block.scaleType) {
+      issue(
+        'scaleType',
+        `scaleType is required for intent="${intent}". Legal values: ${SCALE_TYPES.join(', ')}.`,
+      );
+      return;
+    }
+
+    if (intent === 'scale') {
+      const legal = SCALE_POSITION_MAP.get(block.scaleType) ?? [];
+      if (!block.position) {
+        issue(
+          'position',
+          `position is required for intent="scale". Legal values for scaleType="${block.scaleType}": ${legal.join(', ')}.`,
+        );
+      } else if (!legal.includes(block.position)) {
+        issue(
+          'position',
+          `position="${block.position}" is not one scaleType="${block.scaleType}" has a box for. Legal values: ${legal.join(', ')}` +
+            (legal.length === 1
+              ? ' — this scale ships no numbered CAGED boxes, only the universal two-octave window.'
+              : '.'),
+        );
+      }
+      return;
+    }
+
+    // intent === 'pattern'
+    const noteCount = SCALE_NOTE_COUNT_MAP.get(block.scaleType) ?? 7;
+    if (block.patternIndex == null) {
+      issue(
+        'patternIndex',
+        `patternIndex is required for intent="pattern". A ${block.scaleType} scale has ${noteCount} notes, so patternIndex runs 1–${noteCount} (pattern N starts on scale degree N).`,
+      );
+    } else if (block.patternIndex > noteCount) {
+      issue(
+        'patternIndex',
+        `patternIndex=${block.patternIndex} is past the ${noteCount} patterns a ${block.scaleType} scale has — pattern N starts on scale degree N, and this scale has ${noteCount} degrees. Legal values: 1–${noteCount}.`,
+      );
     }
   });
 

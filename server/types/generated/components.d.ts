@@ -318,6 +318,10 @@ export interface LessonDiagram extends Struct.ComponentSchema {
     instrument: Schema.Attribute.Enumeration<['guitar', 'bass']> &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'guitar'>;
+    intent: Schema.Attribute.Enumeration<
+      ['chord', 'scale', 'arpeggio', 'pattern']
+    > &
+      Schema.Attribute.DefaultTo<'chord'>;
     inversion: Schema.Attribute.Integer &
       Schema.Attribute.SetMinMax<
         {
@@ -329,11 +333,61 @@ export interface LessonDiagram extends Struct.ComponentSchema {
     mode: Schema.Attribute.Enumeration<['theory', 'explicit']> &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'theory'>;
+    patternIndex: Schema.Attribute.Integer &
+      Schema.Attribute.SetMinMax<
+        {
+          max: 7;
+          min: 1;
+        },
+        number
+      >;
+    position: Schema.Attribute.Enumeration<['1', '2', '3', '4', '5', '2oct']>;
     quality: Schema.Attribute.Enumeration<
-      ['major', 'minor', 'augmented', 'diminished']
+      [
+        'major',
+        'minor',
+        'augmented',
+        'diminished',
+        '5',
+        'maj',
+        'min',
+        'dim',
+        'aug',
+        'sus2',
+        'sus4',
+        '6',
+        'm6',
+        'maj7',
+        'min7',
+        'dom7',
+        'm7b5',
+        'dim7',
+        'mMaj7',
+        '7sus4',
+        'add9',
+        'madd9',
+        '7b5',
+        '7#5',
+      ]
     >;
     root: Schema.Attribute.Enumeration<
       ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    >;
+    scaleType: Schema.Attribute.Enumeration<
+      [
+        'major',
+        'minor',
+        'harmonicMinor',
+        'melodicMinor',
+        'dorian',
+        'phrygian',
+        'lydian',
+        'mixolydian',
+        'locrian',
+        'majorPentatonic',
+        'minorPentatonic',
+        'blues',
+      ]
     >;
     source: Schema.Attribute.Component<'lesson.source', false>;
     stringSet: Schema.Attribute.Enumeration<

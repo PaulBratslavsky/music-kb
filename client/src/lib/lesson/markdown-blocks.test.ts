@@ -494,8 +494,11 @@ describe('the resolve check drops diagrams that would draw nothing', () => {
     expect(componentsOf(blocks)).toEqual(['lesson.prose', 'lesson.prose']);
     const err = errorsOf(issues)[0];
     expect(err.line).toBe(3);
-    expect(err.message).toContain('resolved to zero dots');
     expect(err.message).toContain('stringSet');
+    // Named, with the legal set quoted — not "the diagram came out empty".
+    // The combination check reaches this one before the resolve check does,
+    // which is the whole reason it exists.
+    expect(err.message).toContain('e–B–G');
   });
 
   it('an explicit diagram with no dots is dropped', () => {
@@ -523,6 +526,134 @@ describe('the resolve check drops diagrams that would draw nothing', () => {
     const { blocks, issues } = parseLessonMarkdown('::diagram{root=A quality=minor stringSet=D–A–E}\n::');
     expect(errorsOf(issues)).toEqual([]);
     expect(componentsOf(blocks)).toEqual(['lesson.diagram']);
+  });
+});
+
+// =============================================================================
+// Theory intents — asking for a shape by name instead of drawing it
+// =============================================================================
+//
+// The parser's job here is not to know any theory. It is to carry the
+// author's request through to `validateTheoryDiagram`, and to turn a
+// refusal into an issue that names the line AND the legal values — so a
+// model that got it wrong can be told exactly what to write instead,
+// rather than shipping a fretboard with nothing on it.
+
+describe('theory intents', () => {
+  it('parses a scale box into parameters, not dots', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{intent=scale root=G scaleType=major position=2}\nBox 2 of G major.\n::',
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(blocks[0].block).toMatchObject({
+      __component: 'lesson.diagram',
+      intent: 'scale',
+      root: 'G',
+      scaleType: 'major',
+      position: '2',
+      caption: 'Box 2 of G major.',
+    });
+    // The dots are NOT stored — that is the whole point. They are realized
+    // at render time from the parameters above.
+    expect(blocks[0].block.dots).toBeUndefined();
+  });
+
+  it.each([
+    ['arpeggio', '::diagram{intent=arpeggio root=A quality=min7 position=1}\n::'],
+    ['pattern', '::diagram{intent=pattern root=E scaleType=minor patternIndex=3}\n::'],
+    ['2oct on a mode, the one position a mode has', '::diagram{intent=scale root=D scaleType=dorian position=2oct}\n::'],
+    ['a seventh-chord arpeggio, which no triad voicing could draw', '::diagram{intent=arpeggio root=B quality=m7b5 position=4}\n::'],
+  ])('accepts %s', (_label, md) => {
+    const { blocks, issues } = parseLessonMarkdown(md);
+    expect(errorsOf(issues)).toEqual([]);
+    expect(componentsOf(blocks)).toEqual(['lesson.diagram']);
+  });
+
+  it.each([
+    [
+      'a box a scale does not ship',
+      '::diagram{intent=scale root=C scaleType=majorPentatonic position=2}\n::',
+      '1, 5, 2oct',
+    ],
+    [
+      'a numbered box on a mode',
+      '::diagram{intent=scale root=D scaleType=dorian position=3}\n::',
+      'no numbered CAGED boxes',
+    ],
+    [
+      'a seventh chord asked for as a triad voicing',
+      '::diagram{intent=chord root=C quality=maj7 stringSet=e–B–G}\n::',
+      'intent="arpeggio"',
+    ],
+    [
+      'a scale intent with no scaleType',
+      '::diagram{intent=scale root=C position=1}\n::',
+      'majorPentatonic',
+    ],
+    [
+      'a pattern past the number of patterns the scale has',
+      '::diagram{intent=pattern root=A scaleType=minorPentatonic patternIndex=6}\n::',
+      'between 1 and 5',
+    ],
+  ])('drops %s, naming the legal values', (_label, md, expected) => {
+    const { blocks, issues } = parseLessonMarkdown(md);
+    expect(blocks).toHaveLength(0);
+    const err = errorsOf(issues)[0];
+    expect(err.line).toBe(1);
+    expect(err.message).toContain(expected);
+    // Never the failure this replaced: "the diagram came out empty".
+    expect(err.message).not.toContain('resolved to zero dots');
+  });
+
+  it('rejects an unknown intent with the four legal ones', () => {
+    const { blocks, issues } = parseLessonMarkdown('::diagram{intent=tapping root=C}\n::');
+    expect(blocks).toHaveLength(0);
+    expect(errorsOf(issues)[0].message).toContain('chord, scale, arpeggio, pattern');
+  });
+
+  it('rejects a quality outside the enum before it can mean anything', () => {
+    const { blocks, issues } = parseLessonMarkdown('::diagram{intent=arpeggio root=C quality=13 position=1}\n::');
+    expect(blocks).toHaveLength(0);
+    expect(errorsOf(issues)[0].message).toContain('maj7');
+  });
+
+  it('warns about a field the intent will not read, and keeps the diagram', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{intent=scale root=C scaleType=major position=1 stringSet=e–B–G}\n::',
+    );
+    expect(errorsOf(issues)).toEqual([]);
+    expect(componentsOf(blocks)).toEqual(['lesson.diagram']);
+    expect(warningsOf(issues)[0].message).toContain('`stringSet`');
+  });
+
+  it('checks a useParam shape in all twelve keys, not just the one it was written in', () => {
+    // majorPentatonic box 5 realizes from every root, so this survives...
+    const ok = parseLessonMarkdown(
+      '::diagram{intent=scale useParam root=C scaleType=majorPentatonic position=5}\n::',
+    );
+    expect(errorsOf(ok.issues)).toEqual([]);
+    // ...and a useParam diagram with no root of its own does not, because
+    // everything before render time reads the block's own root.
+    const missing = parseLessonMarkdown('::diagram{intent=scale useParam scaleType=major position=1}\n::');
+    expect(missing.blocks).toHaveLength(0);
+    expect(errorsOf(missing.issues)[0].message).toContain('useParam needs a `root` too');
+  });
+
+  it('widens a fixed window that would crop a scale box, rather than dropping the box', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{intent=scale root=A scaleType=minorPentatonic position=3 fromFret=0 toFret=5}\n::',
+    );
+    expect(componentsOf(blocks)).toEqual(['lesson.diagram']);
+    expect(warningsOf(issues)[0].message).toContain('Widened the window');
+    expect(blocks[0].block.toFret as number).toBeGreaterThan(5);
+  });
+
+  it('refuses a theory diagram on a bass whatever the intent', () => {
+    const { blocks, issues } = parseLessonMarkdown(
+      '::diagram{instrument=bass intent=scale root=C scaleType=major position=1}\n::',
+    );
+    expect(blocks).toHaveLength(0);
+    expect(errorsOf(issues)[0].message).toContain('guitar tuning');
   });
 });
 
@@ -977,12 +1108,37 @@ function probeEnum(component: string, field: string, value: string): string | nu
       return value === 'theory'
         ? '::diagram{mode=theory root=C quality=major stringSet=e–B–G}\n::'
         : '::diagram{mode=explicit}\n- string=0 fret=3\n::';
+    case 'lesson.diagram.intent':
+      // One probe per intent, each with exactly the fields that intent
+      // reads — which is the point of the intents: the fields a diagram
+      // needs are a function of what it is a diagram OF.
+      return (
+        {
+          chord: '::diagram{intent=chord root=C quality=major stringSet=e–B–G}\n::',
+          scale: '::diagram{intent=scale root=C scaleType=major position=1}\n::',
+          arpeggio: '::diagram{intent=arpeggio root=C quality=maj7 position=1}\n::',
+          pattern: '::diagram{intent=pattern root=C scaleType=major patternIndex=1}\n::',
+        }[value] ?? null
+      );
     case 'lesson.diagram.root':
       return `::diagram{root=${value} quality=major stringSet=e–B–G}\n::`;
     case 'lesson.diagram.quality':
-      return `::diagram{root=C quality=${value} stringSet=e–B–G}\n::`;
+      // Probed as an ARPEGGIO, the intent that accepts the whole enum:
+      // intent="chord" voices triads only, so the seventh and sixth
+      // qualities are legally refused there. Every value in the enum has an
+      // arpeggio in position 1 — that is exactly how the enum was derived.
+      return `::diagram{intent=arpeggio root=C quality=${value} position=1}\n::`;
     case 'lesson.diagram.stringSet':
       return `::diagram{root=C quality=major stringSet=${value}}\n::`;
+    case 'lesson.diagram.scaleType':
+      // position=2oct rather than a numbered box: the five modes ship no
+      // numbered boxes at all, and the universal two-octave window is the
+      // one position every scale type has.
+      return `::diagram{intent=scale root=C scaleType=${value} position=2oct}\n::`;
+    case 'lesson.diagram.position':
+      // quality=maj offers all six positions, so this probes the position
+      // vocabulary rather than one quality's subset of it.
+      return `::diagram{intent=arpeggio root=C quality=maj position=${value}}\n::`;
     case 'lesson.keyboard-diagram.mode':
       return value === 'theory'
         ? '::keyboard-diagram{mode=theory root=C quality=major}\n::'
