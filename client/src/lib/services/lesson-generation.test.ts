@@ -32,6 +32,8 @@
 //     the key
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { friendlyAnthropicError } from './anthropic-errors';
+import { friendlyOllamaError } from './ollama-errors';
 
 vi.mock('@tanstack/ai', () => ({
   chat: vi.fn(),
@@ -51,8 +53,41 @@ vi.mock('./lesson-model', () => ({
   redactAnthropicKey: (text: string) => text,
 }));
 
-const LOCAL_MODEL = { adapter: {}, tier: 'local' as const, model: 'gemma4-kb:latest' };
-const FRONTIER_MODEL = { adapter: {}, tier: 'frontier' as const, model: 'claude-sonnet-5' };
+// These stand in for a `ResolvedModel` from model-policy.ts, whose contract
+// now includes the tier-specific `modelOptions` / `friendlyError` / `redact`
+// MEMBERS (they replaced lesson-generation's own buildModelOptions() and
+// friendlyModelError(tier, …) helpers). Without them the pipeline reads
+// `undefined` and every chat() call throws "modelOptions is not a function".
+const LOCAL_MODEL = {
+  adapter: {},
+  tier: 'local' as const,
+  model: 'gemma4-kb:latest',
+  modelOptions: (temperature: number) => ({
+    model: 'gemma4-kb:latest',
+    options: { temperature },
+  }),
+  // The REAL local mapper, not a stub — these literals stand in for a
+  // ResolvedModel, and the tier-paired mapper is the part of that contract
+  // the pipeline's error tests actually exercise ("an Ollama model-not-found
+  // surfaces an Ollama hint", "a frontier auth failure surfaces the canned
+  // Anthropic string and never the key"). Stubbing them to identity would
+  // silently gut both.
+  friendlyError: friendlyOllamaError,
+  redact: (raw: string) => raw,
+};
+const FRONTIER_MODEL = {
+  adapter: {},
+  tier: 'frontier' as const,
+  model: 'claude-sonnet-5',
+  // Frontier sends NO sampling knobs — claude-sonnet-5 400s on temperature.
+  modelOptions: () => ({}),
+  // The REAL frontier mapper: canned strings only, never echoes its input.
+  // (The real one composes redactAnthropicKey first; this file mocks that to
+  // a pass-through, and friendlyAnthropicError cannot leak either way — that
+  // is exactly the property "never contains the key" asserts.)
+  friendlyError: friendlyAnthropicError,
+  redact: (raw: string) => raw,
+};
 
 const embedTextMock = vi.fn();
 vi.mock('./embeddings', async (importOriginal) => {
@@ -104,7 +139,11 @@ vi.mock('./digest', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./digest')>();
   return {
     ...actual,
-    synthesizeDigest: (videos: unknown) => synthesizeDigestMock(videos),
+    // Two args now: `synthesizeDigest(videos, override?)`. Capturing the
+    // second is what lets the digest-tier test below assert that a frontier
+    // lesson synthesizes its digest on the frontier tier.
+    synthesizeDigest: (videos: unknown, model?: unknown) =>
+      synthesizeDigestMock(videos, model),
   };
 });
 
@@ -485,6 +524,48 @@ describe('planLesson — digest reuse', () => {
     expect(synthesizeDigestMock).toHaveBeenCalledTimes(1);
     const digestEvent = events.find((e) => e.type === 'digest');
     expect(digestEvent).toMatchObject({ type: 'digest', cacheHit: false });
+  });
+
+  // Tier INHERITANCE — previously uncovered, and the one place where a
+  // non-lesson service legitimately runs on the frontier tier. digest.ts's
+  // own default is local (resolveModel('digest-synthesis') cannot return
+  // anything else); the ONLY frontier path into it is this explicit
+  // argument, from the one module allowed to build a frontier adapter.
+  // Before this refactor a frontier lesson paid ~51s of local inference to
+  // produce the structure a frontier model then wrote the lesson from.
+  it('passes the LESSON\'s frontier model down to digest synthesis on a cache miss', async () => {
+    resolveLessonModelMock.mockReturnValue(FRONTIER_MODEL);
+    mockedChat.mockResolvedValueOnce(COVERED).mockResolvedValueOnce(OUTLINE);
+
+    await planLesson({ topic: 'blues turnarounds' });
+
+    expect(synthesizeDigestMock).toHaveBeenCalledTimes(1);
+    const passed = synthesizeDigestMock.mock.calls[0][1] as { tier: string; adapter: unknown };
+    expect(passed.tier).toBe('frontier');
+    expect(passed.adapter).toBe(FRONTIER_MODEL.adapter);
+  });
+
+  it('passes the LESSON\'s local model down too — unconditionally, not only on frontier', async () => {
+    // The old call site read `tier === 'frontier' ? {…} : undefined`, using
+    // argument presence as the tier proxy. Now the model is always threaded
+    // and `digest.ts` keys off `model.tier`. Handing it a local model must
+    // be identical to letting it resolve its own default — including
+    // keeping `temperature: 0.3`, which the presence-based version would
+    // have silently dropped.
+    resolveLessonModelMock.mockReturnValue(LOCAL_MODEL);
+    mockedChat.mockResolvedValueOnce(COVERED).mockResolvedValueOnce(OUTLINE);
+
+    await planLesson({ topic: 'blues turnarounds' });
+
+    const passed = synthesizeDigestMock.mock.calls[0][1] as {
+      tier: string;
+      modelOptions: (t: number) => unknown;
+    };
+    expect(passed.tier).toBe('local');
+    expect(passed.modelOptions(0.3)).toEqual({
+      model: 'gemma4-kb:latest',
+      options: { temperature: 0.3 },
+    });
   });
 });
 

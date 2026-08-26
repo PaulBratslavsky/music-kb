@@ -5,7 +5,6 @@
 //
 // Called from the server function layer (/digest route, MCP tool).
 import { chat } from '@tanstack/ai';
-import { createOllamaChat } from '@tanstack/ai-ollama';
 import { z } from 'zod';
 import {
   fetchVideoByDocumentIdService,
@@ -13,10 +12,11 @@ import {
   type StrapiVideo,
 } from '#/lib/services/videos';
 import { withRetry } from '#/lib/retry';
-import { OLLAMA_HOST, OLLAMA_MODEL as SUMMARY_MODEL } from '#/lib/env';
-import { samplingOptions } from '#/lib/services/ollama-model-options';
-
-const digestAdapter = createOllamaChat(SUMMARY_MODEL, OLLAMA_HOST);
+import {
+  modelIdFor,
+  resolveModel,
+  type ResolvedModel,
+} from '#/lib/services/model-policy';
 
 export const DIGEST_MAX_VIDEOS = 5;
 export const DIGEST_MIN_VIDEOS = 2;
@@ -310,19 +310,29 @@ function looksLikeSchemaKey(title: string): boolean {
 }
 
 /**
- * Optional model override. Without it the digest runs on the local Ollama
- * model, which is right for the standalone /digest feature.
+ * Optional model override. Without it the digest runs on
+ * `resolveModel('digest-synthesis')` — local, permanently, by the return
+ * type of `resolveModel` — which is right for the standalone /digest
+ * feature.
  *
- * Lesson generation passes its own resolved tier instead. Before this, a
+ * Lesson generation passes its own resolved model instead, so a frontier
+ * lesson synthesizes its digest on the frontier tier. Before that, a
  * frontier lesson paid ~51s of local inference to produce the structure that
  * a frontier model then wrote the lesson from — the slowest step in the plan
- * phase, on the weaker model, feeding the stronger one.
+ * phase, on the weaker model, feeding the stronger one. This parameter is
+ * the ONLY frontier path into digest synthesis, and only the one module
+ * allowed to build a frontier adapter can supply it.
+ *
+ * `override` is an optional parameter rather than a default parameter
+ * (`= resolveModel('digest-synthesis')`) on purpose: a default is evaluated
+ * before the `videos.length` guards below, and resolving constructs an
+ * adapter, which throws `TypeError: Invalid URL` on a malformed
+ * OLLAMA_BASE_URL. That would turn "Need at least 2 videos" into a throw.
+ * Resolution happens inside the try instead.
  */
-export type DigestModel = { adapter: unknown; model: string };
-
 export async function synthesizeDigest(
   videos: StrapiVideo[],
-  override?: DigestModel,
+  override?: ResolvedModel,
 ): Promise<ServiceResult<Digest>> {
   if (videos.length < DIGEST_MIN_VIDEOS) {
     return {
@@ -348,14 +358,13 @@ export async function synthesizeDigest(
     };
   }
 
-  const activeAdapter = override?.adapter ?? digestAdapter;
-  const activeModel = override?.model ?? SUMMARY_MODEL;
-
   const tag = videos.map((v) => v.youtubeVideoId).join(',');
   const started = performance.now();
   logPhase(tag, '▶ synthesizing', {
     videos: videos.length,
-    model: activeModel,
+    // `modelIdFor` is the pure sibling of `resolveModel` — same id, no
+    // adapter constructed, so this log line cannot throw ahead of the try.
+    model: override?.model ?? modelIdFor('digest-synthesis'),
   });
 
   const userPrompt = [
@@ -365,24 +374,27 @@ export async function synthesizeDigest(
   ].join('\n\n');
 
   try {
+    const model = override ?? resolveModel('digest-synthesis');
     const object = (await withRetry(
       () =>
         chat({
-          adapter: activeAdapter as never,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: DIGEST_SYSTEM },
             { role: 'user', content: userPrompt },
           ] as never,
           outputSchema: DigestSchema,
           // Frontier models reject `temperature` outright ("`temperature` is
-          // deprecated for this model"), so sampling options stay local-only —
-          // the same tier-specific split `buildModelOptions` makes in
-          // lesson-generation.ts. Always passed, empty on frontier, rather
-          // than conditionally spread: an optional-with-a-value property does
-          // not satisfy the adapter's generic.
-          modelOptions: (override
-            ? {}
-            : samplingOptions(SUMMARY_MODEL, 0.3)) as never,
+          // deprecated for this model"), so the shape is tier-specific — but
+          // that decision now lives in the resolved model itself, not here.
+          // This used to read `override ? {} : samplingOptions(...)`, using
+          // argument presence as a proxy for "frontier". It held only because
+          // the sole caller passed the argument only on frontier; a caller
+          // that passed a LOCAL model would have silently lost
+          // `temperature: 0.3` and run at Ollama's default — the exact drift
+          // DIGEST_SYSTEM's prompt notes and `looksLikeSchemaKey` exist to
+          // defend against. The discriminator is the tier now.
+          modelOptions: model.modelOptions(0.3),
         }),
       {
         attempts: 2,
@@ -412,7 +424,13 @@ export async function synthesizeDigest(
     });
     return { success: true, data: safe };
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Digest generation failed';
+    // `redact` is a no-op on the local tier — it is here for the
+    // frontier-inherited path (a lesson passing its own model), which is the
+    // only way an Anthropic error payload can reach this log line. Do not
+    // delete it as dead code: local is just the branch you happen to be
+    // stepping through.
+    const redact = override?.redact ?? ((raw: string) => raw);
+    const message = redact(err instanceof Error ? err.message : 'Digest generation failed');
     logPhase(tag, '✗ failed', { error: message, took: ms(started) });
     return { success: false, error: message };
   }
@@ -504,16 +522,21 @@ export async function synthesizeDigestArticle(
   ].join('\n\n');
 
   try {
+    // Its own surface key, not 'digest-synthesis'. Sharing one would have
+    // made this function frontier-reachable the moment the other one was —
+    // and it is unreachable from lesson generation, which is where it
+    // should stay.
+    const model = resolveModel('digest-article');
     const out = (await withRetry(
       () =>
         chat({
-          adapter: digestAdapter,
+          adapter: model.adapter,
           messages: [
             { role: 'system', content: ARTICLE_SYSTEM },
             { role: 'user', content: userPrompt },
           ] as never,
           stream: false,
-          modelOptions: samplingOptions(SUMMARY_MODEL, 0.3),
+          modelOptions: model.modelOptions(0.3),
         }),
       {
         attempts: 2,

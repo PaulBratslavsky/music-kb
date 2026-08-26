@@ -29,7 +29,20 @@ vi.mock('./lesson-model', () => ({
   redactAnthropicKey: (text: string) => text,
 }));
 
-const LOCAL_MODEL = { adapter: {}, tier: 'local' as const, model: 'gemma4-kb:latest' };
+// Stands in for a `ResolvedModel` from model-policy.ts — the tier-specific
+// modelOptions/friendlyError/redact are MEMBERS of it now, so omitting them
+// makes every chat() call throw "modelOptions is not a function".
+const LOCAL_MODEL = {
+  adapter: {},
+  tier: 'local' as const,
+  model: 'gemma4-kb:latest',
+  modelOptions: (temperature: number) => ({
+    model: 'gemma4-kb:latest',
+    options: { temperature },
+  }),
+  friendlyError: (raw: string) => raw,
+  redact: (raw: string) => raw,
+};
 
 const embedTextMock = vi.fn();
 vi.mock('./embeddings', async (importOriginal) => {
@@ -62,7 +75,11 @@ vi.mock('./digests', async (importOriginal) => {
 const synthesizeDigestMock = vi.fn();
 vi.mock('./digest', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./digest')>();
-  return { ...actual, synthesizeDigest: (videos: unknown) => synthesizeDigestMock(videos) };
+  return {
+    ...actual,
+    synthesizeDigest: (videos: unknown, model?: unknown) =>
+      synthesizeDigestMock(videos, model),
+  };
 });
 
 import { chat } from '@tanstack/ai';
