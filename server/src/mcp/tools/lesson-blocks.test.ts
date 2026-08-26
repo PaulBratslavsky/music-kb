@@ -828,6 +828,112 @@ describe('correctPitchLabels', () => {
   });
 });
 
+describe('the three mutants that survived the first audit', () => {
+  // An independent mutation battery invented seven mutations the original
+  // suite had not anticipated. Three survived. All three are real behaviour
+  // changes, and all three live in the pitch-label path or the pattern
+  // picker — places where the failure is a wrong note or a blank pill on a
+  // rendered page rather than an error anyone sees.
+  const explicitDiagram = (fields: Record<string, unknown>) => ({
+    __component: 'lesson.diagram',
+    mode: 'explicit',
+    instrument: 'guitar',
+    ...fields,
+  });
+
+  // N3 IS AN EQUIVALENT MUTANT, recorded rather than tested. The audit
+  // reported that dropping pitchClassAt's `string >= tuning.length` bound is
+  // a real behaviour change. It is not: the function has exactly one caller
+  // and it guards with `if (!actual || ...) return null`, which absorbs the
+  // `undefined` the unbounded version returns. The bound is defence in depth
+  // for a future second caller, and no test can kill it while that guard
+  // stands. The test below pins the BEHAVIOUR — off-board dots are never
+  // relabelled — which stays true and worth having whichever line enforces it.
+  it('N3 — a string past the end of the tuning is never relabelled', () => {
+    // neckDotSchema allows string 0-5 because a guitar has six. A BASS has
+    // four, so strings 4 and 5 are schema-legal and physically absent.
+    // pitchClassAt's upper bound is what turns that into "no claim to check";
+    // without it, TUNING_MIDI[4] is undefined, the arithmetic goes NaN, and
+    // PITCH_CLASSES[NaN] hands back undefined — which correctDotLabel would
+    // then write into the label as a "correction".
+    const body = parsedBody([
+      {
+        __component: 'lesson.diagram',
+        mode: 'explicit',
+        instrument: 'bass',
+        dots: [
+          { string: 3, fret: 3, label: 'G' },
+          { string: 4, fret: 3, label: 'Q' },
+          { string: 5, fret: 3, label: 'C' },
+        ],
+      },
+    ]);
+    const corrections = correctPitchLabels(body);
+    // The two off-the-board dots must be left EXACTLY as authored.
+    expect(body[0].dots[1].label).toBe('Q');
+    expect(body[0].dots[2].label).toBe('C');
+    expect(corrections.every((c) => c.string < 4)).toBe(true);
+    // And nothing may be "corrected" to a non-string.
+    expect(corrections.every((c) => typeof c.to === 'string' && c.to.length > 0)).toBe(true);
+  });
+
+  it('N4 — a flat spelled with the UNICODE flat sign is still a pitch claim', () => {
+    // parsePitchLabel normalises U+266D to 'b'. Lose that and 'A♭' stops
+    // parsing, so a wrong note spelled the typographically correct way is
+    // silently exempt from checking — the labels most likely to be authored
+    // by hand are exactly the ones that stop being verified.
+    const body = parsedBody([
+      explicitDiagram({ dots: [{ string: 0, fret: 2, label: 'A\u266d' }] }),
+    ]);
+    // e-string fret 2 is F#. A♭ is G#, so this IS wrong and must be caught.
+    const corrections = correctPitchLabels(body);
+    expect(corrections).toHaveLength(1);
+    expect(corrections[0].from).toBe('A\u266d');
+    expect(corrections[0].to).toBe('F#');
+    expect(body[0].dots[0].label).toBe('F#');
+  });
+
+  it('N4b — the unicode SHARP sign is normalised too', () => {
+    // Same rule, the other accidental — and it has to be a WRONG claim to be
+    // a real test. A CORRECT unicode label produces no correction whether or
+    // not the sign is normalised (unparsed and already-right both yield "no
+    // change"), so pinning one would pass against the mutant.
+    const body = parsedBody([
+      explicitDiagram({ dots: [{ string: 0, fret: 2, label: 'C\u266f' }] }),
+    ]);
+    // C♯ is C#; e-string fret 2 is F#. Normalised, that is a wrong claim and
+    // must be corrected. Unnormalised, 'C♯' never parses and slips through.
+    const corrections = correctPitchLabels(body);
+    expect(corrections).toHaveLength(1);
+    expect(corrections[0].from).toBe('C\u266f');
+    expect(corrections[0].to).toBe('F#');
+    expect(body[0].dots[0].label).toBe('F#');
+  });
+
+  it('N5 — a pattern pill must have text on it', () => {
+    // neckPatternItemSchema.label is the only thing between a model and a
+    // picker full of unlabelled necks: patterns is a json column, so Strapi
+    // validates nothing here.
+    const withEmptyLabel = {
+      __component: 'lesson.neck-pattern',
+      instrument: 'guitar',
+      patterns: [
+        { label: 'Position 1', dots: [{ string: 0, fret: 5 }] },
+        { label: '', dots: [{ string: 0, fret: 7 }] },
+      ],
+    };
+    const result = lessonBodySchema.safeParse([withEmptyLabel]);
+    expect(result.success).toBe(false);
+    // And the legal spelling of the same block still parses, so the test is
+    // pinning the empty string rather than something else about the shape.
+    expect(
+      lessonBodySchema.safeParse([
+        { ...withEmptyLabel, patterns: [withEmptyLabel.patterns[0], { label: 'Position 2', dots: [{ string: 0, fret: 7 }] }] },
+      ]).success,
+    ).toBe(true);
+  });
+});
+
 describe('KNOWN GAPS — these pin CURRENT behaviour, not desired behaviour', () => {
   it('needs a get_lesson body scrubbed of ids and nulls before update_lesson accepts it', () => {
     // What Strapi HANDS BACK is not what it will TAKE BACK: it echoes the
