@@ -126,6 +126,13 @@ const clientVideosSource = readFileSync(CLIENT_VIDEOS_PATH, 'utf8');
  * the server file's header deliberately names `process.env.EMBEDDING_VERSION`
  * in the sentence explaining why it does not read it, and a doc comment
  * carrying an example declaration would otherwise shadow the real constant.
+ *
+ * Naive on purpose: it does not know about strings, so a `//` inside a string
+ * literal eats the rest of that line. Today that hits exactly one line in the
+ * server file (`'http://localhost:11434'`, at module scope) and nothing here
+ * reads it — verified. If a URL ever moves INTO one of the mirrored bodies,
+ * both sides truncate the same way, so the mirror still holds; the content
+ * assertions at the bottom are what would notice the loss.
  */
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
