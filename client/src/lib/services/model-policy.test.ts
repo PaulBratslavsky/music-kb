@@ -262,6 +262,33 @@ describe('structural guards', () => {
     expect(importers).toEqual(['lib/services/lesson-generation.ts']);
   });
 
+  it('lesson-model.ts exports nothing that could alias the frontier resolver', () => {
+    // The keystone above counts IMPORTERS of `resolveLessonModel`, which is
+    // exactly the hole an adversarial audit walked through:
+    //
+    //   // inside lesson-model.ts — no new importer of resolveLessonModel
+    //   export function resolvePreferredModel() { return resolveLessonModel(); }
+    //
+    // learning.ts then imports `resolvePreferredModel`, the importer list
+    // still reads ['lesson-generation.ts'], every tier assertion stays green,
+    // and summaries run on Claude. Pinning the module's whole export surface
+    // is what closes it: a new export here is red until someone adds it to
+    // this list on purpose, at which point the alias is a deliberate,
+    // reviewed act rather than an accident.
+    const src = readFileSync(join(SRC_ROOT, 'lib/services/lesson-model.ts'), 'utf8');
+    const exported = [...src.matchAll(/^export\s+(?:async\s+)?(?:function|const|class|type|interface)\s+(\w+)/gm)]
+      .map((m) => m[1])
+      .sort();
+    expect(exported).toEqual(['redactAnthropicKey', 'resolveLessonModel']);
+    // `export { resolveLessonModel as resolvePreferredModel }` and
+    // `export * from` would both slip past the declaration scan above.
+    expect(src).not.toMatch(/^export\s*\{/m);
+    expect(src).not.toMatch(/^export\s+\*/m);
+    // The scan found the two real exports, rather than a regex that matches
+    // nothing and passes vacuously.
+    expect(exported).toHaveLength(2);
+  });
+
   it('every literal resolveModel(...) argument in the tree is a declared surface', () => {
     // Belt-and-braces on top of the type: catches a `resolveModel(x as
     // never)` or a stringly-typed call that slipped past review.
