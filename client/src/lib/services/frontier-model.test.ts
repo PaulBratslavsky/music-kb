@@ -71,7 +71,7 @@ vi.mock('@tanstack/ai-anthropic', async (importOriginal) => {
 });
 
 import { ANTHROPIC_MODELS } from '@tanstack/ai-anthropic';
-import { redactAnthropicKey, resolveLessonModel } from './lesson-model';
+import { redactAnthropicKey, resolveLessonModel } from './frontier-model';
 
 beforeEach(() => {
   envState.ANTHROPIC_API_KEY = undefined;

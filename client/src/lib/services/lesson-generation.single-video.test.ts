@@ -24,7 +24,7 @@ vi.mock('@tanstack/ai', () => ({
 }));
 
 const resolveLessonModelMock = vi.fn();
-vi.mock('./lesson-model', () => ({
+vi.mock('./frontier-model', () => ({
   resolveLessonModel: () => resolveLessonModelMock(),
   redactAnthropicKey: (text: string) => text,
 }));

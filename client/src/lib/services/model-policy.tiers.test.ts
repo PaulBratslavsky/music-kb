@@ -82,7 +82,7 @@ vi.mock('@tanstack/ai-anthropic', async (importOriginal) => {
 });
 
 import { LOCAL_SURFACES, modelIdFor, resolveModel } from './model-policy';
-import { resolveLessonModel } from './lesson-model';
+import { resolveLessonModel } from './frontier-model';
 
 beforeEach(() => {
   envState.ANTHROPIC_API_KEY = undefined;
