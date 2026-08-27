@@ -18,6 +18,7 @@
 // user watches the note assemble the same way chat streams.
 
 import { useMemo, useState } from 'react';
+import { ModelPicker } from '#/components/ModelPicker';
 import { Button } from '#/components/ui/button';
 import {
   DropdownMenu,
@@ -50,6 +51,8 @@ async function* streamCompose(input: {
   prompt: string;
   currentContent?: string;
   skillSlug?: string;
+  /** Choice TOKEN, not a model id — validated server-side. */
+  modelChoice: string;
 }): AsyncGenerator<string, void, void> {
   const res = await fetch('/api/notes/compose', {
     method: 'POST',
@@ -86,6 +89,8 @@ export function NoteComposer({
 }: Readonly<Props>) {
   const isEdit = !!existingNote;
   const [prompt, setPrompt] = useState('');
+  // Per-compose model choice. 'default' preserves prior behaviour.
+  const [modelChoice, setModelChoice] = useState<string>('default');
   const [body, setBody] = useState<string>(existingNote?.body ?? '');
   const [title, setTitle] = useState<string>(existingNote?.title ?? '');
   const [skillSlug, setSkillSlug] = useState<string>('note');
@@ -116,6 +121,7 @@ export function NoteComposer({
         prompt: trimmed,
         currentContent: hadContent ? body : undefined,
         skillSlug,
+        modelChoice,
       })) {
         acc += delta;
       }
@@ -223,6 +229,12 @@ export function NoteComposer({
           <span>{isEdit ? 'Edit note' : 'New note'}</span>
         </div>
         <div className="flex items-center gap-2">
+          <ModelPicker
+            surface="note-compose"
+            value={modelChoice}
+            onChange={setModelChoice}
+            disabled={streaming || saving || deleting}
+          />
           {skills.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger
