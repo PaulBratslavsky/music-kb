@@ -168,27 +168,51 @@ protocol-free. The cost is the duplication described next.
 The only runtime channel is `strapiFetch<T>` in `services/strapi-client.ts`.
 
 But some knowledge has to agree on both sides, and **`server/` cannot import
-`@music-kb/music`** — it fails `TS2307` under its CommonJS, default-resolution
-tsconfig, and fixing that means changing how the whole Strapi server compiles. So
-that knowledge is duplicated, and the duplication is pinned by tests.
+`@music-kb/music`**. The reason is bigger than the `TS2307` this used to say:
+`packages/music` is `"type": "module"`, its `exports` map points at raw `.ts`,
+and it has no build step, so it is consumable **only by a bundler** — and
+Strapi's pipeline is `tsc` → Node, with no bundler in it. **No setting in
+`server/tsconfig.json` fixes that**, and a new shared package built the same way
+would hit the same wall. ADR 0010 records the four configurations that were
+measured, including the trap: `module: "preserve"` + `moduleResolution:
+"bundler"` typechecks 100% clean and then kills `strapi build` on
+`config/database.ts` with `__dirname is not defined`.
 
-Those tests live in the **client** suite and read the server's files off disk.
-`server/` has had its own vitest since 2026-08-26, so that placement is no
-longer forced — but it is still correct, and for the original reason: these
-guards assert that two *files* agree, and the client cannot import the server's
-copy without breaking the separate-installs rule (two zod instances, two React
-majors). Reading server source as TEXT is what makes a text-level comparison
-possible at all. The server's own suite is for what it can *execute*.
+So that knowledge is duplicated, and the duplication is pinned by tests.
 
-| Invariant | Guard |
-|---|---|
-| Pitch labels on diagrams | `lib/lesson/pitch-label-parity.test.ts` |
-| Theory intents (quality × position) | `lib/lesson/theory-intent-parity.test.ts` |
-| Lesson block vocabulary | `components/lesson/block-vocabulary.test.ts` |
-| Per-tool MCP permissions | `lib/mcp-tool-permissions.test.ts` |
-| Authoring guide ↔ Strapi schema | `lib/lesson/authoring-guide.test.ts` (bidirectional) |
-| Declared-but-unrendered fields | `components/lesson/render-reachability.test.ts` |
-| Embedding contract (version, model default, text-builders, prefixes, truncation) | `lib/services/embeddings.parity.test.ts` |
+**Where a guard lives depends on what it compares.** The rule, as of ADR 0010:
+
+- **Text comparison → the client suite, reading server source off disk.** These
+  guards assert that two *files* agree, and the client cannot import the
+  server's copy without breaking the separate-installs rule (two zod instances,
+  two React majors). Reading server source as TEXT is what makes a text-level
+  comparison possible at all. Seven of the eight guards below are this kind.
+- **Behavioural comparison → the server suite, importing the client's module
+  directly.** A guard that must *execute* both implementations cannot work from
+  text. `server/` has had its own vitest since 2026-08-26, and that is what its
+  suite is for. Permitted **only for dependency-free modules** — the guard
+  itself asserts that both files still have zero imports, since that is the only
+  thing keeping a foreign `node_modules` out of the resolution graph.
+
+The direction is fixed, not a preference: `client/tsconfig.json` includes
+`**/*.ts`, so a client-side test importing server source would pull server files
+into the client's `tsc --noEmit` gate and let a server edit break the client's
+typecheck. The reverse — server test importing client source — adds no such
+coupling, because `server/tsconfig.json` excludes `**/*.test.*` entirely. The
+cost of that exclusion is that behavioural guards are **typechecked by nothing**;
+tolerable only because they execute both sides, so a signature drift is a red
+test rather than silence.
+
+| Invariant | Guard | Suite |
+|---|---|---|
+| Pitch labels on diagrams | `lib/lesson/pitch-label-parity.test.ts` | client (text) |
+| Theory intents (quality × position) | `lib/lesson/theory-intent-parity.test.ts` | client (text) |
+| Lesson block vocabulary | `components/lesson/block-vocabulary.test.ts` | client (text) |
+| Per-tool MCP permissions | `lib/mcp-tool-permissions.test.ts` | client (text) |
+| Authoring guide ↔ Strapi schema | `lib/lesson/authoring-guide.test.ts` (bidirectional) | client (text) |
+| Declared-but-unrendered fields | `components/lesson/render-reachability.test.ts` | client (text) |
+| Embedding contract (version, model default, text-builders, prefixes, truncation) | `lib/services/embeddings.parity.test.ts` | client (text) |
+| BM25 retrieval core (scoring, tokenizers, grounding, timecode rewriting, stored-index wire format) | `server/src/services/bm25-search.parity.test.ts` | **server (behavioural)** — the first guard outside the client suite |
 
 `docs/lesson-authoring.md` deserves a special mention: it is the single source of
 truth for lesson authoring, read at runtime by **both** the in-app generator
@@ -232,11 +256,30 @@ document, two consumers, one drift test in both directions.
    resolve inside their existing `try` so this lands as a normal failure rather
    than an unhandled rejection, but the user-facing string is raw.
 
-4. **The two tool systems duplicate retrieval.** `library-tools.ts` and the MCP
-   `searchVideos` / `getVideo` / `crossSearchTranscripts` answer the same
-   questions with separate implementations. Merging them wholesale would undo the
-   protocol-free local path, which is a deliberate choice — but the retrieval core
-   underneath both could be one module.
+4. ~~**The two tool systems duplicate retrieval.**~~ **Closed** (2026-08-26) by
+   **ADR 0010** — and note what shipped, because it is the *opposite* of what
+   this entry proposed. There is no shared retrieval module, and there will not
+   be one.
+
+   The entry's premise was wrong. `library-tools.ts` and the MCP tools answer
+   similar *questions*, not with duplicated code but with different algorithms
+   sharing zero lines: `search_library` is dense + BM25 passage fusion with
+   parent-document grouping; `searchVideos` is a SQL `$containsi` AND-filter
+   with no index and no embedding. Measured — `list_videos_by_topic` and
+   `searchVideos` agree on 4 of 12 sample topics and overlap 0% on "guitar".
+
+   The real duplication is elsewhere and smaller: 139 non-comment lines in
+   `server/src/mcp/utils/embeddings.ts` (already guarded, holding) and 156 in
+   `server/src/services/bm25-search.ts` — which was guarded by nothing and
+   **had already drifted**, while its header claimed results were "identical to
+   what the in-app chat sees". They are not: below `BM25_MIN_QUERY_IDF = 1.5` the
+   client returns nothing and the server returns hits. That is intentional (MCP
+   clients have no query-rewrite stage) but it was undocumented.
+
+   What shipped instead of a module: a corrected header, ADR 0010, and
+   `server/src/services/bm25-search.parity.test.ts` — 58 behavioural cases that
+   execute both implementations against one fixture. It found a silent
+   total-failure bug on its first run (see gap 6).
 
 5. ~~**`server/` has no test runner.**~~ **Fixed** (2026-08-26). `server/` now
    owns a vitest (`yarn --cwd server test`, wired into the root `yarn test` as
@@ -268,11 +311,52 @@ document, two consumers, one drift test in both directions.
    Two things the runner deliberately did *not* buy. Vitest resolves through
    Vite, which understands `packages/music`'s `exports` map, so a server *test*
    can import `@music-kb/music` where server *source* still cannot (see "What
-   crosses the boundary"). That escape hatch was declined: it would put `tonal`
-   in `server/node_modules` and invite an import from `src/` that fails `tsc`
-   with TS2307 — and the tables it would have derived are already pinned by
+   crosses the boundary"). That escape hatch was declined **for
+   `@music-kb/music` specifically**: importing it would put `tonal` in
+   `server/node_modules` and invite an import from `src/` that fails `tsc` with
+   TS2307 — and the tables it would have derived are already pinned by
    `theory-intent-parity.test.ts`, which throws rather than silently passing if
    the constant is renamed. And server test files are excluded from
    `server/tsconfig.json` (which is what keeps them out of the Strapi build),
    so **they are typechecked by nothing**.
 
+   **Neither objection generalises, and ADR 0010 uses the hatch.** Do not cite
+   this paragraph against `bm25-search.parity.test.ts`: the module it imports,
+   `client/src/lib/services/transcript.ts`, has **zero imports**, so nothing
+   lands in `server/node_modules` and no `src/` import becomes tempting; and the
+   BM25 core it pins was pinned by nothing at all. The rule that came out of it
+   is in "What crosses the boundary": behavioural guards may import, but only
+   dependency-free modules, and the guard must assert that dependency-freedom
+   itself.
+
+
+6. **`searchTranscript` returns nothing for any query containing the word
+   "constructor".** Found by the ADR 0010 parity guard on its first run, and
+   pinned there (group E, labelled `DEFECT, PINNED`) rather than fixed —
+   fixing it changes MCP behaviour and wants its own decision.
+
+   `buildBM25Index` builds its tf/idf tables as `Object.create(null)` maps
+   precisely so a transcript term named `constructor` cannot collide with
+   `Object.prototype`. `JSON.stringify` → `JSON.parse` — which is exactly how
+   Strapi stores and returns the column — discards the null prototype. The
+   client repairs it: every client call site loads through `loadStoredIndex`,
+   whose `sanitizeNumberMap` rebuilds the maps. The server has no such step;
+   `search-transcript.ts` reads `video.transcriptSegments.bm25` raw. So
+   `index.tf[i]['constructor']` yields the native `Object` function for **every**
+   chunk, which is truthy, which makes every score `NaN`, which the `score > 0`
+   filter then drops. Verified: `searchBM25(wire.bm25, 'arpeggio')` → `[23, 7]`;
+   `searchBM25(wire.bm25, 'arpeggio constructor')` → `[]`. Same for
+   `crossSearchTranscripts` and `verifyCitations`, which share the file.
+
+   `constructor` is the only reachable trigger — `tokenize` lowercases, the
+   other `Object.prototype` members are camelCase, and `__proto__` cannot
+   survive the `[a-z0-9][a-z0-9'-]*` pattern. Two candidate fixes: guard the
+   lookups with `Object.prototype.hasOwnProperty.call`, or give the server the
+   client's sanitize step. The second also fixes the `idf` lookup and matches
+   what the client already does.
+
+   Worth keeping in view: the client's `searchBM25` is immune for an accidental
+   reason — `nativeObjectFunction >= BM25_MIN_QUERY_IDF` is `false`, so the idf
+   floor drops the poisoned term. Its real protection is `loadStoredIndex`, not
+   the floor. `findEvidenceForQuote` has no floor and would break on an
+   unsanitized index too.

@@ -23,6 +23,12 @@ const SRC = join(__dirname, '..');
 /** Files whose disappearance or muting must fail the run. */
 const REQUIRED = [
   { path: 'mcp/tools/lesson-blocks.test.ts', minCases: 55 },
+  // The cross-package BM25 parity guard (ADR 0010). It is the only thing
+  // standing between `services/bm25-search.ts` and the client's
+  // `transcript.ts` drifting apart, and it is the kind of file that gets
+  // deleted when a refactor makes it inconvenient — exactly the case this
+  // integrity check exists for.
+  { path: 'services/bm25-search.parity.test.ts', minCases: 30 },
 ];
 
 describe('server suite integrity', () => {

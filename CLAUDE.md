@@ -50,9 +50,9 @@ All run from the **repo root** unless noted.
 ### Tests
 
 ```bash
-yarn test                                      # every suite (1592 tests)
+yarn test                                      # every suite (1657 tests)
 yarn --cwd packages/music test                 # the shared theory layer (279)
-yarn --cwd server test                         # the MCP lesson-block schema (103)
+yarn --cwd server test                         # lesson-block schema + BM25 parity (168)
 yarn --cwd client test                         # the KB app (1201)
 yarn --cwd web test                            # the companion SPA (9)
 yarn --cwd client test path/to/file.test.ts    # single file
@@ -63,11 +63,14 @@ yarn --cwd client test:e2e                     # Playwright smoke (needs stack u
 Unit tests are vitest. **They live in four places**: theory tests in
 `packages/music/src/`, app tests in `client/src/`, SPA tests in `web/src/`,
 and — since 2026-08-26 — server tests in `server/src/`. A bare
-`yarn --cwd client test` silently skips 391 of them — use the root script.
-The server suite is deliberately small and dependency-free (vitest + the file
-under test, no `strapi` mock, no bootstrap): it executes
-`server/src/mcp/tools/lesson-blocks.ts`, which the five client-side parity
-tests can only read as *text*. **Server test files are typechecked by nothing** —
+`yarn --cwd client test` silently skips 456 of them — use the root script.
+The server suite is for what it can **execute**: `lesson-blocks.ts`, which the
+client-side parity tests can only read as *text*, and — since ADR 0010 —
+`bm25-search.parity.test.ts`, which imports the client's `transcript.ts`
+directly to compare the two BM25 implementations by behaviour rather than by
+source. That cross-package import is legal only because both files have zero
+imports, and the guard asserts that. No `strapi` mock, no bootstrap.
+**Server test files are typechecked by nothing** —
 `server/tsconfig.json` excludes `**/*.test.*` (which is what keeps them out of
 the Strapi build) and vitest strips types without checking them.
 Playwright e2e specs live in `client/e2e/*.spec.ts` and assume the full
@@ -167,6 +170,8 @@ The **official Strapi MCP server** (built into 5.47+) serves `/mcp`, gated by ad
 
   The client used to carry duplicate copies of all 8 hand-written lessons; they were deleted once this split was made. If you find yourself re-adding a hardcoded lesson route under `client/src/routes/lessons.*.tsx`, or translating a `web/` lesson into Strapi blocks, stop — that is undoing this decision. Design notes: `docs/superpowers/specs/2026-08-20-strapi-lessons-design.md`.
 - **Theory changes hit both apps at once.** `packages/music` has no version skew to hide behind — break it and you break two builds. Its 279 tests are the guard; run them.
+- **The BM25 retrieval core is duplicated on purpose — don't extract it.** `server/src/services/bm25-search.ts` is a hand-copy of the scoring, grounding and timecode-rewriting logic in `client/src/lib/services/transcript.ts`. Extracting it into a shared package was measured and rejected in **[ADR 0010](docs/adr/0010-duplicated-retrieval-guarded-not-shared.md)**: `packages/music` is ESM-only with an `exports` map pointing at raw `.ts` and no build step, so it is consumable *only by a bundler*, and Strapi's pipeline is `tsc` → Node. **No `server/tsconfig.json` setting fixes that** — and the one that *typechecks* clean (`module: "preserve"` + `moduleResolution: "bundler"`, 0 errors) then kills `strapi build` on `config/database.ts` with `__dirname is not defined`. The copy is pinned by `server/src/services/bm25-search.parity.test.ts` (58 behavioural cases, in the **server** suite because it *executes* both sides). The server's copy deliberately omits four client query-side filters — the `BM25_MIN_QUERY_IDF = 1.5` floor most of all, so a low-idf query returns nothing in-app and returns hits over MCP. That is intended; the header and the test both say so. The verdict reverses the day anything in `server/` calls `buildBM25Index` — the test asserts that too.
+- **A cross-package guard goes in the client suite if it compares TEXT, the server suite if it compares BEHAVIOUR.** Text guards read the other package's source off disk. Behavioural guards import it directly — permitted **only for dependency-free modules**, and the guard must assert that dependency-freedom itself. The direction is fixed: `client/tsconfig.json` includes `**/*.ts`, so a client-side test importing server source would drag server files into the client's `tsc --noEmit` gate. See `docs/ai-architecture.md`, "What crosses the boundary".
 - **`__component` must be the FIRST key when writing a dynamic zone over REST.** Strapi's own GET response serialises it *last*, so round-tripping a lesson body straight back is rejected with `Invalid key __component at body` — an error that names the key and says nothing about ordering. Reorder before PUT (`{ __component: b.__component, ...b }`). Two more shapes Strapi returns but won't accept back: component `id`s that belong to the entity, and `null` for an empty component array (`dots must be a array type, but the final value was: null`) — strip both; absent is how Strapi spells empty on the way in. `server/scripts/repair-diagram-windows.mjs` does all three and is the worked example.
 - **`yarn seed` requires Strapi stopped.** SQLite needs exclusive write access for the import; running it against a live Strapi corrupts the DB.
 - **Bump `EMBEDDING_VERSION` when changing the text-builder.** Otherwise old vectors silently survive a meaning-changing edit.

@@ -24,3 +24,4 @@ ADRs are append-only history. If a decision is replaced, write a new ADR that su
 | [0007](./0007-error-translation-strapi-ollama.md) | Boundary-layer error translation for Strapi + Ollama | Accepted |
 | [0008](./0008-official-strapi-mcp-over-hand-rolled.md) | Official Strapi MCP server over the hand-rolled one | Accepted |
 | [0009](./0009-monorepo-with-shared-music-package.md) | Monorepo with a shared music package | Accepted |
+| [0010](./0010-duplicated-retrieval-guarded-not-shared.md) | Duplicated retrieval is guarded, not shared | Accepted |
