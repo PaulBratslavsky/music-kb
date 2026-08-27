@@ -159,17 +159,40 @@ describe('streamChatSSE', () => {
     };
     const events = await collect(
       streamingResponse([
-        // `model` rides along on the wire frame but is informational —
-        // the typed event carries citations only.
+        // `model` is the id that ACTUALLY answered, resolved server-side.
+        // It used to be dropped as informational; since the model became
+        // user-selectable it is the only signal that can reveal a mismatch
+        // between the picker and the answer, so the typed event carries it.
         `data: ${JSON.stringify({ type: 'CITATIONS', citations: [citation], model: 'gemma3' })}\n\n`,
         'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"answer [1]"}\n\n',
         'data: [DONE]\n\n',
       ]),
     );
     expect(events).toEqual([
-      { kind: 'citations', citations: [citation] },
+      { kind: 'citations', citations: [citation], model: 'gemma3' },
       { kind: 'text', delta: 'answer [1]' },
     ]);
+  });
+
+  it('a CITATIONS frame with no model yields undefined rather than crashing', async () => {
+    // Older servers, and every surface other than /api/ask, send no model.
+    const events = await collect(
+      streamingResponse([
+        `data: ${JSON.stringify({ type: 'CITATIONS', citations: [] })}\n\n`,
+        'data: [DONE]\n\n',
+      ]),
+    );
+    expect(events).toEqual([{ kind: 'citations', citations: [], model: undefined }]);
+  });
+
+  it('a non-string model on the wire is ignored rather than rendered', async () => {
+    const events = await collect(
+      streamingResponse([
+        `data: ${JSON.stringify({ type: 'CITATIONS', citations: [], model: { evil: true } })}\n\n`,
+        'data: [DONE]\n\n',
+      ]),
+    );
+    expect(events).toEqual([{ kind: 'citations', citations: [], model: undefined }]);
   });
 
   it('skips a CITATIONS frame whose citations field is not an array', async () => {

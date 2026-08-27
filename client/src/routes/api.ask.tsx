@@ -7,7 +7,7 @@ import {
   type RetrievedPassage,
 } from '#/lib/services/ask-library';
 import { buildLibraryTools } from '#/lib/services/library-tools';
-import { resolveModel } from '#/lib/services/model-policy';
+import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 
 // Streaming library-QA endpoint. Parallels /api/chat in shape:
 //   - AG-UI style SSE (TEXT_MESSAGE_CONTENT + [DONE])
@@ -48,7 +48,11 @@ export const Route = createFileRoute('/api/ask')({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        let body: { question?: string };
+        let body: {
+          question?: string;
+          /** Choice token: 'default' | 'local:<id>' | 'frontier'. */
+          modelChoice?: string;
+        };
         try {
           body = await request.json();
         } catch {
@@ -119,7 +123,11 @@ export const Route = createFileRoute('/api/ask')({
         // CITATIONS frame's `model:` field (which the eval harness records)
         // and the adapter are all one read of the policy. There used to be
         // three independent reads of OLLAMA_SYNTHESIS_MODEL here.
-        const model = resolveModel('library-ask');
+        const { model, notice } = await resolveRequestModel(
+          'library-ask',
+          body.modelChoice,
+        );
+        if (notice) console.warn(`[ask] ${notice}`);
         console.log(
           `[${new Date().toISOString().slice(11, 23)}] [ask/${model.model}] "${question}" → pool: ${uniqueVideoCount} videos / ${passages.length} passages · seed: ${seedAnchors} anchors → synthesizing`,
         );
@@ -143,10 +151,9 @@ export const Route = createFileRoute('/api/ask')({
         const tools = buildLibraryTools({ pool: passages });
         const stream = chat({
           adapter: model.adapter,
-          messages: [
-            { role: 'system', content: ASK_LIBRARY_SYSTEM },
+          ...withSystem(model, ASK_LIBRARY_SYSTEM, [
             { role: 'user', content: userPrompt },
-          ] as never,
+          ]),
           tools,
           modelOptions: model.modelOptions(0.4),
         });

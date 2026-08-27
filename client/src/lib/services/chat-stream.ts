@@ -40,7 +40,7 @@ export type Citation = {
 // the stream as an empty assistant message with no error.
 export type StreamEvent =
   | { kind: 'text'; delta: string }
-  | { kind: 'citations'; citations: Citation[] }
+  | { kind: 'citations'; citations: Citation[]; model?: string }
   | { kind: 'tool_start'; id: string; name: string }
   | {
       kind: 'tool_end';
@@ -133,10 +133,18 @@ function parseSseEventBlock(block: string): StreamEvent | null {
         ? { kind: 'text', delta: event.delta }
         : null;
     case 'CITATIONS':
-      // Pre-stream frame from /api/ask. The frame's `model` field is
-      // informational only (eval harness records it) — dropped here.
+      // Pre-stream frame from /api/ask. `model` is the id that ACTUALLY
+      // answered, as resolved server-side. It used to be dropped here as
+      // "informational" — but once the model is user-selectable, it is the
+      // only way a mismatch between the picker and the answer can be seen at
+      // all. A stale or refused choice otherwise fails silently: the picker
+      // shows one model, another answers, nothing throws. Surfaced, not dropped.
       return Array.isArray(event.citations)
-        ? { kind: 'citations', citations: event.citations }
+        ? {
+            kind: 'citations',
+            citations: event.citations,
+            model: typeof event.model === 'string' ? event.model : undefined,
+          }
         : null;
     case 'RUN_ERROR': {
       // @tanstack/ai emits RUN_ERROR when generation fails mid-stream
@@ -223,6 +231,8 @@ type AgUiEvent = {
   args?: unknown;
   result?: string | null;
   citations?: Citation[];
+  /** On CITATIONS: the model id that actually answered, resolved server-side. */
+  model?: string;
   // RUN_ERROR dialects: TanStack AI <= 0.10 nested the failure under
   // `error`; 0.45 flattened it onto the event as `message` / `code`.
   message?: string;

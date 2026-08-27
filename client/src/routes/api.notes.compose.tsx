@@ -6,7 +6,7 @@ import {
 } from '#/lib/services/videos';
 import { cleanTranscript } from '#/lib/services/transcript';
 import { getSkill } from '#/lib/skills';
-import { resolveModel } from '#/lib/services/model-policy';
+import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 
 function formatTimecode(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -45,6 +45,8 @@ type ComposeBody = {
   prompt?: string;
   currentContent?: string;
   skillSlug?: string;
+  /** Choice token: 'default' | 'local:<id>' | 'frontier'. */
+  modelChoice?: string;
 };
 
 function formatSectionsBlock(
@@ -186,13 +188,16 @@ export const Route = createFileRoute('/api/notes/compose')({
 
         // 'note-compose' → OLLAMA_SYNTHESIS_MODEL. Deliberately a different
         // surface key from notes.ts's 'note-summarize' (OLLAMA_MODEL).
-        const model = resolveModel('note-compose');
+        const { model, notice } = await resolveRequestModel(
+          'note-compose',
+          body.modelChoice,
+        );
+        if (notice) console.warn(`[notes/compose] ${notice}`);
         const stream = chat({
           adapter: model.adapter,
-          messages: [
-            { role: 'system', content: skill.composerPrompt },
+          ...withSystem(model, skill.composerPrompt, [
             { role: 'user', content: userPrompt },
-          ] as never,
+          ]),
           modelOptions: model.modelOptions(0.3),
         });
 

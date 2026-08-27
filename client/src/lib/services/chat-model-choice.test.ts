@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
 // The modules under test read env at import time, so stub before importing.
 vi.mock('#/lib/env', () => ({

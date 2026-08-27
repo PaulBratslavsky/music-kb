@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ModelPicker } from '#/components/ModelPicker';
 import { Link } from '@tanstack/react-router';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -33,11 +34,14 @@ type Message = {
 async function* streamDigestChat(
   videoIds: string[],
   messages: Message[],
+  modelChoice: string,
 ): AsyncGenerator<StreamEvent, void, void> {
   const res = await fetch('/api/digest-chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ videoIds, messages }),
+    // Choice TOKEN, not a model id — validated server-side against the
+    // installed Ollama catalogue before an adapter is built.
+    body: JSON.stringify({ videoIds, messages, modelChoice }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -58,6 +62,8 @@ export function DigestChat({
   className,
 }: Readonly<{ videos: StrapiVideo[]; className?: string }>) {
   const [messages, setMessages] = useState<Message[]>([]);
+  // Per-conversation model choice. 'default' preserves prior behaviour.
+  const [modelChoice, setModelChoice] = useState<string>('default');
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +89,11 @@ export function DigestChat({
     try {
       let assistantText = '';
       const toolCalls: ToolCallRecord[] = [];
-      for await (const event of streamDigestChat(videoIds, nextMessages)) {
+      for await (const event of streamDigestChat(
+        videoIds,
+        nextMessages,
+        modelChoice,
+      )) {
         if (event.kind === 'text') {
           assistantText += event.delta;
           setMessages((prev) => {
@@ -167,17 +177,25 @@ export function DigestChat({
             Answered using retrieved passages from all {videos.length} videos.
           </p>
         </div>
-        {messages.length > 0 && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={clear}
+        <div className="flex shrink-0 items-center gap-2">
+          <ModelPicker
+            surface="digest-chat"
+            value={modelChoice}
+            onChange={setModelChoice}
             disabled={isStreaming}
-          >
-            Clear
-          </Button>
-        )}
+          />
+          {messages.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={clear}
+              disabled={isStreaming}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">

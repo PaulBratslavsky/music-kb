@@ -52,3 +52,43 @@ export async function resolveRequestModel(
 
   return resolveChatModel(surface, modelChoice as string | undefined, installed);
 }
+
+/**
+ * Deliver a system prompt the way the resolved tier expects.
+ *
+ * THIS EXISTS BECAUSE THE ALTERNATIVE FAILS SILENTLY. Ollama accepts a
+ * `{ role: 'system' }` turn in the messages array and every switchable route
+ * was written that way. Anthropic does not — it takes a separate top-level
+ * `system` parameter, and a system turn left in the array is dropped *without
+ * failing the request*. On the chat surfaces that would discard the retrieved
+ * transcript passages and the skill persona, and the user would get a fluent,
+ * confident, ungrounded answer with no error anywhere.
+ *
+ * Spreading the result into `chat()` makes the branch impossible to forget:
+ *
+ *   const stream = chat({
+ *     adapter: model.adapter,
+ *     ...withSystem(model, system, messages),
+ *     tools,
+ *     modelOptions: model.modelOptions(0.3),
+ *   })
+ *
+ * `messages` is typed `never` for the same reason the call sites were: TanStack
+ * AI's ConstrainedModelMessage union excludes the 'system' role, but the Ollama
+ * adapter passes role straight through and Ollama accepts it.
+ */
+export function withSystem(
+  model: ResolvedModel,
+  system: string,
+  messages: ReadonlyArray<unknown>,
+): { messages: never; systemPrompts?: string[] } {
+  if (model.tier === 'frontier') {
+    return {
+      messages: messages as never,
+      systemPrompts: [system],
+    };
+  }
+  return {
+    messages: [{ role: 'system', content: system }, ...messages] as never,
+  };
+}

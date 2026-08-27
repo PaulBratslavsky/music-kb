@@ -4,7 +4,7 @@ import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { getSkill } from '#/lib/skills';
 import { prepareChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
-import { resolveRequestModel } from '#/lib/services/chat-model-request';
+import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 
 // Streaming chat endpoint (TanStack AI migration).
 //
@@ -167,32 +167,12 @@ export const Route = createFileRoute('/api/chat')({
         if (notice) {
           console.warn(`[chat ${body.videoId}] ${notice}`);
         }
-        // How the system turn is delivered is TIER-SPECIFIC, and getting it
-        // wrong is silent rather than loud.
-        //
-        // LOCAL: 0.6.6 silently dropped `systemPrompts` in its chatStream
-        // implementation, so we pass the system turn as the first message —
-        // Ollama natively accepts `{ role: 'system', ... }`. 0.9 supports
-        // `systemPrompts`, but this path is left at parity deliberately.
-        //
-        // FRONTIER: Anthropic does NOT take a system turn in the messages
-        // array — it has a separate top-level `system` parameter. A
-        // `{ role: 'system' }` entry there is at best ignored and at worst
-        // rejected, which would drop the retrieved transcript context and the
-        // skill persona without failing the request. So the frontier branch
-        // passes it through `systemPrompts` instead. Same prompt, same
-        // pipeline, delivered the way each provider expects.
-        const isFrontier = model.tier === 'frontier';
-        const messagesWithSystem: ModelMessage[] = isFrontier
-          ? expanded
-          : [{ role: 'system', content: system }, ...expanded];
         const stream = chat({
           adapter: model.adapter,
-          // `as never` because TanStack AI's ConstrainedModelMessage union
-          // excludes 'system' role, but the Ollama adapter passes role
-          // straight through and Ollama accepts it.
-          messages: messagesWithSystem as never,
-          ...(isFrontier ? { systemPrompts: [system] } : {}),
+          // Tier-correct system delivery. See withSystem() — Anthropic drops a
+          // `role: 'system'` message silently, which would lose the retrieved
+          // transcript context and the skill persona without failing.
+          ...withSystem(model, system, expanded),
           // Agent loop: model can call `web_search(query)` when the
           // retrieved transcript passages don't answer the question.
           // Execution happens server-side; tool events stream as

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ModelPicker } from '#/components/ModelPicker';
 import { Link } from '@tanstack/react-router';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -106,11 +107,16 @@ function LibraryChatPanel({
               Ask your library
             </h2>
             <p className="mt-0.5 text-[0.7rem] text-[var(--ink-muted)]">
-              Cites videos with clickable timestamps. Local Gemma. Press Esc to
-              close.
+              Cites videos with clickable timestamps. Press Esc to close.
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <ModelPicker
+              surface="library-ask"
+              value={chat.modelChoice}
+              onChange={chat.setModelChoice}
+              disabled={chat.isStreaming}
+            />
             {chat.messages.length > 0 && (
               <Button
                 type="button"
@@ -270,6 +276,14 @@ function AssistantMessage({ message }: Readonly<{ message: ChatMessage }>) {
           {annotateCitations(message.content, citations)}
         </ReactMarkdown>
       </div>
+      {message.answeredBy && message.status === 'done' && (
+        // The model that actually answered, per message. Not read from the
+        // picker: switching mid-conversation must not relabel older replies,
+        // and a refused choice must show what really ran.
+        <p className="mt-2 text-[0.65rem] text-[var(--ink-muted)]">
+          answered by <span className="font-mono">{message.answeredBy}</span>
+        </p>
+      )}
       {citations.length > 0 && message.status === 'done' && (
         <details className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
           <summary className="cursor-pointer text-xs font-medium text-[var(--ink-muted)]">

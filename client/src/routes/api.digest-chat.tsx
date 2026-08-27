@@ -3,7 +3,7 @@ import { chat, toServerSentEventsResponse } from '@tanstack/ai';
 import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { prepareDigestChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
-import { resolveModel } from '#/lib/services/model-policy';
+import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 
 // Streaming chat endpoint for the /digest page — cross-video chat against
 // N selected videos (2-5). Mirrors `/api/chat` in wire shape (AG-UI SSE,
@@ -82,7 +82,12 @@ export const Route = createFileRoute('/api/digest-chat')({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        let body: { videoIds?: unknown; messages?: ChatMessage[] };
+        let body: {
+          videoIds?: unknown;
+          messages?: ChatMessage[];
+          /** Choice token: 'default' | 'local:<id>' | 'frontier'. */
+          modelChoice?: string;
+        };
         try {
           body = await request.json();
         } catch {
@@ -125,18 +130,18 @@ export const Route = createFileRoute('/api/digest-chat')({
           },
         );
 
-        const model = resolveModel('digest-chat');
-        const messagesWithSystem: ModelMessage[] = [
-          { role: 'system', content: system },
-          ...expanded,
-        ];
+        const { model, notice } = await resolveRequestModel(
+          'digest-chat',
+          body.modelChoice,
+        );
+        if (notice) console.warn(`[digest-chat] ${notice}`);
         const stream = chat({
           // No modelOptions below: this surface deliberately runs at
           // Ollama's default temperature. That is the pre-existing
           // behaviour, not an oversight — adding sampling here is a
           // generation-quality change, not a refactor.
           adapter: model.adapter,
-          messages: messagesWithSystem as never,
+          ...withSystem(model, system, expanded),
           tools: [webSearchTool],
         });
 
