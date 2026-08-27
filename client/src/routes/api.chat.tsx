@@ -4,7 +4,7 @@ import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { getSkill } from '#/lib/skills';
 import { prepareChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
-import { resolveModel } from '#/lib/services/model-policy';
+import { resolveRequestModel } from '#/lib/services/chat-model-request';
 
 // Streaming chat endpoint (TanStack AI migration).
 //
@@ -105,6 +105,11 @@ export const Route = createFileRoute('/api/chat')({
           videoId?: string;
           messages?: ChatMessage[];
           skillSlug?: string;
+          /**
+           * Model choice token from the picker: 'default' | 'local:<id>' |
+           * 'frontier'. Never a bare model id — see chat-model-request.ts.
+           */
+          modelChoice?: string;
         };
         try {
           body = await request.json();
@@ -155,21 +160,39 @@ export const Route = createFileRoute('/api/chat')({
           },
         );
 
-        const model = resolveModel('video-chat');
-        // 0.6.6 silently dropped `systemPrompts` in its chatStream
+        // Per-request model choice (CLAUDE.md amendment 2026-08-27, ADR 0011).
+        // With no choice this returns exactly what resolveModel('video-chat')
+        // always did, so the default path is unchanged.
+        const { model, notice } = await resolveRequestModel('video-chat', body.modelChoice);
+        if (notice) {
+          console.warn(`[chat ${body.videoId}] ${notice}`);
+        }
+        // How the system turn is delivered is TIER-SPECIFIC, and getting it
+        // wrong is silent rather than loud.
+        //
+        // LOCAL: 0.6.6 silently dropped `systemPrompts` in its chatStream
         // implementation, so we pass the system turn as the first message —
         // Ollama natively accepts `{ role: 'system', ... }`. 0.9 supports
         // `systemPrompts`, but this path is left at parity deliberately.
-        const messagesWithSystem: ModelMessage[] = [
-          { role: 'system', content: system },
-          ...expanded,
-        ];
+        //
+        // FRONTIER: Anthropic does NOT take a system turn in the messages
+        // array — it has a separate top-level `system` parameter. A
+        // `{ role: 'system' }` entry there is at best ignored and at worst
+        // rejected, which would drop the retrieved transcript context and the
+        // skill persona without failing the request. So the frontier branch
+        // passes it through `systemPrompts` instead. Same prompt, same
+        // pipeline, delivered the way each provider expects.
+        const isFrontier = model.tier === 'frontier';
+        const messagesWithSystem: ModelMessage[] = isFrontier
+          ? expanded
+          : [{ role: 'system', content: system }, ...expanded];
         const stream = chat({
           adapter: model.adapter,
           // `as never` because TanStack AI's ConstrainedModelMessage union
           // excludes 'system' role, but the Ollama adapter passes role
           // straight through and Ollama accepts it.
           messages: messagesWithSystem as never,
+          ...(isFrontier ? { systemPrompts: [system] } : {}),
           // Agent loop: model can call `web_search(query)` when the
           // retrieved transcript passages don't answer the question.
           // Execution happens server-side; tool events stream as
@@ -183,6 +206,10 @@ export const Route = createFileRoute('/api/chat')({
           // `[{"tool_name":"web_search",...}]` as ordinary prose: the tool
           // never ran, and the surrounding invented text reached the user
           // looking like a real result.
+          // Tier-paired: the local branch returns Ollama sampling options, the
+          // frontier branch returns {} because claude-sonnet-5 400s on
+          // `temperature`. The pairing lives on the resolved object, so this
+          // call site cannot get it wrong.
           modelOptions: model.modelOptions(0.3),
         });
 

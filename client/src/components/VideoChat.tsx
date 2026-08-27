@@ -7,6 +7,7 @@ import { usePlayerControl } from '#/components/player';
 import { streamChatSSE, type StreamEvent } from '#/lib/services/chat-stream';
 import { friendlyOllamaError } from '#/lib/services/ollama-errors';
 import { Button } from '#/components/ui/button';
+import { ModelPicker } from '#/components/ModelPicker';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +78,7 @@ async function* streamChatResponse(
   videoId: string,
   messages: Message[],
   skillSlug: string | null,
+  modelChoice: string,
 ): AsyncGenerator<StreamEvent, void, void> {
   const res = await fetch('/api/chat', {
     method: 'POST',
@@ -85,6 +87,9 @@ async function* streamChatResponse(
       videoId,
       messages,
       skillSlug: skillSlug ?? undefined,
+      // Choice TOKEN, not a model id — the server validates it against the
+      // installed Ollama catalogue before building an adapter.
+      modelChoice,
     }),
   });
   if (!res.ok) {
@@ -106,6 +111,9 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
   // registry lookup isn't repeated on every render.
   const skills = useMemo<Skill[]>(() => listSkills('video-chat'), []);
   const [skillSlug, setSkillSlug] = useState<string | null>(null);
+  // Per-conversation model choice. 'default' preserves the previous behaviour
+  // exactly: the surface's configured local model.
+  const [modelChoice, setModelChoice] = useState<string>('default');
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -212,7 +220,12 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
         });
       };
 
-      for await (const event of streamChatResponse(videoId, history, skillSlug)) {
+      for await (const event of streamChatResponse(
+        videoId,
+        history,
+        skillSlug,
+        modelChoice,
+      )) {
         if (event.kind === 'text') {
           accumulated += event.delta;
           pushUpdate();
@@ -303,6 +316,12 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <ModelPicker
+              surface="video-chat"
+              value={modelChoice}
+              onChange={setModelChoice}
+              disabled={pending}
+            />
             {skills.length > 0 && (
               <SkillPicker
                 skills={skills}
