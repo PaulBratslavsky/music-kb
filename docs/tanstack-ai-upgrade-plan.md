@@ -1,242 +1,196 @@
-# Upgrade plan: TanStack AI 0.10.3 → 0.45.0
+# TanStack AI upgrade + useChat adoption plan
 
-**Status:** ✅ Done — executed 2026-08-19 (commit `172e2ab`). Landed at
-0.45.**1** / ai-ollama 0.9.1, both pinned exactly. See "Outcome" at the end.
-**Date:** 2026-08-18
-**Scope:** `client/` only. The Strapi `server/` does not use TanStack AI at all.
+**Status:** Proposed, 2026-08-27. Not started.
+**Prompted by:** "would music-kb benefit from useChat — especially when the goal is to take
+advantage of TanStack AI?"
 
-## Why
-
-| Package | Installed | Latest | Gap |
-|---|---|---|---|
-| `@tanstack/ai` | **0.10.3** | **0.45.0** | 35 minor versions |
-| `@tanstack/ai-ollama` | **^0.6.6** | **0.9.1** | 3 minor versions |
-
-On a pre-1.0 line, **minor releases may contain breaking changes** — semver's major-zero
-clause means `0.10 → 0.45` carries no compatibility promise whatsoever. This is not a
-routine bump; treat every minor as potentially breaking.
-
-The upgrade is worth doing anyway:
-
-- The gap only widens. Thirty-five versions of drift is already near the practical limit
-  for reading release notes; at seventy it becomes a rewrite.
-- A parallel audit of TanStack AI 0.45.0 (see
-  `strapi-plugin-ai-sdk/docs/superpowers/specs/2026-08-18-tanstack-vs-vercel-decision.md`)
-  found real improvements landed since 0.10 — notably `coerceStrictSchema()`, which widens
-  `required` and unions `null` onto optional fields before calling strict structured
-  output. That removes a class of schema failure by itself.
-- Security and provider-compatibility fixes accrue upstream. Ollama's own API moves.
-
-## What makes this tractable
-
-The client depends on a **very small surface** — four symbols across 16 files:
-
-| Symbol | Package | Files |
-|---|---|---|
-| `chat` | `@tanstack/ai` | most |
-| `toolDefinition` | `@tanstack/ai` | `chat-tools.ts`, `library-tools.ts` |
-| `toServerSentEventsResponse` | `@tanstack/ai` | `routes/api.chat.tsx` |
-| `createOllamaChat` | `@tanstack/ai-ollama` | the API routes + services |
-
-Four symbols is a bounded blast radius. The risk is concentrated in `chat()`'s options and
-its stream chunk shape, not spread across a wide API.
-
-Consumers, for reference:
-
-```
-src/lib/services/   chat-stream.ts  chat-retrieval.ts  chat-tools.ts  library-tools.ts
-                    learning.ts  notes.ts  reader.ts  digest.ts  music-extraction.ts
-src/routes/         api.chat.tsx  api.ask.tsx  api.digest-chat.tsx  api.notes.compose.tsx
-src/components/     MusicExtractionPanel.tsx (type-only)
-```
-
-**There are 14 test files under `src/lib/services/`**, including `chat-stream.test.ts` and
-`chat-retrieval.test.ts`, which already assert on stream behaviour (one test references
-`RUN_ERROR`, emitted when Ollama dies). That suite is the safety net this upgrade depends
-on — run it before touching anything to establish a green baseline.
-
-## Known risk areas
-
-Ordered by likelihood of breaking, based on what changed in the library between these
-versions.
-
-**1. Stream chunk shape.** `chat()` returns `AsyncIterable<StreamChunk>` of AG-UI events.
-Event names and payloads are the most likely thing to have moved. `chat-stream.ts` and its
-tests consume these directly. Verify `TEXT_MESSAGE_CONTENT`, `TOOL_CALL_END`, and
-`RUN_ERROR` still carry the same names and field shapes.
-
-Note a subtlety confirmed in the 0.45.0 audit: `TOOL_CALL_END` fires **twice per tool
-call** — once for input, once for output — and an answered tool call requires a separate
-`tool-result` sibling part. If the 0.10 code assumes one event per call, it is already
-subtly wrong or the semantics changed underneath it.
-
-**2. `toolDefinition()` builder.** In 0.45.0 the shape is
-`toolDefinition({ name, description, inputSchema, outputSchema, needsApproval, metadata })`
-followed by `.server(fn)` / `.client(fn)`. Confirm `chat-tools.ts` and `library-tools.ts`
-still match; `needsApproval` and `metadata` may not have existed at 0.10.
-
-**3. Adapter construction.** `createOllamaChat` signature and config keys. The 0.45.0 audit
-found the sibling `anthropicText()` cannot take a runtime API key while
-`createAnthropicChat()` can — evidence that this family of functions has been reorganised.
-Check whether `createOllamaChat`'s options moved.
-
-**4. Agent-loop options.** Iteration bounds moved to
-`agentLoopStrategy: maxIterations(n)`. If the 0.10 code passes a differently-named option
-it may now be silently ignored rather than rejected — **a silent behaviour change is worse
-than a compile error**, so grep for any loop/iteration/step option explicitly.
-
-**5. Model options nesting.** In 0.45.0, temperature and token limits live in
-`modelOptions`, keyed by **provider-native** names (`num_predict` for Ollama, not
-`maxOutputTokens`). If 0.10 accepted top-level values, they may now be dropped without
-warning — same silent-failure risk.
-
-**6. Structured output.** `coerceStrictSchema()` is new-ish. It should *fix* things, not
-break them — but if any code compensates by hand for the old strict-mode behaviour (for
-instance stripping `.default()` from a Zod field), that workaround is now redundant and may
-conflict.
-
-## Plan
-
-### Phase 0 — Baseline
-
-Establish what "working" means before changing anything, so regressions are attributable.
-
-1. `cd client && npm test` — record the result. **If the suite is not green now, stop and
-   fix that first.** Upgrading on top of a red suite makes every later failure ambiguous.
-2. Manually exercise the live chat path against Ollama and record: a plain answer, a
-   tool-calling answer, and a streaming answer. Note timings.
-3. Commit any incidental drift so the upgrade diff is clean.
-
-### Phase 1 — Read before upgrading
-
-4. Read `node_modules/@tanstack/ai/skills/` **after** installing 0.45.0 — the package ships
-   agent-readable guides (`chat-experience`, `tool-calling`, `adapter-configuration`), each
-   with a "Common Mistakes" section. The 0.45.0 audit found these more reliable than the
-   docs site.
-5. Diff the `.d.ts` for the four symbols between installed 0.10.3 and 0.45.0. That is the
-   authoritative changelog for our usage:
-   ```bash
-   cp -r client/node_modules/@tanstack/ai/dist /tmp/tsai-0.10
-   # then upgrade, and diff /tmp/tsai-0.10 against the new dist
-   ```
-6. Skim the repo's release notes for the four symbols only. Do not read 35 changelogs in
-   full; search them for `chat(`, `toolDefinition`, `StreamChunk`, `createOllamaChat`.
-
-### Phase 2 — Upgrade
-
-7. `npm install @tanstack/ai@0.45.0 @tanstack/ai-ollama@0.9.1`
-8. Type-check. Fix every error, recording each one and its cause — that list is the real
-   changelog for this codebase and belongs in the final report.
-9. Run the test suite. **Any test that now fails is a finding, not an inconvenience** —
-   decide deliberately whether the test or the code is wrong, and write down which.
-
-### Phase 3 — Verify what types cannot catch
-
-Type-checking will not catch renamed stream events or silently-ignored options. These must
-be exercised live against Ollama:
-
-10. Plain chat — streams tokens, completes.
-11. Tool-calling chat — the tool is invoked, and the result renders (this is where a
-    `TOOL_CALL_END` semantic change surfaces).
-12. Structured output — `music-extraction.ts` / `learning.ts` still parse.
-13. Error path — kill Ollama mid-stream and confirm the `RUN_ERROR` handling still fires,
-    since a test already depends on that event name.
-14. Compare timings against the Phase 0 baseline.
-
-### Phase 4 — Land
-
-15. Update `docs/` where the TanStack version or API is described.
-16. Commit with the type-error list and the behavioural findings in the message body.
-
-## Rollback
-
-`git revert` the upgrade commit and `npm install`. The lockfile pins the old versions, so
-recovery is one command — **provided the upgrade is a single isolated commit**. Do not mix
-it with feature work.
-
-## Out of scope
-
-- The Strapi `server/` — it does not use TanStack AI.
-- Migrating music-kb toward the Vercel AI SDK. The decision doc recommends against it: this
-  is an ESM TanStack Start app, which is TanStack AI's native environment, and the
-  `moduleResolution` problem that rules it out for Strapi plugins does not apply here.
-- Adopting new 0.45.0 features. Get to parity first; add capability in a separate change.
-
+The honest answer turned out to be *partially*, and the investigation surfaced two defects
+that matter more than the question did. Both are recorded first, because one of them is
+live right now.
 
 ---
 
-## Outcome (2026-08-19)
+## 0. Read this first: two defects
 
-Executed as written. The plan's framing held up: the four-symbol surface kept
-the blast radius small, and the test suite caught what mattered.
+### 0.1 LIVE TODAY — `web_search` is name-hijacked on the frontier tier
 
-### What actually broke
+`@tanstack/ai-anthropic@0.16.6` converts tools by switching on the **tool's name**:
 
-| # | Predicted | Reality |
+```js
+// node_modules/@tanstack/ai-anthropic/dist/esm/tools/tool-converter.js:36
+switch (tool.name) {
+  case 'web_search': return convertWebSearchToolToAdapterFormat(tool)
+  //  ^ becomes Anthropic's HOSTED web search, type: 'web_search_20250305'
+  default: return convertCustomToolToAdapterFormat(tool)
+}
+```
+
+music-kb's own tool is `name: 'web_search'` (`client/src/lib/services/chat-tools.ts:36`).
+So on the Anthropic path, **the app's own executor is silently replaced by Anthropic's hosted
+search.** No error; different results; the `[tool web_search]` console line at
+`chat-tools.ts:47` never prints.
+
+**This became reachable today.** Before the 2026-08-27 model-switcher change (ADR 0011),
+`video-chat` was type-locked local and this code path could not execute. Widening the policy
+made it live.
+
+**Fix now, independent of everything else — rename the tool.** One line in
+`chat-tools.ts`, plus its `describeTools` reference. `search_web` collides with nothing in
+the converter's switch. This costs nothing and does not wait for the upgrade.
+
+`@tanstack/ai-anthropic@0.18.0` fixes the root cause — it switches on
+`getAnthropicProviderToolKind(tool)`, adapter-owned metadata rather than the raw name — but
+the rename is worth doing regardless, because a name that means something to a provider is a
+trap for the next adapter too.
+
+### 0.2 LATENT — any core upgrade silently blanks every tool call
+
+`@tanstack/ai` 0.48.0 made the SSE wire **spec-only**. Every chunk passes through
+`stripToSpec`, and:
+
+```ts
+// @tanstack/ai 0.49.1 — packages/ai/src/utilities/spec-event-keys.ts:23-24
+[EventType.TOOL_CALL_ARGS, keys('toolCallId', 'delta')],
+[EventType.TOOL_CALL_END,  keys('toolCallId')],
+```
+
+`TOOL_CALL_END` now carries **the id and nothing else**. Our parser reads two fields that no
+longer exist, and explicitly discards the frame that replaced them:
+
+```ts
+// client/src/lib/services/chat-stream.ts:182-195
+// "tool_end is the source of truth for `input` (TOOL_CALL_ARGS
+//  events stream args incrementally; we ignore those)."
+const name = event.toolName ?? event.toolCallName ?? ''   // → ''
+input: event.input ?? event.args ?? null,                  // → null
+```
+
+After any bump to ≥0.48, **all four streaming surfaces lose tool names and arguments at
+once**: `VideoChat.tsx:99`, `DigestChat.tsx:50`, `NoteComposer.tsx:62`,
+`useLibraryChat.ts:104`. Tool cards render empty. Worse, `expandHistoryForModel` then tells
+the model it called `web_search` with `{}` — corrupting its own tool-use history.
+
+Nothing crashes. Nothing goes red.
+
+**And the test suite will not catch it.** 1,217 tests pass in ~2.3 seconds; that speed is the
+tell. Every SSE test is a **hand-authored fixture string**, and
+`chat-stream.test.ts:57-75` pins a `TOOL_CALL_END` shape carrying `toolName` and `input` — a
+frame 0.49.1 will never emit. The fixture was written, not captured, so it stays green
+through the regression it exists to prevent.
+
+The fix is ~15 lines in one function: accumulate `TOOL_CALL_ARGS.delta` per `toolCallId`,
+take the name from `TOOL_CALL_START`, `JSON.parse` the buffer on `TOOL_CALL_END`. It must
+land **in the same commit as the bump**.
+
+---
+
+## 1. What this reframes
+
+The question was "should we adopt useChat?". The finding is that **the deferred core upgrade
+is now mandatory work on its own merits**, and roughly half of that upgrade *is* the useChat
+migration done by hand.
+
+That changes useChat from *a new dependency* into *the cheaper way to absorb an upgrade you
+already have to do*.
+
+`frontier-model.ts:34-44` fenced this off as "its own task", correctly, when the attempted
+target was 0.17.0/0.47.3. The specific failure it documents — `adapter-internals` not
+exporting `assertUniqueToolNames` — **is resolved at 0.49.1**; going *past* 0.47.3 is the
+fix, not a bigger version of the problem. Verified in the reference clone at
+`packages/ai/src/adapter-internals.ts:49`.
+
+---
+
+## 2. Per-consumer verdicts
+
+| Surface | Verdict | Why |
 |---|---|---|
-| 1 | Stream chunk shape | **Unchanged.** `TEXT_MESSAGE_CONTENT`, `TOOL_CALL_START/END` all kept their names and fields. 0.45 *adds* `REASONING_*` and `STEP_*` events, which the parser's `default: return null` already ignores. |
-| 2 | `toolDefinition()` builder | **Unchanged.** No edits needed in `chat-tools.ts` or `library-tools.ts`. |
-| 3 | Adapter construction | **Unchanged.** `createOllamaChat(model, host)` still exists with the same signature, alongside the newer `ollamaText`. |
-| 4 | Agent-loop options | **N/A.** The code never passed a loop option, so there was nothing to silently ignore. |
-| 5 | Model options nesting | **Broke, as predicted** — and loudly, not silently. See below. |
-| 6 | Structured output | **Fine.** `outputSchema` still parses and zod-validates; no stale workaround to unwind. |
+| **DigestChat** | **Adopt — make it the pilot** | Already shaped like `useChat`: hand-rolls `messages`/`isStreaming`/`error`/`input`, and has **no abort at all** — a send mid-stream is silently dropped (`DigestChat.tsx:80`). Server-side, `expandHistoryForModel` + its two type decls are 60 of the route's 152 lines reimplementing what `uiMessagesToWire` already emits. It is the only chat route with no custom SSE frame, so there is no bespoke wire contract to preserve. `videoIds` is a non-issue — it is conversation-scoped and belongs in chat-level `forwardedProps`. |
+| **VideoChat** | **Adopt — second** | Biggest payoff. `UIMessage.parts` models everything it stores except `evidence`. `buildAssistantMessages` is *strictly more correct* than our fan-out: it walks parts in order and flushes at each tool-result, so a text→tool→text turn round-trips as it happened, where `api.chat.tsx:70-95` always hoists every tool call ahead of all text. Deletes the second verbatim copy of the 38-line untested `expandHistoryForModel`, plus ~70 lines of Map-and-push plumbing. `threadId={videoId}` gives per-video persistence we have no answer for today. |
+| **useLibraryChat** | **Do not migrate** | `/api/ask` is not a chat endpoint. It takes `{question, modelChoice}`, runs retrieval **first**, bakes seed passages into a one-shot prompt, and never receives or replays history — the conversation is a client-side illusion. Two needs have no SDK home: citations are emitted **before** the stream, and `onCustomEvent`'s context is `{toolCallId?}` with no `messageId`, so there is no assistant message to attach them to; and per-message `status`/`error`/`answeredBy` would move from a typed union into `metadata?: Record<string, any>` — a direct regression against the invariant `answeredBy`'s doc comment exists to guarantee. |
+| **NoteComposer** | **Not applicable — and it should stop streaming** | Renders no conversation. It fires one request, throws away every delta, and paints finished markdown into Tiptap exactly once — deliberately, per the comment at `:112-117`. Adopting `useChat` would mean calling `clear()` before every send to suppress the hook's whole purpose. |
 
-### The three real changes
+---
 
-1. **Sampling options nested.** Top-level `temperature` is gone; it lives at
-   `modelOptions.options.temperature` now (Ollama's own request shape). 12
-   call sites. The feared silent drop **did not happen** — TypeScript's excess
-   property check rejected all 12, so this failed at compile time.
+## 3. Phased plan
 
-2. **`modelOptions` requires `model`.** Unpredicted. The adapter narrows its
-   option type only for model names it knows as string literals; ours come
-   from env as plain `string`, so it falls back to `ollama`'s `ChatRequest`
-   where `model` is required. The adapter never reads it. Both quirks are now
-   documented once in `samplingOptions()` (`ollama-model-options.ts`) rather
-   than at each call site.
+Each phase leaves the app shippable. **Phase 1 is worth doing even if every later phase is
+cancelled.**
 
-3. **`RUN_ERROR` payload flattened** — `{ error: { message } }` became
-   `{ type, model, timestamp, message, code }`. **This is the one types could
-   not catch**, exactly as Phase 3 anticipated: the SSE JSON is parsed as a
-   loose shape, so the parser silently read `undefined` and degraded every AI
-   failure to the generic `'AI run failed'`, costing users the
-   `friendlyOllamaError` recovery hint. Found by pointing a live adapter at a
-   closed port. The parser now reads both dialects and a regression test pins
-   it.
+### Phase 0 — rename `web_search` *(minutes)*
+Independent of everything. Closes §0.1. Do it now.
 
-### Two things the plan did not anticipate
+### Phase 1 — core upgrade + parser patch, landed alone *(1–2 days)*
+Bump `@tanstack/ai` 0.45.1→0.49.1, `ai-anthropic` 0.16.6→0.18.0, `ai-ollama` 0.9.1→0.10.0.
+**No UI changes, no `ai-react` yet.** Patch `chat-stream.ts` per §0.2.
 
-- **`@tanstack/ai-ollama` had already drifted.** `^0.6.6` resolved to 0.6.24,
-  which imports `EventType` from `@tanstack/ai` — a symbol 0.10.3 does not
-  export. On a pre-1.0 line the core and adapter must move as a matched pair,
-  so **both are now pinned exactly**. Carets are the wrong tool here.
+**Verification must not come from vitest.** Drive it from `client/verify-sse.mjs`, which
+prints the real key set of every `TOOL_CALL_*` frame from a live `chat()` through
+`toServerSentEventsResponse`. Run it before and after, then **re-cut
+`chat-stream.test.ts`'s tool fixtures from that captured output.** The current fixtures pin a
+dialect the SDK has abandoned.
 
-- **`client/` was not in the Yarn workspace at all.** It had no `version`
-  field, so Yarn skipped it silently and its dependencies were in no lockfile.
-  Fixing that was a prerequisite for installing any of this. It also floated
-  every previously-unlocked `^` range (358 packages), which surfaced the
-  seroval change below.
+Also while the file is open: `chat-stream.ts:163-168` runs **Anthropic** errors through
+`friendlyOllamaError`, on a locality assumption ADR 0011 invalidated.
 
-### Fallout
+Verified as needing no work: `/api/ask`'s CITATIONS frame (enqueued as raw bytes *outside*
+`toServerSentEventsResponse`, so `stripToSpec` never sees it), `lesson-stream.ts` (parses our
+own event vocabulary), and all seven in-process `chat()` callers (0.48.0 stripped the **wire**
+only — the in-process path still yields `toolName` and `input`).
 
-`seroval` 1.5.2 → 1.6.2 (via TanStack Start) fixed the reserved-name
-own-property crash, so two negative tests in `seroval-safety.test.ts` that
-asserted seroval *throws* correctly failed. Per their own comment they now pin
-the new behaviour; `stripVideoForClient` is unchanged but now justified by
-payload size rather than a crash.
+### Phase 2 — de-stream NoteComposer *(half a day)*
+Replace `toServerSentEventsResponse` with `Response.json({ markdown: await streamToText(stream) })`.
+User-visible behaviour is byte-identical because the component already waits for the whole
+stream. Add the `AbortController` so Cancel stops being inert. Removes one of the parser's
+four consumers.
 
-TanStack Start 1.168 also deprecated `createServerFn().inputValidator()` in
-favour of `.validator()` — a pure rename across 48 call sites (commit
-`2c3affa`).
+### Phase 3 — DigestChat onto useChat *(~1 day, the pilot)*
+Add `@tanstack/ai-react`. Delete `expandHistoryForModel` and the tool-call merge state
+machine. Put `videoIds` + `modelChoice` in **chat-level** `forwardedProps` memoized on
+`videos` — *not* per-send `body`, because `reload()` replays chat-level props only. Write the
+shared `parts → text` helper here; Phase 4 reuses it.
 
-### Verification
+### Phase 4 — VideoChat onto useChat *(2–3 days)*
+Delete the second copy of `expandHistoryForModel`. `threadId={videoId}`. Pass
+`videoId`/`skillSlug`/`modelChoice` **per-send in `body`** — the fetcher closes over
+first-render values and goes stale **silently**; this is the exact failure mode both
+codebases already shipped once. Keep `evidence` in a component-local
+`Map<messageId, EvidenceCitation[]>` filled from `onFinish`, not in `metadata`, or you
+re-upload transcript excerpts every turn. **Re-add the orphan-tool-call filter** that
+`api.chat.tsx:69`'s `status === 'done'` check gives us today — `isToolCallIncluded` admits
+`state: 'input-complete'` with no output, and an orphan `tool_use` is a 400 on Anthropic.
 
-461 tests, client typecheck clean, client + web both build, and live against
-Ollama: `/api/ask` streamed a grounded answer end to end (retrieval → 5 videos
-/ 25 passages → synthesis with `[Video N]` citations), structured output
-returned `{"key":"E minor","chords":["Em","G","D","Am"]}` and zod-validated,
-and `RUN_ERROR` still fires on a dead host.
+### Phase 5 — stop
+`chat-stream.ts` survives at reduced size with one consumer. **Do not migrate library-ask to
+force its retirement** — that trades typed per-message state for a file deletion that never
+arrives. Revisit only if `ai-client` later puts a `messageId` in the `onCustomEvent` context.
 
-**Still unverified:** the tool-calling path (`web_search` in `api.chat.tsx`)
-was not exercised live, and the `TOOL_CALL_END`-fires-twice semantics noted in
-the plan were not re-checked against 0.45 behaviour.
+---
+
+## 4. Do not migrate
+
+- **NoteComposer** — not a chat. Go the other direction (§Phase 2).
+- **useLibraryChat / api.ask** — retrieval-first one-shot; citations precede the message they
+  belong to.
+- **`chat-stream.ts` itself** — retiring it is not a goal. Migrating one surface deletes zero
+  lines of it.
+- **The seven in-process `chat()` service callers** — they never iterate frames; 0.48.0
+  stripped the wire only.
+- **`lesson-stream.ts`** — parses our own `LessonProgressEvent` vocabulary, not AG-UI.
+- **`withSystem` (`chat-model-request.ts`)** — shared by four routes; changing it is its own
+  decision and does not belong in a UI migration.
+
+---
+
+## 5. Effort and risk
+
+**~1.5 focused weeks**, front-loaded on verification rather than code. Net line change is
+favourable but not dramatic: ~250 lines deleted against ~60 added. The real return is that
+`buildAssistantMessages` is *more correct* than the hand-rolled fan-out, and that four
+surfaces stop being hand-tuned against a wire format the SDK has stopped speaking.
+
+**Biggest risk: the test suite will produce false confidence about the exact thing that
+changed.** A team that bumps the deps, sees 1,217 green, and ships will ship a silent
+regression where every tool card is empty and the model's own history says it called
+`web_search` with `{}`. The mitigation is specific and cheap, and it is the whole reason
+Phase 1 is sequenced alone: **verify from captured frames, not from written ones.**
