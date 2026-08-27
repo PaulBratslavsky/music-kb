@@ -801,49 +801,59 @@ describe('E. stored-index wire format — client writes, server reads', () => {
     }
   });
 
-  it('DEFECT, PINNED: "constructor" in a query blanks the server, not the client', () => {
+  it('FIXED: a prototype-named query term no longer blanks the server', () => {
     // ---------------------------------------------------------------------
-    // THIS IS A BUG, NOT AN INTENDED DIVERGENCE. It is asserted here so the
-    // behaviour is recorded rather than discovered; DELETE THIS TEST when the
-    // bug is fixed, and expect the fix to make the two sides agree.
+    // This replaces a test that PINNED the bug. Worth keeping the mechanism
+    // written down, because the shape of it is the whole argument of ADR 0010.
     //
-    // `buildBM25Index` builds tf/idf as `Object.create(null)` maps precisely
-    // so a term named `constructor` cannot collide with Object.prototype.
-    // JSON.stringify/parse — which is exactly how Strapi stores and returns
-    // the column — DISCARDS the null prototype. The client repairs it: every
-    // client call site loads through `loadStoredIndex`, whose `sanitizeNumberMap`
-    // rebuilds the maps on `Object.create(null)`. The server has no such step;
-    // `search-transcript.ts` does `isStoredIndex(x) && searchBM25(x.bm25, ...)`
-    // against the raw parsed object.
+    // `buildBM25Index` builds tf/idf as `Object.create(null)` maps precisely so
+    // a term named `constructor` cannot collide with Object.prototype.
+    // JSON.stringify/parse — exactly how Strapi stores and returns the column —
+    // DISCARDS the null prototype. The client repairs it at its load boundary:
+    // `loadStoredIndex` -> `sanitizeNumberMap` rebuilds on Object.create(null).
+    // The server had no such step, so `index.idf['constructor']` handed back the
+    // native Object function: truthy, survives `if (!idf)`, and makes every
+    // score NaN, which `score > 0` then drops. Adding one word to a query made
+    // searchTranscript, crossSearchTranscripts and verifyCitations return
+    // NOTHING, silently.
     //
-    // So server-side, `index.idf['constructor']` yields the native Object
-    // function, which is truthy, and `index.tf[i]['constructor']` does too for
-    // EVERY chunk — turning each score into NaN, which `score > 0` then drops.
-    // Result: adding the word "constructor" to any query makes searchTranscript,
-    // crossSearchTranscripts and verifyCitations return NOTHING, silently.
+    // That is the duplication tax this ADR is about, and note WHERE it was paid:
+    // whoever wrote the server copy mirrored the scoring loop faithfully and
+    // missed the sanitizer, because the sanitizer lives in a different function
+    // in a different file. Reading the code you are copying is not enough.
     //
-    // `constructor` is the only reachable trigger: tokenize lowercases, and the
-    // other Object.prototype members (`toString`, `valueOf`, `hasOwnProperty`)
-    // are camelCase, while `__proto__` cannot survive the `[a-z0-9][a-z0-9'-]*`
-    // pattern.
+    // The fix guards at the LOOKUP (typeof === 'number') rather than adding a
+    // load step, so no caller can bypass it — all three hand searchBM25 the raw
+    // parsed column.
     // ---------------------------------------------------------------------
     const w = wire();
     const loaded = loadStoredIndex(w)!;
 
-    // Sanity: the query works fine without the poison term.
+    // Baseline: the query works without the poison term.
     expect(serverIds(w.bm25, 'arpeggio')).toEqual([23, 7]);
 
-    // In memory (null-prototype maps) the server is fine too — it is the
-    // round trip that breaks it.
+    // In-memory (null-prototype) maps were never affected.
     expect(serverIds(INDEX, 'arpeggio constructor')).toEqual([23, 7]);
 
-    // After the round trip: total silent failure server-side...
-    expect(serverIds(w.bm25, 'arpeggio constructor')).toEqual([]);
-    expect(serverEvidence('arpeggio constructor', w.bm25, 0)).toBeNull();
+    // The round trip no longer breaks it — this is the assertion that flipped.
+    expect(serverIds(w.bm25, 'arpeggio constructor')).toEqual([23, 7]);
+    expect(serverEvidence('arpeggio constructor', w.bm25, 0)).not.toBeNull();
 
-    // ...while the client, loading through the sanitizer, is unaffected.
-    expect(clientIds(loaded.bm25, 'arpeggio constructor')).toEqual([23, 7]);
-    expect(clientEvidence('arpeggio constructor', loaded.bm25, 0)).not.toBeNull();
+    // And the two sides now agree, which is the point.
+    expect(serverIds(w.bm25, 'arpeggio constructor')).toEqual(
+      clientIds(loaded.bm25, 'arpeggio constructor'),
+    );
+
+    // The bare poison term alone must be inert, not catastrophic: it is simply
+    // a term the index does not contain.
+    expect(serverIds(w.bm25, 'constructor')).toEqual(clientIds(loaded.bm25, 'constructor'));
+
+    // Every other Object.prototype member, in case tokenize ever stops
+    // lowercasing or the pattern widens. These are unreachable today; the guard
+    // is typeof-based so they cost nothing to cover.
+    for (const poison of ['tostring', 'valueof', 'hasownproperty', 'isprototypeof']) {
+      expect(serverIds(w.bm25, `arpeggio ${poison}`)).toEqual([23, 7]);
+    }
   });
 });
 

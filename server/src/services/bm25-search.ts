@@ -104,11 +104,25 @@ export function searchBM25(
 
   const scores: number[] = new Array(index.chunks.length).fill(0);
   for (const term of queryTerms) {
+    // `typeof === 'number'`, not just truthiness. `index` is JSON straight off
+    // the Strapi column, so its maps carry Object.prototype: `idf['constructor']`
+    // is the Object CONSTRUCTOR, which is truthy, survives `if (!idf)`, and turns
+    // `idf * …` into NaN. `.filter(r => r.score > 0)` then drops NaN for EVERY
+    // chunk, so one prototype-named query term silently empties the whole result
+    // set — "arpeggio" returns hits, "arpeggio constructor" returns nothing.
+    //
+    // The client never hits this because it sanitizes through
+    // `Object.create(null)` at its load boundary (sanitizeBM25Index in
+    // transcript.ts). That sanitizer lives in a DIFFERENT function from the
+    // scoring loop, which is exactly why it was missed when this file was
+    // written — see ADR 0010 on what the duplication actually costs. Guarding at
+    // the lookup rather than the load keeps it unbypassable: all three callers
+    // hand us the raw parsed column.
     const idf = index.idf[term];
-    if (!idf) continue;
+    if (typeof idf !== 'number' || !idf) continue;
     for (let i = 0; i < index.chunks.length; i++) {
       const f = index.tf[i][term];
-      if (!f) continue;
+      if (typeof f !== 'number' || !f) continue;
       const dl = index.lengths[i];
       const norm = 1 - BM25_B + (BM25_B * dl) / (index.avgLength || 1);
       scores[i] += idf * ((f * (BM25_K1 + 1)) / (f + BM25_K1 * norm));
