@@ -1,13 +1,44 @@
-// BM25 search against a persisted index — read-only complement to the
-// client-side indexer at client/src/lib/services/transcript.ts. The MCP
-// `searchTranscript` tool reuses the index already stored on
-// `Video.transcriptSegments` (built during summary generation) rather than
-// rebuilding one per query.
+// A plain-BM25 READER of an index the CLIENT built.
 //
-// Mirrors the scoring math of `searchBM25` in transcript.ts so results are
-// identical to what the in-app chat sees. Kept small on purpose — the
-// full module there also handles indexing, chunking, and cleaning, which
-// the MCP surface doesn't need.
+// This file never indexes anything. `client/src/lib/services/transcript.ts`
+// chunks the transcript, tokenizes it and writes the tf/idf tables onto
+// `Video.transcriptSegments` during summary generation; the MCP
+// `searchTranscript`, `crossSearchTranscripts` and `verifyCitations` tools
+// read that stored index through the functions below. `buildBM25Index` exists
+// nowhere in `server/src` — deliberately, and that is the invariant that keeps
+// the duplication below cheap. See ADR 0010.
+//
+// WHAT THIS DELIBERATELY DOES NOT COPY FROM THE CLIENT
+//
+// It is NOT true that results here are identical to what the in-app chat sees.
+// Four query-side behaviours are omitted on purpose:
+//
+//   1. `BM25_MIN_QUERY_IDF = 1.5` — the client drops any query term whose idf
+//      falls below that floor. This file keeps every term.
+//   2. The `maxQueryTerms` TF x IDF cap, which exists for the client's
+//      doc-as-query paths. There is no doc-as-query here.
+//   3. The `log(1 + qtf)` query-side term weight. Harmless: the client's
+//      `tokenize` deduplicates, so qtf is always 1 and the factor is a uniform
+//      constant that cannot reorder anything.
+//   4. `tokenize`'s alpha-prefix expansion ("qwen3" -> "qwen3" + "qwen").
+//      This one DOES change answers — recall is narrower here, and a citation
+//      can ground on a different chunk than the in-app path would pick.
+//
+// The concrete consequence of (1), verified: a query whose terms all fall
+// below the floor returns NOTHING in-app and returns hits over MCP. At
+// idf 0.693 the client answers `[]` and this file answers 5 chunks; at
+// idf 3.195 the two return the same ids in the same order.
+//
+// That is intended. The floor's premise is a REWRITTEN query — the in-app
+// chat runs a model-driven query-rewrite stage first (`chat-retrieval.ts`).
+// MCP serves external clients that have no such stage, so refusing their raw
+// query would just return nothing useful. Do not "fix" the divergence by
+// adding the floor here without reading ADR 0010.
+//
+// Everything above is pinned by `bm25-search.parity.test.ts`, in the server's
+// own vitest suite: it imports both this file and the client's transcript.ts
+// and runs them against the same fixture. If you edit the scoring math, the
+// tokenizer, the thresholds or the stored-index shape, run it.
 
 const BM25_K1 = 1.2;
 const BM25_B = 0.75;
@@ -103,8 +134,18 @@ export function formatTimecode(sec: number): string {
 // Citation verification — server-side duplicate of `verifyTimecodesInText`
 // in client/src/lib/services/transcript.ts (option A of
 // docs/mcp-citation-rewrite-plan.md: duplicate, same precedent as the BM25
-// primitive above). Powers the `verifyCitations` MCP tool. Scoring math
-// must stay in lockstep with the client copy.
+// primitive above). Powers the `verifyCitations` MCP tool.
+//
+// This path is much closer to the client's than `searchBM25` is, and for a
+// reason worth knowing: the client's `findEvidenceForQuote` goes through its
+// PRIVATE `searchBM25Top1WithScore`, which applies neither the idf floor nor
+// the qtf weight. So on the grounding path the only remaining divergence is
+// the tokenizer's alpha-prefix expansion (omission 4 above) — plus the
+// `Math.max(0, …)` clamp that `formatMmss` has and `formatTimecode` below does
+// not, which is unreachable because a chunk's timeSec is derived from a word
+// offset or a caption start and is non-negative by construction.
+//
+// Pinned by `bm25-search.parity.test.ts` groups C and D.
 // -----------------------------------------------------------------------------
 
 export type TranscriptEvidence = {

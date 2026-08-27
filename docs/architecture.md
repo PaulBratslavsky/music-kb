@@ -4,7 +4,7 @@ Deep dive into how music-kb is wired. Covers data model, generation pipeline, re
 
 > **Where to look first:**
 > - **Setup + usage:** [README](../README.md).
-> - **Why the codebase looks the way it does:** [`./adr/`](./adr/) — eight ADRs covering local-first AI, Strapi, BM25-vs-embeddings, deterministic timecodes, hybrid scoring, digest upsert, error translation, and the official Strapi MCP server.
+> - **Why the codebase looks the way it does:** [`./adr/`](./adr/) — ten ADRs covering local-first AI, Strapi, BM25-vs-embeddings, deterministic timecodes, hybrid scoring, digest upsert, error translation, the official Strapi MCP server, the monorepo's shared music package, and why the duplicated retrieval core is guarded rather than shared.
 > - **Field-by-field schema reference:** [`./data-model.md`](./data-model.md). Section 2 below is a short overview; the detailed table is there.
 > - **When something breaks:** [`./operations.md`](./operations.md) (runbook).
 > - **MCP integration:** [`./mcp.md`](./mcp.md).
