@@ -630,15 +630,24 @@ describe('D. verifyTimecodesInText — identical rewrites', () => {
   it('h:mm:ss parses as HOURS on both sides', () => {
     // Both copies of the private `parseTcStringToSeconds` special-case a
     // three-part timecode. Pinning it needs a value where the hours field
-    // decides the outcome: `[1:07:00]` is 4020s (3600s of drift -> rewrite),
-    // but 420s if the hour is dropped (0s of drift -> no rewrite). Any case
-    // with a further-away timecode rewrites under both readings and proves
-    // nothing.
+    // DECIDES the outcome, and the obvious choice does not.
+    //
+    // This test used to use `[1:07:00]` and reason that dropping the hour
+    // yields 420s and therefore no rewrite. That arithmetic is wrong: with the
+    // branch gone the fallback is `parts[0] * 60 + parts[1]`, so [1,7,0] reads
+    // 1*60+7 = 67s, not 420s. 67s is just as far from the grounded 420s as
+    // 4020s is, so the citation was rewritten under BOTH readings and the
+    // assertion held with the branch deleted -- verified by mutation.
+    //
+    // `[7:00:00]` is the value that actually decides it. With the branch:
+    // 7*3600 = 25200s, far from 420s, so it rewrites. Without: 7*60+0 = 420s
+    // exactly, zero drift, so it does not. Delete either copy of the branch
+    // and this test goes red.
     const hourForm =
-      'We talk at length about the metronome in this lesson and how it matters [1:07:00] and then keep going with more general commentary that has no indexed words in it.';
+      'We talk at length about the metronome in this lesson and how it matters [7:00:00] and then keep going with more general commentary that has no indexed words in it.';
     for (const v of [clientVerify(hourForm, INDEX), serverVerify(hourForm, INDEX as unknown as ServerBM25Index)]) {
       expect(v.overrides).toHaveLength(1);
-      expect(v.overrides[0]).toMatchObject({ from: '1:07:00', to: '07:00' });
+      expect(v.overrides[0]).toMatchObject({ from: '7:00:00', to: '07:00' });
     }
   });
 

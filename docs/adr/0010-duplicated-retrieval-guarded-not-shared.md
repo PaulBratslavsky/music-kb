@@ -198,7 +198,7 @@ guard earned its keep on day one: see the defect below.
 **What we accept.**
 
 - 156 lines stay duplicated, permanently.
-- The parity test is 911 lines guarding 156. That ratio is the price of a
+- The parity test is 922 lines guarding 156. That ratio is the price of a
   behavioural guard over a text one, and it is what makes it *behavioural*.
 - The test is typechecked by nothing (above).
 - Deploy skew stays out of reach: the test reads one working tree.
