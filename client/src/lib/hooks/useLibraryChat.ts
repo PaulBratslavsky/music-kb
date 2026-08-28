@@ -87,15 +87,17 @@ async function streamAsk(
     setState: React.Dispatch<React.SetStateAction<Persisted>>;
     signal: AbortSignal;
     modelChoice: string;
+    /** Prior turns, oldest first, EXCLUDING the question being asked. */
+    history: Array<{ role: 'user' | 'assistant'; content: string }>;
   },
 ): Promise<void> {
-  const { assistantId, setState, signal, modelChoice } = handlers;
+  const { assistantId, setState, signal, modelChoice, history } = handlers;
   const res = await fetch('/api/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // Choice TOKEN, not a model id — validated server-side against the
     // installed Ollama catalogue before an adapter is built.
-    body: JSON.stringify({ question, modelChoice }),
+    body: JSON.stringify({ question, modelChoice, history }),
     signal,
   });
 
@@ -160,15 +162,21 @@ export function useLibraryChat() {
   const mutation = useMutation<
     void,
     Error,
-    { question: string; assistantId: string; modelChoice: string }
+    {
+      question: string;
+      assistantId: string;
+      modelChoice: string;
+      history: Array<{ role: 'user' | 'assistant'; content: string }>;
+    }
   >({
-    mutationFn: async ({ question, assistantId, modelChoice }) => {
+    mutationFn: async ({ question, assistantId, modelChoice, history }) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
       try {
         await streamAsk(question, {
           modelChoice,
+          history,
           assistantId,
           setState,
           signal: controller.signal,
@@ -214,6 +222,14 @@ export function useLibraryChat() {
       const trimmed = question.trim();
       if (!trimmed) return;
 
+      // Prior turns, captured BEFORE this question is appended and passed as a
+      // mutation VARIABLE rather than closed over. Only completed messages with
+      // real content: a failed or still-streaming assistant turn would send the
+      // model a description of its own broken output as if it were an answer.
+      const history = state.messages
+        .filter((m) => m.status === 'done' && m.content.trim().length > 0)
+        .map((m) => ({ role: m.role, content: m.content }));
+
       const userMsg: ChatMessage = {
         id: newId(),
         role: 'user',
@@ -232,9 +248,9 @@ export function useLibraryChat() {
         messages: [...s.messages, userMsg, assistantMsg],
       }));
 
-      mutation.mutate({ question: trimmed, assistantId, modelChoice });
+      mutation.mutate({ question: trimmed, assistantId, modelChoice, history });
     },
-    [mutation, modelChoice],
+    [mutation, modelChoice, state.messages],
   );
 
   const cancel = useCallback(() => {
