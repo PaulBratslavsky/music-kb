@@ -21,6 +21,7 @@
     "@tanstack/ai": "0.52.0",
     "@tanstack/ai-anthropic": "0.18.3",
     "@tanstack/ai-ollama": "0.10.3",
+    "@tanstack/ai-react": "0.22.4",
     "@tanstack/query-core": "^5.99.0",
     "@tanstack/react-devtools": "0.10.2",
     "@tanstack/react-form": "^1.29.0",
