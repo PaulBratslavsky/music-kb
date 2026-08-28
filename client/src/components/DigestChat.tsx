@@ -5,8 +5,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { StrapiVideo } from '#/lib/services/videos';
 import { Button } from '#/components/ui/button';
-import { streamChatSSE, type StreamEvent } from '#/lib/services/chat-stream';
-import { friendlyOllamaError } from '#/lib/services/ollama-errors';
+import {
+  friendlyStreamError,
+  streamChatSSE,
+  type StreamEvent,
+} from '#/lib/services/chat-stream';
 
 // Chat UI for the /digest page. Simpler than VideoChat: no timecode seek
 // (no embedded player), no evidence accordion (chunks come from N videos
@@ -138,8 +141,9 @@ export function DigestChat({
         }
       }
     } catch (err) {
-      const raw = err instanceof Error ? err.message : 'Chat failed';
-      setError(friendlyOllamaError(raw));
+      // Run failures arrive pre-translated by the answering model
+      // (stream-errors.ts); transport failures are translated here.
+      setError(friendlyStreamError(err, 'Chat failed'));
       // Drop the empty assistant placeholder if nothing streamed.
       setMessages((prev) => {
         const next = [...prev];

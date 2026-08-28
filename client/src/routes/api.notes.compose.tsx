@@ -7,6 +7,7 @@ import {
 import { cleanTranscript } from '#/lib/services/transcript';
 import { getSkill } from '#/lib/skills';
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
+import { withFriendlyErrors } from '#/lib/services/stream-errors';
 
 function formatTimecode(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -201,7 +202,10 @@ export const Route = createFileRoute('/api/notes/compose')({
           modelOptions: model.modelOptions(0.3),
         });
 
-        return toServerSentEventsResponse(stream);
+        // See api.chat.tsx — tier-correct error translation, server-side.
+        return toServerSentEventsResponse(
+          withFriendlyErrors(model, stream, `notes/compose ${body.videoId}`),
+        );
       },
     },
   },

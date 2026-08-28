@@ -11,8 +11,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { friendlyOllamaError } from '#/lib/services/ollama-errors';
-import { streamChatSSE, type Citation } from '#/lib/services/chat-stream';
+import {
+  friendlyStreamError,
+  streamChatSSE,
+  type Citation,
+} from '#/lib/services/chat-stream';
 
 // The citation wire shape lives with the SSE transport; re-exported so
 // existing consumers (LibraryChat) keep importing it from the hook.
@@ -177,11 +180,10 @@ export function useLibraryChat() {
     onError: (err, { assistantId }) => {
       // Aborted by user — state already cleaned up by caller.
       if (abortRef.current?.signal.aborted) return;
-      const raw = err instanceof Error ? err.message : 'Ask failed';
-      // Translate raw connection / model errors into a recovery hint.
-      // Other failures pass through unchanged so we don't hide useful
-      // error detail behind a generic message.
-      const msg = friendlyOllamaError(raw);
+      // A run failure is already translated by the model that answered
+      // (stream-errors.ts). A transport failure is translated here, and
+      // anything unrecognised passes through so we don't hide useful detail.
+      const msg = friendlyStreamError(err, 'Ask failed');
       setState((s) => ({
         ...s,
         messages: s.messages.map((m) =>

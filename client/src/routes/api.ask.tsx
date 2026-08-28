@@ -8,6 +8,7 @@ import {
 } from '#/lib/services/ask-library';
 import { buildLibraryTools } from '#/lib/services/library-tools';
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
+import { withFriendlyErrors } from '#/lib/services/stream-errors';
 
 // Streaming library-QA endpoint. Parallels /api/chat in shape:
 //   - AG-UI style SSE (TEXT_MESSAGE_CONTENT + [DONE])
@@ -169,7 +170,10 @@ export const Route = createFileRoute('/api/ask')({
           model: model.model,
         })}\n\n`;
 
-        const baseResponse = toServerSentEventsResponse(stream);
+        // See api.chat.tsx — tier-correct error translation, server-side.
+        const baseResponse = toServerSentEventsResponse(
+          withFriendlyErrors(model, stream, 'ask'),
+        );
         const baseReader = baseResponse.body!.getReader();
         const encoder = new TextEncoder();
 

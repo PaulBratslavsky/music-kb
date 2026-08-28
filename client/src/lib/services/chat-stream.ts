@@ -17,6 +17,40 @@ import { friendlyOllamaError } from '#/lib/services/ollama-errors';
 // Public Interface
 // -----------------------------------------------------------------------------
 
+/**
+ * A run failure the SERVER already translated (stream-errors.ts's
+ * `withFriendlyErrors`, using the resolved model's tier-paired mapper).
+ *
+ * Exists so consumers can tell the two failure classes apart in one catch
+ * block. A RUN_ERROR's text is final — re-running it through
+ * `friendlyOllamaError` would be actively wrong on the frontier tier, because
+ * 'Frontier AI request timed out. Try again, or leave ANTHROPIC_API_KEY
+ * unset…' matches that mapper's `/timed ?out/i` pattern and would be replaced
+ * with 'The model may be loading', which is advice about Ollama. Transport
+ * failures (fetch rejected, non-OK response) are plain `Error`s and still need
+ * local translation.
+ */
+export class FriendlyStreamError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FriendlyStreamError';
+  }
+}
+
+/**
+ * The single error-to-message helper for every `streamChatSSE` consumer.
+ *
+ * Pass whatever the catch block caught. A server-translated run failure is
+ * returned verbatim; anything else (fetch rejection, non-OK response body) is
+ * translated locally exactly as before, because those failures are about
+ * reaching this app's own server and never carry provider text.
+ */
+export function friendlyStreamError(err: unknown, fallback: string): string {
+  if (err instanceof FriendlyStreamError) return err.message;
+  const raw = err instanceof Error ? err.message : fallback;
+  return friendlyOllamaError(raw);
+}
+
 // Citation payload carried by the CITATIONS frame `/api/ask` emits
 // before the text stream — retrieved-passage metadata so the client can
 // render clickable chips. Mirrors `toCitationPayload` in
@@ -150,27 +184,32 @@ function parseSseEventBlock(block: string): StreamEvent | null {
       // @tanstack/ai emits RUN_ERROR when generation fails mid-stream
       // (e.g. Ollama dies). Dropping it would end the stream as an
       // empty assistant message with no error — throw so consumer
-      // catch sites fire. Translated here because the message is raw
-      // adapter/Ollama text; friendlyOllamaError is idempotent on its
-      // own output, so consumers re-translating in their catch is safe.
+      // catch sites fire.
       // 0.45 emits `{ type, model, timestamp, message, code }`; 0.10 and
       // earlier nested it as `{ error: { message } }`. Read the flat field
       // first and fall back, so neither dialect degrades to the generic
-      // message — that string is what reaches the user, and losing the
-      // real one costs them the Ollama recovery hint.
+      // message — that string is what reaches the user.
       //
-      // Hardcoding the LOCAL mapper here is correct BY CONSTRUCTION, not by
-      // luck: every streaming surface that reaches this parser (/api/chat,
-      // /api/ask, /api/digest-chat, /api/notes/compose) is a `LocalSurface`
-      // in model-policy.ts, and `resolveModel`'s return type cannot be
-      // frontier — so a RUN_ERROR crossing this wire is always Ollama text.
-      // If a frontier surface ever streams through here, this line becomes
-      // wrong and needs a tier on the wire; nothing else would notice.
+      // NOT TRANSLATED HERE. This line used to run every RUN_ERROR through
+      // `friendlyOllamaError`, and the comment that stood here said it was
+      // safe BY CONSTRUCTION because every streaming surface was a
+      // `LocalSurface` — while predicting that a frontier surface streaming
+      // through would make it wrong and that "nothing else would notice".
+      // ADR 0011 (2026-08-27) made all four switchable. The text now arrives
+      // already translated by the model that actually answered:
+      // `withFriendlyErrors` (stream-errors.ts) wraps the stream inside each
+      // route and applies that request's `model.friendlyError`. The server is
+      // the only side that knows the tier, so mapping there and passing
+      // through here is the version of this that cannot drift again.
+      //
+      // Thrown as a FriendlyStreamError so consumer catch sites can tell an
+      // already-mapped run failure from a transport failure they must still
+      // map themselves. See `friendlyStreamError` above.
       const raw =
         (typeof event.message === 'string' && event.message) ||
         (typeof event.error?.message === 'string' && event.error.message) ||
         'AI run failed';
-      throw new Error(friendlyOllamaError(raw));
+      throw new FriendlyStreamError(raw);
     }
     case 'TOOL_CALL_START': {
       const id = event.toolCallId;

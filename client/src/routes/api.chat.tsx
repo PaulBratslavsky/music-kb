@@ -5,6 +5,7 @@ import { getSkill } from '#/lib/skills';
 import { prepareChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
+import { withFriendlyErrors } from '#/lib/services/stream-errors';
 
 // Streaming chat endpoint (TanStack AI migration).
 //
@@ -193,7 +194,12 @@ export const Route = createFileRoute('/api/chat')({
           modelOptions: model.modelOptions(0.3),
         });
 
-        return toServerSentEventsResponse(stream);
+        // Translate the run's failure with the RESOLVED model's tier-paired
+        // mapper before it reaches the wire. The client cannot do this: it does
+        // not know which tier answered, and ADR 0011 made that vary per request.
+        return toServerSentEventsResponse(
+          withFriendlyErrors(model, stream, `chat ${body.videoId}`),
+        );
       },
     },
   },

@@ -30,8 +30,7 @@ import {
 import { MarkdownEditor } from './MarkdownEditor';
 import { listSkills, type Skill } from '#/lib/skills';
 import { createNote, updateNote, deleteNote } from '#/data/server-functions/notes';
-import { streamChatSSE } from '#/lib/services/chat-stream';
-import { friendlyOllamaError } from '#/lib/services/ollama-errors';
+import { friendlyStreamError, streamChatSSE } from '#/lib/services/chat-stream';
 import type { StrapiNote } from '#/lib/services/notes';
 
 type Props = {
@@ -137,8 +136,9 @@ export function NoteComposer({
       // Stream failed (Ollama died, model missing, …) — surface the
       // error and leave the existing draft untouched: `acc` only
       // reaches the editor after the stream completes successfully.
-      const raw = err instanceof Error ? err.message : 'Compose failed';
-      setError(friendlyOllamaError(raw));
+      // Run failures arrive pre-translated by the answering model
+      // (stream-errors.ts); transport failures are translated here.
+      setError(friendlyStreamError(err, 'Compose failed'));
     } finally {
       setStreaming(false);
     }

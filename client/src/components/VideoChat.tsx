@@ -4,8 +4,11 @@ import remarkGfm from 'remark-gfm';
 import { Accordion } from 'radix-ui';
 import { buildMarkdownComponents, stripInlineTimecodes } from './TimecodeMarkdown';
 import { usePlayerControl } from '#/components/player';
-import { streamChatSSE, type StreamEvent } from '#/lib/services/chat-stream';
-import { friendlyOllamaError } from '#/lib/services/ollama-errors';
+import {
+  friendlyStreamError,
+  streamChatSSE,
+  type StreamEvent,
+} from '#/lib/services/chat-stream';
 import { Button } from '#/components/ui/button';
 import { ModelPicker } from '#/components/ModelPicker';
 import {
@@ -285,11 +288,10 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
         }
       }
     } catch (err) {
-      const raw = err instanceof Error ? err.message : 'Chat failed';
       setMessages((prev) => prev.slice(0, -1));
-      // Translate Ollama-specific errors (server unreachable, model
-      // missing, timeout) to a recovery hint. Other errors pass through.
-      setError(friendlyOllamaError(raw));
+      // A run failure arrives already translated by the model that answered
+      // (stream-errors.ts). Transport failures are translated here, as before.
+      setError(friendlyStreamError(err, 'Chat failed'));
     } finally {
       setPending(false);
     }

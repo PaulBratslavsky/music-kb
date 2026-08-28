@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { streamChatSSE, type Citation, type StreamEvent } from './chat-stream';
+import {
+  FriendlyStreamError,
+  friendlyStreamError,
+  streamChatSSE,
+  type Citation,
+  type StreamEvent,
+} from './chat-stream';
 import { friendlyOllamaError } from './ollama-errors';
 
 // Build a Response whose body streams the given byte chunks one-by-one
@@ -217,14 +223,15 @@ describe('streamChatSSE', () => {
     expect(events).toEqual([{ kind: 'text', delta: 'multi' }]);
   });
 
-  it('throws a translated error on a RUN_ERROR frame', async () => {
+  it('throws on a RUN_ERROR frame instead of ending the stream', async () => {
     // RUN_ERROR is what @tanstack/ai emits when e.g. Ollama dies
-    // mid-stream. It must throw — not silently end the stream.
+    // mid-stream. It must throw — not silently end the stream. The message
+    // is whatever the server already mapped (stream-errors.ts).
     await expect(
       collect(
         streamingResponse([
           'data: {"type":"TEXT_MESSAGE_CONTENT","delta":"partial"}\n\n',
-          'data: {"type":"RUN_ERROR","error":{"message":"fetch failed"}}\n\n',
+          'data: {"type":"RUN_ERROR","message":"AI server unreachable. Is Ollama running on port 11434?"}\n\n',
         ]),
       ),
     ).rejects.toThrow('AI server unreachable. Is Ollama running on port 11434?');
@@ -277,13 +284,27 @@ describe('streamChatSSE', () => {
     await expect(
       collect(
         streamingResponse([
-          'data: {"type":"RUN_ERROR","model":"m","timestamp":1,"message":"fetch failed"}\n\n',
+          'data: {"type":"RUN_ERROR","model":"m","timestamp":1,"message":"AI server unreachable. Is Ollama running on port 11434?"}\n\n',
         ]),
       ),
     ).rejects.toThrow('AI server unreachable. Is Ollama running on port 11434?');
   });
 
-  it('passes a RUN_ERROR message matching no Ollama pattern through unchanged', async () => {
+  it('passes RUN_ERROR text through UNTRANSLATED', async () => {
+    // The server already mapped it with the answering model's own mapper
+    // (stream-errors.ts). Translating again here is what ADR 0011 broke: a
+    // frontier failure would get Ollama advice. Raw Ollama-shaped text must
+    // now survive verbatim — proof that no local mapper runs on this path.
+    await expect(
+      collect(
+        streamingResponse([
+          'data: {"type":"RUN_ERROR","model":"m","timestamp":1,"message":"fetch failed"}\n\n',
+        ]),
+      ),
+    ).rejects.toThrow('fetch failed');
+  });
+
+  it('reads the legacy nested RUN_ERROR dialect', async () => {
     await expect(
       collect(
         streamingResponse([
@@ -299,22 +320,40 @@ describe('streamChatSSE', () => {
     ).rejects.toThrow('AI run failed');
   });
 
-  it('RUN_ERROR translation is idempotent at consumer catch sites', async () => {
-    // Consumers (VideoChat, DigestChat, useLibraryChat, NoteComposer)
-    // run caught errors through friendlyOllamaError again — the already
-    // translated message must survive the second pass unchanged.
-    let caught = '';
+  it('tags a RUN_ERROR as FriendlyStreamError so consumers do not remap it', async () => {
+    // The regression this guards: friendlyOllamaError's /timed ?out/i branch
+    // rewrites the FRONTIER timeout message into Ollama advice about the
+    // model loading. friendlyStreamError must return it verbatim.
+    const frontierTimeout =
+      'Frontier AI request timed out. Try again, or leave ANTHROPIC_API_KEY unset to use the local model instead.';
+    let caught: unknown;
     try {
       await collect(
         streamingResponse([
-          'data: {"type":"RUN_ERROR","error":{"message":"ECONNREFUSED 127.0.0.1:11434"}}\n\n',
+          `data: ${JSON.stringify({
+            type: 'RUN_ERROR',
+            message: frontierTimeout,
+          })}\n\n`,
         ]),
       );
     } catch (err) {
-      caught = err instanceof Error ? err.message : '';
+      caught = err;
     }
-    expect(caught).toBe('AI server unreachable. Is Ollama running on port 11434?');
-    expect(friendlyOllamaError(caught)).toBe(caught);
+    expect(caught).toBeInstanceOf(FriendlyStreamError);
+    expect(friendlyStreamError(caught, 'Chat failed')).toBe(frontierTimeout);
+    // And the mapper it bypasses would indeed have corrupted it:
+    expect(friendlyOllamaError(frontierTimeout)).not.toBe(frontierTimeout);
+  });
+
+  it('friendlyStreamError still translates a transport failure locally', async () => {
+    // A fetch rejection never crossed the wire, so no server mapper touched
+    // it — the local hint is still the right answer there.
+    expect(
+      friendlyStreamError(new TypeError('fetch failed'), 'Chat failed'),
+    ).toBe('AI server unreachable. Is Ollama running on port 11434?');
+    expect(friendlyStreamError('not an error', 'Chat failed')).toBe(
+      'Chat failed',
+    );
   });
 
   it('throws the response body text on a non-OK response', async () => {

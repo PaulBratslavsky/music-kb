@@ -4,6 +4,7 @@ import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { prepareDigestChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
+import { withFriendlyErrors } from '#/lib/services/stream-errors';
 
 // Streaming chat endpoint for the /digest page — cross-video chat against
 // N selected videos (2-5). Mirrors `/api/chat` in wire shape (AG-UI SSE,
@@ -145,7 +146,10 @@ export const Route = createFileRoute('/api/digest-chat')({
           tools: [webSearchTool],
         });
 
-        return toServerSentEventsResponse(stream);
+        // See api.chat.tsx — tier-correct error translation, server-side.
+        return toServerSentEventsResponse(
+          withFriendlyErrors(model, stream, 'digest-chat'),
+        );
       },
     },
   },
