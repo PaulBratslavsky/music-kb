@@ -65,6 +65,26 @@ describe('condenseQuestion', () => {
     expect(r.condensed).toBe(false);
   });
 
+  // REGRESSION. The first version of this passed no modelOptions. Ollama
+  // therefore generated until the model stopped on its own — 679 tokens,
+  // 12.2s, against a 4s timeout — so condensation timed out and fell back on
+  // EVERY request. It was dead in production while every test here passed,
+  // because the tests mocked chat() and never looked at how it was called.
+  it('caps the rewrite length, or it times out in production', async () => {
+    chatMock.mockResolvedValue('a query');
+    await condenseQuestion('tell me more', HISTORY);
+
+    const opts = chatMock.mock.calls[0][0].modelOptions;
+    expect(opts?.options?.num_predict).toBeGreaterThan(0);
+    expect(opts?.options?.num_predict).toBeLessThanOrEqual(64);
+  });
+
+  it('rewrites deterministically — temperature 0', async () => {
+    chatMock.mockResolvedValue('a query');
+    await condenseQuestion('tell me more', HISTORY);
+    expect(chatMock.mock.calls[0][0].modelOptions.options.temperature).toBe(0);
+  });
+
   it('never blocks longer than the timeout', async () => {
     chatMock.mockImplementation(() => new Promise(() => {}));  // never settles
     const started = Date.now();

@@ -23,6 +23,7 @@
 
 import { chat } from '@tanstack/ai';
 import { resolveModel } from '#/lib/services/model-policy';
+import { samplingOptions } from '#/lib/services/ollama-model-options';
 
 /** Only these roles carry conversational meaning for condensation. */
 export type CondensableMessage = { role: 'user' | 'assistant'; content: string };
@@ -46,6 +47,19 @@ const MAX_CHARS_PER_TURN = 400;
  * we retrieve with the raw question instead.
  */
 const TIMEOUT_MS = 4000;
+
+/**
+ * Hard cap on the rewrite's length, in tokens.
+ *
+ * This is load-bearing, not a tidiness knob. Ollama generates until the model
+ * decides to stop; asked to rewrite one line, gemma4-kb wrote 679 tokens over
+ * 12.2 seconds — which blew TIMEOUT_MS on every request, so condensation
+ * silently never fired at all. Capped, the same call returns in 0.89s.
+ *
+ * A standalone query is ten to twenty tokens. 48 leaves headroom without
+ * leaving room for an essay.
+ */
+const MAX_REWRITE_TOKENS = 48;
 
 const SYSTEM = [
   'You rewrite a follow-up question into a standalone search query.',
@@ -154,6 +168,9 @@ export async function condenseQuestion(
           },
         ] as never,
         stream: false,
+        // Temperature 0: this is a deterministic transformation, not a
+        // creative one. num_predict is what keeps it inside TIMEOUT_MS.
+        modelOptions: samplingOptions(model.model, 0, MAX_REWRITE_TOKENS),
       }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('condense timeout')), TIMEOUT_MS);
