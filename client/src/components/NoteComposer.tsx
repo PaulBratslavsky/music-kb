@@ -17,7 +17,7 @@
 // accumulating markdown is pushed into the MarkdownEditor live — the
 // user watches the note assemble the same way chat streams.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ModelPicker } from '#/components/ModelPicker';
 import { Button } from '#/components/ui/button';
 import {
@@ -30,7 +30,7 @@ import {
 import { MarkdownEditor } from './MarkdownEditor';
 import { listSkills, type Skill } from '#/lib/skills';
 import { createNote, updateNote, deleteNote } from '#/data/server-functions/notes';
-import { friendlyStreamError, streamChatSSE } from '#/lib/services/chat-stream';
+import { friendlyStreamError } from '#/lib/services/chat-stream';
 import type { StrapiNote } from '#/lib/services/notes';
 
 type Props = {
@@ -45,22 +45,33 @@ type Props = {
 // AG-UI parsing (including non-OK body extraction and RUN_ERROR
 // translation) live in `chat-stream.ts`; this wrapper owns only the
 // request shape for the note-composer endpoint.
-async function* streamCompose(input: {
-  videoId: string;
-  prompt: string;
-  currentContent?: string;
-  skillSlug?: string;
-  /** Choice TOKEN, not a model id — validated server-side. */
-  modelChoice: string;
-}): AsyncGenerator<string, void, void> {
+async function compose(
+  input: {
+    videoId: string;
+    prompt: string;
+    currentContent?: string;
+    skillSlug?: string;
+    /** Choice TOKEN, not a model id — validated server-side. */
+    modelChoice: string;
+  },
+  signal: AbortSignal,
+): Promise<string> {
   const res = await fetch('/api/notes/compose', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    signal,
   });
-  for await (const event of streamChatSSE(res)) {
-    if (event.kind === 'text') yield event.delta;
+  // The route returns JSON, not SSE: the composer never rendered deltas, so
+  // there was nothing for a stream to deliver early. `error` carries a message
+  // the server already translated with the tier that answered.
+  const data = (await res.json().catch(() => null)) as
+    | { markdown?: string; error?: string }
+    | null;
+  if (!res.ok || !data || typeof data.markdown !== 'string') {
+    throw new Error(data?.error || `Request failed: ${res.status}`);
   }
+  return data.markdown;
 }
 
 // Extract a markdown H1 title from the body, if present. Used on Save
@@ -87,6 +98,9 @@ export function NoteComposer({
   onSaved,
 }: Readonly<Props>) {
   const isEdit = !!existingNote;
+  // Lets Cancel actually stop a run. Before this the button was disabled for
+  // the whole generation, so a slow or wrong draft had to be waited out.
+  const abortRef = useRef<AbortController | null>(null);
   const [prompt, setPrompt] = useState('');
   // Per-compose model choice. 'default' preserves prior behaviour.
   const [modelChoice, setModelChoice] = useState<string>('default');
@@ -108,22 +122,23 @@ export function NoteComposer({
     setError(null);
     const hadContent = body.trim().length > 0;
     try {
-      // Consume the full stream before touching the editor. Partial
-      // markdown renders poorly in Tiptap (half-formed headings, open
-      // code fences, mid-word italics) and every `setContent` during
-      // streaming churns the editor state. For note generation the user
-      // waits a few seconds then sees the complete draft — cleaner than
-      // watching tokens assemble imperfectly.
-      let acc = '';
-      for await (const delta of streamCompose({
-        videoId: videoYoutubeId,
-        prompt: trimmed,
-        currentContent: hadContent ? body : undefined,
-        skillSlug,
-        modelChoice,
-      })) {
-        acc += delta;
-      }
+      // The whole draft arrives at once. Partial markdown renders poorly in
+      // Tiptap (half-formed headings, open code fences, mid-word italics) and
+      // every setContent during streaming churned the editor state, so this
+      // component always waited for the complete text before touching the
+      // editor — which is why the endpoint no longer streams at all.
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const acc = await compose(
+        {
+          videoId: videoYoutubeId,
+          prompt: trimmed,
+          currentContent: hadContent ? body : undefined,
+          skillSlug,
+          modelChoice,
+        },
+        controller.signal,
+      );
       setBody(acc);
       // Auto-set title from H1 if the user hasn't typed one.
       if (!title.trim()) {
@@ -133,13 +148,17 @@ export function NoteComposer({
       // Keep the prompt so the user can edit + run again; they can
       // clear it manually if they want a fresh direction.
     } catch (err) {
-      // Stream failed (Ollama died, model missing, …) — surface the
-      // error and leave the existing draft untouched: `acc` only
-      // reaches the editor after the stream completes successfully.
-      // Run failures arrive pre-translated by the answering model
-      // (stream-errors.ts); transport failures are translated here.
-      setError(friendlyStreamError(err, 'Compose failed'));
+      // A user-initiated abort is not a failure — say nothing and leave the
+      // existing draft alone.
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        // Request failed (Ollama died, model missing, …) — surface the error
+        // and leave the existing draft untouched: `acc` only reaches the
+        // editor on success. Run failures arrive pre-translated by the model
+        // that answered (stream-errors.ts); transport failures translate here.
+        setError(friendlyStreamError(err, 'Compose failed'));
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
     }
   };
@@ -283,10 +302,15 @@ export function NoteComposer({
             type="button"
             variant="outline"
             size="sm"
-            onClick={onClose}
-            disabled={streaming || saving || deleting}
+            onClick={() => {
+              // While generating, Cancel stops the run rather than being
+              // disabled; otherwise it closes the composer as before.
+              if (streaming) abortRef.current?.abort();
+              else onClose();
+            }}
+            disabled={saving || deleting}
           >
-            Cancel
+            {streaming ? 'Stop' : 'Cancel'}
           </Button>
         </div>
       </div>

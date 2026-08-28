@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { chat, toServerSentEventsResponse } from '@tanstack/ai';
+import { chat, streamToText } from '@tanstack/ai';
 import {
   fetchVideoByVideoIdService,
   fetchTranscriptByVideoIdService,
@@ -70,143 +70,165 @@ function formatTakeawaysBlock(
   return takeaways.map((t) => `• ${t.text}`).join('\n');
 }
 
+/**
+ * POST /api/notes/compose — draft or refine a note for one video.
+ *
+ * Returns JSON, not SSE. Exported separately from the route so the contract
+ * can be tested directly, matching askHandler / lessonPlanHandler.
+ */
+export async function notesComposeHandler(request: Request): Promise<Response> {
+  let body: ComposeBody;
+  try {
+    body = (await request.json()) as ComposeBody;
+  } catch {
+    return new Response('Invalid JSON body', { status: 400 });
+  }
+
+  const prompt = body.prompt?.trim();
+  if (!body.videoId || !prompt) {
+    return new Response('videoId and prompt required', { status: 400 });
+  }
+  if (prompt.length > 4000) {
+    return new Response('prompt too long (max 4000 chars)', { status: 400 });
+  }
+
+  const video = await fetchVideoByVideoIdService(body.videoId);
+  if (!video) return new Response('Video not found', { status: 404 });
+  if (video.summaryStatus !== 'generated') {
+    return new Response('Summary not ready', { status: 409 });
+  }
+
+  // Skill lookup — synchronous in-memory registry. Falls back to the
+  // 'note' default skill if slug missing or unknown, so the endpoint
+  // always has a composerPrompt to work with.
+  const requestedSlug = body.skillSlug?.trim() || 'note';
+  const skill = getSkill(requestedSlug) ?? getSkill('note');
+  if (!skill?.composerPrompt) {
+    return new Response(
+      'Skill has no composerPrompt — only skills with applicableContexts including "notes-composer" can drive /api/notes/compose.',
+      { status: 400 },
+    );
+  }
+  if (body.skillSlug && !getSkill(body.skillSlug)) {
+    console.warn(
+      `[notes/compose ${body.videoId}] skillSlug="${body.skillSlug}" not found — falling back to "note"`,
+    );
+  }
+
+  // Build the video context block. Keep it tighter than /api/chat
+  // since we're not doing retrieval here — just the authored
+  // summary fields + a transcript excerpt for grounding.
+  const title = video.videoTitle ?? video.summaryTitle ?? 'Untitled';
+  const author = video.videoAuthor ?? 'Unknown';
+  const sectionsBlock = formatSectionsBlock(video.sections);
+  const takeawaysBlock = formatTakeawaysBlock(video.keyTakeaways);
+
+  let transcriptExcerpt = '';
+  const txRow =
+    video.transcript ??
+    (await fetchTranscriptByVideoIdService(video.youtubeVideoId).catch(
+      () => null,
+    ));
+  if (txRow) {
+    // Prefer pre-joined rawText when present; fall back to rawSegments
+    // joined with spaces. cleanTranscript takes a plain string.
+    const raw = cleanTranscript(
+      txRow.rawText ??
+        (Array.isArray(txRow.rawSegments)
+          ? txRow.rawSegments.map((s) => s.text).join(' ')
+          : ''),
+    );
+    transcriptExcerpt =
+      raw.length > MAX_TRANSCRIPT_CHARS
+        ? `${raw.slice(0, MAX_TRANSCRIPT_CHARS)}\n… [transcript truncated]`
+        : raw;
+  }
+
+  const userPromptSections: string[] = [
+    '===== VIDEO CONTEXT =====',
+    `Title: ${title}`,
+    `Author: ${author}`,
+  ];
+  if (video.summaryDescription) {
+    userPromptSections.push(`Description: ${video.summaryDescription}`);
+  }
+  if (video.summaryOverview) {
+    userPromptSections.push('');
+    userPromptSections.push('Overview:');
+    userPromptSections.push(video.summaryOverview);
+  }
+  userPromptSections.push('');
+  userPromptSections.push('---- Sections (timestamped) ----');
+  userPromptSections.push(sectionsBlock);
+  userPromptSections.push('');
+  userPromptSections.push('---- Key takeaways ----');
+  userPromptSections.push(takeawaysBlock);
+  if (transcriptExcerpt) {
+    userPromptSections.push('');
+    userPromptSections.push('---- Transcript (cleaned) ----');
+    userPromptSections.push(transcriptExcerpt);
+  }
+
+  const currentContent = body.currentContent?.trim();
+  if (currentContent) {
+    userPromptSections.push('');
+    userPromptSections.push('===== CURRENT DRAFT =====');
+    userPromptSections.push(currentContent);
+    userPromptSections.push('');
+    userPromptSections.push(
+      "The above is the note's current state. The user's instruction below is a REVISION request — follow the skill's revision-handling rules.",
+    );
+  }
+
+  userPromptSections.push('');
+  userPromptSections.push('===== USER INSTRUCTION =====');
+  userPromptSections.push(prompt);
+
+  const userPrompt = userPromptSections.join('\n');
+
+  console.log(
+    `[${new Date().toISOString().slice(11, 23)}] [notes/compose ${body.videoId}/${skill.slug}${currentContent ? ' · refine' : ' · new'}] "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}"`,
+  );
+
+  // 'note-compose' → OLLAMA_SYNTHESIS_MODEL. Deliberately a different
+  // surface key from notes.ts's 'note-summarize' (OLLAMA_MODEL).
+  const { model, notice } = await resolveRequestModel(
+    'note-compose',
+    body.modelChoice,
+  );
+  if (notice) console.warn(`[notes/compose] ${notice}`);
+  const stream = chat({
+    adapter: model.adapter,
+    ...withSystem(model, skill.composerPrompt, [
+      { role: 'user', content: userPrompt },
+    ]),
+    modelOptions: model.modelOptions(0.3),
+  });
+
+  // NOT STREAMED. The composer accumulates every delta and calls
+  // setBody once, after the loop — it has never rendered incrementally,
+  // so SSE bought nothing here and cost a second consumer of the AG-UI
+  // parser. One JSON response is byte-identical to the user.
+  //
+  // Errors still go through the tier-correct mapper: streamToText
+  // rejects on a failed run, and withFriendlyErrors has already
+  // translated the message with the model that actually answered.
+  try {
+    const markdown = await streamToText(
+      withFriendlyErrors(model, stream, `notes/compose ${body.videoId}`),
+    );
+    return Response.json({ markdown });
+  } catch (err) {
+    // Already tier-translated by withFriendlyErrors; do not re-map.
+    const message = err instanceof Error ? err.message : 'Compose failed';
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
+
 export const Route = createFileRoute('/api/notes/compose')({
   server: {
     handlers: {
-      POST: async ({ request }) => {
-        let body: ComposeBody;
-        try {
-          body = (await request.json()) as ComposeBody;
-        } catch {
-          return new Response('Invalid JSON body', { status: 400 });
-        }
-
-        const prompt = body.prompt?.trim();
-        if (!body.videoId || !prompt) {
-          return new Response('videoId and prompt required', { status: 400 });
-        }
-        if (prompt.length > 4000) {
-          return new Response('prompt too long (max 4000 chars)', { status: 400 });
-        }
-
-        const video = await fetchVideoByVideoIdService(body.videoId);
-        if (!video) return new Response('Video not found', { status: 404 });
-        if (video.summaryStatus !== 'generated') {
-          return new Response('Summary not ready', { status: 409 });
-        }
-
-        // Skill lookup — synchronous in-memory registry. Falls back to the
-        // 'note' default skill if slug missing or unknown, so the endpoint
-        // always has a composerPrompt to work with.
-        const requestedSlug = body.skillSlug?.trim() || 'note';
-        const skill = getSkill(requestedSlug) ?? getSkill('note');
-        if (!skill?.composerPrompt) {
-          return new Response(
-            'Skill has no composerPrompt — only skills with applicableContexts including "notes-composer" can drive /api/notes/compose.',
-            { status: 400 },
-          );
-        }
-        if (body.skillSlug && !getSkill(body.skillSlug)) {
-          console.warn(
-            `[notes/compose ${body.videoId}] skillSlug="${body.skillSlug}" not found — falling back to "note"`,
-          );
-        }
-
-        // Build the video context block. Keep it tighter than /api/chat
-        // since we're not doing retrieval here — just the authored
-        // summary fields + a transcript excerpt for grounding.
-        const title = video.videoTitle ?? video.summaryTitle ?? 'Untitled';
-        const author = video.videoAuthor ?? 'Unknown';
-        const sectionsBlock = formatSectionsBlock(video.sections);
-        const takeawaysBlock = formatTakeawaysBlock(video.keyTakeaways);
-
-        let transcriptExcerpt = '';
-        const txRow =
-          video.transcript ??
-          (await fetchTranscriptByVideoIdService(video.youtubeVideoId).catch(
-            () => null,
-          ));
-        if (txRow) {
-          // Prefer pre-joined rawText when present; fall back to rawSegments
-          // joined with spaces. cleanTranscript takes a plain string.
-          const raw = cleanTranscript(
-            txRow.rawText ??
-              (Array.isArray(txRow.rawSegments)
-                ? txRow.rawSegments.map((s) => s.text).join(' ')
-                : ''),
-          );
-          transcriptExcerpt =
-            raw.length > MAX_TRANSCRIPT_CHARS
-              ? `${raw.slice(0, MAX_TRANSCRIPT_CHARS)}\n… [transcript truncated]`
-              : raw;
-        }
-
-        const userPromptSections: string[] = [
-          '===== VIDEO CONTEXT =====',
-          `Title: ${title}`,
-          `Author: ${author}`,
-        ];
-        if (video.summaryDescription) {
-          userPromptSections.push(`Description: ${video.summaryDescription}`);
-        }
-        if (video.summaryOverview) {
-          userPromptSections.push('');
-          userPromptSections.push('Overview:');
-          userPromptSections.push(video.summaryOverview);
-        }
-        userPromptSections.push('');
-        userPromptSections.push('---- Sections (timestamped) ----');
-        userPromptSections.push(sectionsBlock);
-        userPromptSections.push('');
-        userPromptSections.push('---- Key takeaways ----');
-        userPromptSections.push(takeawaysBlock);
-        if (transcriptExcerpt) {
-          userPromptSections.push('');
-          userPromptSections.push('---- Transcript (cleaned) ----');
-          userPromptSections.push(transcriptExcerpt);
-        }
-
-        const currentContent = body.currentContent?.trim();
-        if (currentContent) {
-          userPromptSections.push('');
-          userPromptSections.push('===== CURRENT DRAFT =====');
-          userPromptSections.push(currentContent);
-          userPromptSections.push('');
-          userPromptSections.push(
-            "The above is the note's current state. The user's instruction below is a REVISION request — follow the skill's revision-handling rules.",
-          );
-        }
-
-        userPromptSections.push('');
-        userPromptSections.push('===== USER INSTRUCTION =====');
-        userPromptSections.push(prompt);
-
-        const userPrompt = userPromptSections.join('\n');
-
-        console.log(
-          `[${new Date().toISOString().slice(11, 23)}] [notes/compose ${body.videoId}/${skill.slug}${currentContent ? ' · refine' : ' · new'}] "${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}"`,
-        );
-
-        // 'note-compose' → OLLAMA_SYNTHESIS_MODEL. Deliberately a different
-        // surface key from notes.ts's 'note-summarize' (OLLAMA_MODEL).
-        const { model, notice } = await resolveRequestModel(
-          'note-compose',
-          body.modelChoice,
-        );
-        if (notice) console.warn(`[notes/compose] ${notice}`);
-        const stream = chat({
-          adapter: model.adapter,
-          ...withSystem(model, skill.composerPrompt, [
-            { role: 'user', content: userPrompt },
-          ]),
-          modelOptions: model.modelOptions(0.3),
-        });
-
-        // See api.chat.tsx — tier-correct error translation, server-side.
-        return toServerSentEventsResponse(
-          withFriendlyErrors(model, stream, `notes/compose ${body.videoId}`),
-        );
-      },
+      POST: ({ request }) => notesComposeHandler(request),
     },
   },
 });
