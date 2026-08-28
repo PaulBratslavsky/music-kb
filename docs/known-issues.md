@@ -1,9 +1,12 @@
 # Known issues
 
-> **Both entries below are now FIXED** (2026-08-28). They are kept as records rather
-> than deleted, because the reasoning is the useful part: issue 2 was predicted, in
-> a source comment, by the same person who later triggered it — the comment named
-> the exact condition that would break it and the exact reason nobody would notice.
+> **All three entries below are now FIXED** (2026-08-28). They are kept as records
+> rather than deleted, because the reasoning is the useful part. Two of them share a
+> failure mode worth naming: issue 2 was predicted, in a source comment, by the same
+> person who later triggered it — the comment named the exact condition that would
+> break it and the exact reason nobody would notice; issue 3 ran in production for
+> months without a single error, because a wrong answer and a right one are the same
+> shape.
 
 Real defects, verified against the code, deliberately **not** fixed inside a larger change.
 Each entry says why it was deferred and what "fixed" looks like.
@@ -113,3 +116,42 @@ knows which model actually answered.
 `redactAnthropicKey` first). Whichever option is taken, do **not** route frontier errors
 through `friendlyOllamaError`, which echoes raw text — that pairing exists to stop an API key
 reaching a user-visible string.
+
+
+---
+
+## 3. `/api/ask` rendered a conversation but answered every question alone
+
+**Severity:** medium (silently ungrounded answers) · **Found:** 2026-08-28 · **Status:** FIXED 2026-08-28 (commit 954bbc2)
+
+`useLibraryChat` accumulated a threaded transcript, rendered it, and persisted it across
+reloads. The route never received it. `POST /api/ask` accepted only `{ question, modelChoice }`,
+so every turn was a fresh single-shot question, and retrieval ran against the raw text of
+the latest message.
+
+The consequence is worst on exactly the questions a transcript invites:
+
+```
+User:      which videos cover modal interchange?
+Assistant: Two — "Borrowed Chords" and "Modal Mixture".
+User:      tell me more about the second one
+           ^ retrieval runs on THESE words
+```
+
+"tell me more about the second one" contains no content word that appears in the passages
+it refers to. Retrieval returned whatever weakly matched, and the model answered from it.
+
+**Why nothing caught it.** There is no error state. The stream is well-formed, citations are
+present, the answer is fluent and grounded in *something*. A wrong answer and a right one are
+the same shape, so neither a test nor a user reliably notices — the user reads a confident
+paragraph about the wrong video and assumes they asked badly.
+
+**Why the fix had to be two-sided.** Sending history to the model without fixing retrieval
+would have made this worse, not better: the model would gain the context to resolve
+"the second one" while the seed passages stayed unrelated, upgrading a visibly-confused
+answer into a confidently grounded wrong one.
+
+**Fixed by** condensing the follow-up into a standalone query before retrieval
+(`condense-question.ts`, on the LOCAL_ONLY `query-rewrite` surface, failing open on every
+path), retrieving with that query, and answering with the original question. History crosses
+the wire through `sanitizeHistory`, which drops `role:'system'` turns and bounds the replay.
