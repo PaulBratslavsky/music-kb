@@ -47,7 +47,7 @@ test.describe('DigestChat on useChat', () => {
 
     const input = page.getByPlaceholder(/ask about these videos/i);
     const send = page.getByRole('button', { name: /^send$/i });
-    await askInChat(page, input, send, 'Name one topic both videos cover. One sentence.');
+    await askInChat(input, send, 'Name one topic both videos cover. One sentence.');
 
     // The user's turn must appear immediately — useChat appends it optimistically.
     await expect(page.getByText('Name one topic both videos cover. One sentence.')).toBeVisible();

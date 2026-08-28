@@ -45,7 +45,7 @@ test.describe('VideoChat on useChat', () => {
 
     const input = page.getByPlaceholder(/ask about this video/i);
     const send = page.getByRole('button', { name: /^send$/i });
-    await askInChat(page, input, send, 'In one sentence, what is this video about?');
+    await askInChat(input, send, 'In one sentence, what is this video about?');
 
     // The user turn is appended optimistically by useChat.
     await expect(page.getByText('In one sentence, what is this video about?')).toBeVisible();

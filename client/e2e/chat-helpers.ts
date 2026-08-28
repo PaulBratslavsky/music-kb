@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator } from '@playwright/test';
 
 /**
  * Type into a chat composer and wait until Send is actually enabled.
@@ -14,7 +14,6 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * Retrying the fill is the fix: once hydration lands, the next one sticks.
  */
 export async function askInChat(
-  page: Page,
   input: Locator,
   send: Locator,
   question: string,
