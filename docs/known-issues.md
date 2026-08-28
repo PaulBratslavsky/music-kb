@@ -10,9 +10,9 @@ at the cited line.
 
 ## 1. `askAboutVideoService` advertises a tool it never passes
 
-**Severity:** low (degraded answers, no crash) · **Found:** 2026-08-27 · **Status:** open
+**Severity:** low (degraded answers, no crash) · **Found:** 2026-08-27 · **Status:** FIXED 2026-08-28
 
-`buildChatSystemPrompt` tells the model it has a tool:
+`buildVideoGroundingContext` — reached from `buildChatSystemPrompt` — tells the model it has a tool:
 
 ```ts
 // client/src/lib/services/learning.ts:1393

@@ -4,6 +4,10 @@ import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { getSkill } from '#/lib/skills';
 import { prepareChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
+
+/** The tools this route hands the model. Single source of truth for both
+ *  the system prompt's TOOLS AVAILABLE block and the chat() call. */
+const CHAT_TOOLS = [webSearchTool];
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
 
@@ -140,10 +144,13 @@ export const Route = createFileRoute('/api/chat')({
           );
         }
 
+        // CHAT_TOOLS is declared once and used twice — for the prompt's
+        // TOOLS AVAILABLE block and for chat() itself — so the prompt cannot
+        // advertise a tool the model is not actually given.
         const { system, retrievedCount } = await prepareChatPrompt(
           video,
           body.messages,
-          { skillPrompt: skill?.systemPrompt },
+          { skillPrompt: skill?.systemPrompt, tools: CHAT_TOOLS },
         );
         // Expand the client's (user/assistant + inline toolCalls) history
         // into proper ModelMessage sequences so the agent loop sees its
@@ -178,7 +185,7 @@ export const Route = createFileRoute('/api/chat')({
           // retrieved transcript passages don't answer the question.
           // Execution happens server-side; tool events stream as
           // TOOL_CALL_* SSE frames.
-          tools: [webSearchTool],
+          tools: CHAT_TOOLS,
           // Every other chat() call site sets a low temperature; this one
           // was the exception, so it ran at Ollama's default of 1.0 — and
           // it is the call that most needs deterministic output, because a

@@ -1357,9 +1357,29 @@ const DEFAULT_VIDEO_CHAT_PERSONA = [
 // passages + always-on tool-availability rule. Skills (and the default
 // persona) are prepended to this block; it stays stable regardless of
 // which skill is active so the model always has the same source material.
+/**
+ * Tools the model will ACTUALLY be handed on this call — used only for their
+ * names. Structural rather than the SDK's tool type: both a `toolDefinition`
+ * and its `.server()` result expose `name`, and nothing else here needs the
+ * SDK's types.
+ */
+type NamedTool = { name: string };
+
 function buildVideoGroundingContext(
   video: StrapiVideo,
   retrieved: TranscriptChunk[],
+  /**
+   * The tools the CALLER will pass to `chat()`. Omitted or empty means the
+   * model gets none, and the TOOLS AVAILABLE block is omitted with them.
+   *
+   * This exists because the prompt and the call had drifted: the block was
+   * unconditional, while `askAboutVideoService` passes no tools at all — so
+   * the non-streaming ask path told the model it had a web search it could not
+   * reach, leaving it to narrate a call it never made or ignore the
+   * instruction. Deriving the block from the tools makes that class of bug
+   * unrepresentable instead of fixing this one instance.
+   */
+  tools?: ReadonlyArray<NamedTool>,
 ): string {
   const sectionsBlock =
     video.sections && video.sections.length > 0
@@ -1389,9 +1409,27 @@ function buildVideoGroundingContext(
     .filter(Boolean)
     .join('\n');
 
+  // Named from the tools actually being passed, so a rename or a removal can
+  // never leave the prompt advertising something the model cannot call.
+  // Spread rather than a nullable entry: this array is joined WITHOUT a
+  // `.filter(Boolean)`, so a `null` would render as the literal "null".
+  const toolNames = (tools ?? []).map((t) => t.name);
+  const toolsLines =
+    toolNames.length === 0
+      ? []
+      : [
+          `TOOLS AVAILABLE: ${toolNames
+            .map((n) => `\`${n}(query)\``)
+            .join(', ')} — use ${
+            toolNames.length > 1 ? 'them' : 'it'
+          } ONLY when the retrieved passages genuinely do not answer the user's question (they ask about something outside the video, or want current/external information). When you do, cite the source URL inline. Never call ${
+            toolNames.length > 1 ? 'them' : 'it'
+          } for information that IS in the retrieved passages.`,
+          '',
+        ];
+
   return [
-    'TOOLS AVAILABLE: `kb_web_search(query)` — use it ONLY when the retrieved passages genuinely do not answer the user\'s question (they ask about something outside the video, or want current/external information). When you do use it, cite the source URL inline. Never call `kb_web_search` for information that IS in the retrieved passages.',
-    '',
+    ...toolsLines,
     meta,
     '',
     '---- Sections (timestamped anchors) ----',
@@ -1414,11 +1452,13 @@ export function buildChatSystemPrompt(
   video: StrapiVideo,
   retrieved: TranscriptChunk[],
   skillPrompt?: string | null,
+  /** Forwarded to the grounding block — see buildVideoGroundingContext. */
+  tools?: ReadonlyArray<NamedTool>,
 ): string {
   const persona = skillPrompt && skillPrompt.trim().length > 0
     ? skillPrompt
     : DEFAULT_VIDEO_CHAT_PERSONA;
-  const grounding = buildVideoGroundingContext(video, retrieved);
+  const grounding = buildVideoGroundingContext(video, retrieved, tools);
   return `${persona}\n\n${grounding}`;
 }
 
@@ -1459,12 +1499,12 @@ export async function askAboutVideoService(
 export async function prepareChatPrompt(
   video: StrapiVideo,
   messages: ChatMessage[],
-  opts?: { skillPrompt?: string | null },
+  opts?: { skillPrompt?: string | null; tools?: ReadonlyArray<NamedTool> },
 ): Promise<{ system: string; retrievedCount: number }> {
   const query = extractLatestUserQuery(messages);
   const retrieved = await getChatEvidenceForVideo(video, query);
   return {
-    system: buildChatSystemPrompt(video, retrieved, opts?.skillPrompt ?? null),
+    system: buildChatSystemPrompt(video, retrieved, opts?.skillPrompt ?? null, opts?.tools),
     retrievedCount: retrieved.length,
   };
 }
