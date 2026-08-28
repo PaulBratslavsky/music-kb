@@ -25,3 +25,5 @@ ADRs are append-only history. If a decision is replaced, write a new ADR that su
 | [0008](./0008-official-strapi-mcp-over-hand-rolled.md) | Official Strapi MCP server over the hand-rolled one | Accepted |
 | [0009](./0009-monorepo-with-shared-music-package.md) | Monorepo with a shared music package | Accepted |
 | [0010](./0010-duplicated-retrieval-guarded-not-shared.md) | Duplicated retrieval is guarded, not shared | Accepted |
+| [0011](./0011-model-switcher-on-interactive-surfaces.md) | A model switcher on interactive surfaces; bulk stays local | Accepted |
+| [0012](./0012-usechat-owns-chat-state-parser-kept-for-library-ask.md) | useChat owns chat state; the AG-UI parser is kept for library-ask | Accepted |

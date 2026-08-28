@@ -10,6 +10,21 @@ live right now.
 
 ---
 
+> **OUTCOME (2026-08-28).** All five phases are done; see
+> [ADR 0012](./adr/0012-usechat-owns-chat-state-parser-kept-for-library-ask.md).
+> Two things below turned out to be wrong once measured against a live SDK,
+> and are corrected in place:
+>
+> - **§0.2's claim that `TOOL_CALL_END` carries "the id and nothing else" is
+>   wrong.** The spec keys are stripped, but the name and input survive under
+>   the vendor extension `metadata.tanstack`. Captured, not inferred.
+> - **Phase 4's "per-send `body`" is wrong for this codebase.** It assumed a
+>   custom fetcher. With the connection adapter there is no closure to go
+>   stale, `useChat` re-reads chat-level `forwardedProps` through an effect,
+>   and only chat-level props are replayed by `reload()`.
+>
+> Shipped against 0.52.0, not the 0.49.1 named below.
+
 ## 0. Read this first: two defects
 
 ### 0.1 LIVE TODAY — `web_search` is name-hijacked on the frontier tier
