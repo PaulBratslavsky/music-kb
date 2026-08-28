@@ -9,7 +9,7 @@ import { prepareDigestChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
-import { latestUserText } from '#/lib/services/ui-message';
+import { dropOrphanToolCalls, latestUserText } from '#/lib/services/ui-message';
 
 // Streaming chat endpoint for the /digest page — cross-video chat against
 // N selected videos (2-5). Mirrors `/api/chat` in wire shape (AG-UI SSE,
@@ -79,27 +79,34 @@ export const Route = createFileRoute('/api/digest-chat')({
         // per-video retrieval with it. Passing a single synthetic message is
         // honest about that, rather than handing it a thread it ignores.
         const query = latestUserText(params.messages);
+        // Same guard as /api/chat: an unanswered tool_use is a 400 on the
+        // frontier tier. This surface has tools too (kb_web_search).
+        const history = dropOrphanToolCalls(params.messages);
         const { system, retrievedCount } = await prepareDigestChatPrompt(videos, [
           { role: 'user', content: query },
         ]);
+        // Model resolved BEFORE the log line so the tag names the model that
+        // actually answers — matching api.ask.tsx's `[ask/<model>]`. Without
+        // it there is no way to tell from the outside whether the picker's
+        // choice reached the server, which is exactly the class of bug this
+        // codebase has shipped twice.
+        const { model, notice } = await resolveRequestModel('digest-chat', modelChoice);
+        if (notice) console.warn(`[digest-chat] ${notice}`);
         console.log(
-          `[${new Date().toISOString().slice(11, 23)}] [digest-chat] → streaming`,
+          `[${new Date().toISOString().slice(11, 23)}] [digest-chat/${model.model}] → streaming`,
           {
             videos: videos.length,
             retrievedChunks: retrievedCount,
             messages: params.messages.length,
           },
         );
-
-        const { model, notice } = await resolveRequestModel('digest-chat', modelChoice);
-        if (notice) console.warn(`[digest-chat] ${notice}`);
         const stream = chat({
           // No modelOptions below: this surface deliberately runs at
           // Ollama's default temperature. That is the pre-existing
           // behaviour, not an oversight — adding sampling here is a
           // generation-quality change, not a refactor.
           adapter: model.adapter,
-          ...withSystem(model, system, params.messages),
+          ...withSystem(model, system, history),
           tools: [webSearchTool],
         });
 

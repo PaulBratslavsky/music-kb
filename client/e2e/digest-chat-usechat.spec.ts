@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { askInChat } from './chat-helpers';
 
 // End-to-end smoke for DigestChat after the useChat migration.
 //
@@ -45,8 +46,8 @@ test.describe('DigestChat on useChat', () => {
     await page.goto(`/digest?videos=${VIDEOS}`);
 
     const input = page.getByPlaceholder(/ask about these videos/i);
-    await input.fill('Name one topic both videos cover. One sentence.');
-    await page.getByRole('button', { name: /^send$/i }).click();
+    const send = page.getByRole('button', { name: /^send$/i });
+    await askInChat(page, input, send, 'Name one topic both videos cover. One sentence.');
 
     // The user's turn must appear immediately — useChat appends it optimistically.
     await expect(page.getByText('Name one topic both videos cover. One sentence.')).toBeVisible();

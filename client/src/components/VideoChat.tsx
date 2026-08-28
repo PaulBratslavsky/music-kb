@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { fetchServerSentEvents, useChat } from '@tanstack/ai-react';
+import type { UIMessage } from '@tanstack/ai';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Accordion } from 'radix-ui';
@@ -6,8 +8,6 @@ import { buildMarkdownComponents, stripInlineTimecodes } from './TimecodeMarkdow
 import { usePlayerControl } from '#/components/player';
 import {
   friendlyStreamError,
-  streamChatSSE,
-  type StreamEvent,
 } from '#/lib/services/chat-stream';
 import { Button } from '#/components/ui/button';
 import { ModelPicker } from '#/components/ModelPicker';
@@ -22,6 +22,7 @@ import { getChatResponseEvidence } from '#/data/server-functions/videos';
 import { summarizeToNote } from '#/data/server-functions/notes';
 import { listSkills, type Skill } from '#/lib/skills';
 import type { EvidenceCitation } from '#/lib/services/transcript';
+import { messageText, messageToolCalls } from '#/lib/services/ui-message';
 
 export type ToolCallRecord = {
   /** Stream-provided unique id for this tool call. */
@@ -36,12 +37,9 @@ export type ToolCallRecord = {
   status: 'running' | 'done';
 };
 
-type Message = {
-  role: 'user' | 'assistant';
-  content: string;
-  evidence?: EvidenceCitation[];
-  toolCalls?: ToolCallRecord[];
-};
+// No local Message type: useChat owns the transcript as UIMessage[], and
+// evidence is held beside it in a Map keyed by message id (see the hook) so
+// transcript excerpts are never replayed to the model.
 
 type Props = {
   videoId: string;
@@ -77,36 +75,23 @@ const DEFAULT_SUGGESTED_PROMPTS = [
 // Wire framing + AG-UI parsing live in `chat-stream.ts`; this wrapper
 // owns only the request shape (URL, body, headers) for the per-video
 // chat endpoint.
-async function* streamChatResponse(
-  videoId: string,
-  messages: Message[],
-  skillSlug: string | null,
-  modelChoice: string,
-): AsyncGenerator<StreamEvent, void, void> {
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      videoId,
-      messages,
-      skillSlug: skillSlug ?? undefined,
-      // Choice TOKEN, not a model id — the server validates it against the
-      // installed Ollama catalogue before building an adapter.
-      modelChoice,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`chat (${res.status}): ${text || 'request failed'}`);
-  }
-  yield* streamChatSSE(res);
+/**
+ * A skill's opening line, as a UIMessage.
+ *
+ * Seeded directly into the transcript rather than sent through the model:
+ * it is a fixed string from the skill registry, so a round trip would cost a
+ * generation and could return something else.
+ */
+function greetingMessage(greeting: string): UIMessage {
+  return {
+    id: `greeting-${greeting.slice(0, 24)}`,
+    role: 'assistant',
+    parts: [{ type: 'text', content: greeting }],
+  };
 }
 
 export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryMsg, setSummaryMsg] = useState<string | null>(null);
   // Skills are code modules (see `#/lib/skills`), resolved synchronously
@@ -117,6 +102,54 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
   // Per-conversation model choice. 'default' preserves the previous behaviour
   // exactly: the surface's configured local model.
   const [modelChoice, setModelChoice] = useState<string>('default');
+  // Everything the server needs for THIS conversation. Chat-level rather than
+  // per-send: useChat re-reads it through an effect whenever the object
+  // identity changes (use-chat.js:203 `client.updateOptions`), and only
+  // chat-level props are replayed by `reload()` — a retry that dropped
+  // skillSlug would answer in the wrong persona with no error.
+  const forwardedProps = useMemo(
+    () => ({ videoId, skillSlug: skillSlug ?? undefined, modelChoice }),
+    [videoId, skillSlug, modelChoice],
+  );
+
+  // Evidence lives HERE, keyed by message id, not on the message.
+  //
+  // It is fetched after the answer completes (a second server call that
+  // matches the model's cited timecodes to real transcript chunks), and it is
+  // large. Putting it in message metadata would send every prior message's
+  // transcript excerpts back up the wire on every subsequent turn.
+  const [evidenceById, setEvidenceById] = useState<Map<string, EvidenceCitation[]>>(
+    () => new Map(),
+  );
+
+  const {
+    messages,
+    sendMessage,
+    isLoading: pending,
+    error,
+    setMessages,
+  } = useChat({
+    // `threadId` scopes the conversation to this video, so navigating between
+    // videos does not bleed one transcript's chat into another's.
+    threadId: videoId,
+    connection: fetchServerSentEvents('/api/chat'),
+    forwardedProps,
+    onFinish: (message) => {
+      // Best-effort: the answer has already rendered. Callbacks are read
+      // through useChat's options ref, so `videoId` here is never stale.
+      const text = messageText(message).trim();
+      if (text.length === 0) return;
+      void getChatResponseEvidence({ data: { videoId, responseText: text } })
+        .then((evidence) => {
+          if (evidence.length === 0) return;
+          setEvidenceById((prev) => new Map(prev).set(message.id, evidence));
+        })
+        .catch(() => {
+          // Evidence is an enhancement; its failure must not disturb the chat.
+        });
+    },
+  });
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -143,7 +176,7 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
       ? skills.find((s) => s.slug === nextSlug)
       : null;
     const greeting = selected?.defaultGreeting?.trim();
-    setMessages(greeting ? [{ role: 'assistant', content: greeting }] : []);
+    setMessages(greeting ? [greetingMessage(greeting)] : []);
     // Prime the input with the skill's first suggested prompt so Send
     // is immediately enabled — the user can hit Send, edit the text,
     // or click a different chip below to swap. Falls back to clearing
@@ -155,13 +188,12 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
 
   const clear = () => {
     if (pending) return;
-    setError(null);
     setSummaryMsg(null);
     // If the active skill has a greeting, re-seed it so the conversation
     // starts from the same opening after Clear. Otherwise truly empty.
     const active = skillSlug ? skills.find((s) => s.slug === skillSlug) : null;
     const greeting = active?.defaultGreeting?.trim();
-    setMessages(greeting ? [{ role: 'assistant', content: greeting }] : []);
+    setMessages(greeting ? [greetingMessage(greeting)] : []);
   };
 
   const summarize = async () => {
@@ -169,8 +201,11 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
     setSummarizing(true);
     setSummaryMsg(null);
     const payload = messages
-      .filter((m) => m.content && m.content.trim().length > 0)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .filter((m): m is typeof m & { role: 'user' | 'assistant' } =>
+        m.role === 'user' || m.role === 'assistant',
+      )
+      .map((m) => ({ role: m.role, content: messageText(m).trim() }))
+      .filter((m) => m.content.length > 0);
     const res = await summarizeToNote({
       data: {
         videoIds: [videoId],
@@ -190,7 +225,7 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
     }
   };
 
-  const sendPrompt = async (promptText: string) => {
+  const sendPrompt = (promptText: string) => {
     if (pending) return;
     const trimmed = promptText.trim();
     if (!trimmed) return;
@@ -199,102 +234,8 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
     // message into an explicit tool-use prompt, bypassing the model's
     // sometimes-flaky decision to call a tool. `/web <query>` forces
     // the kb_web_search tool. Extend the switch when we add more tools.
-    const finalContent = transformSlashCommand(trimmed);
-
-    const history: Message[] = [...messages, { role: 'user', content: finalContent }];
-    setMessages([...history, { role: 'assistant', content: '' }]);
     setInput('');
-    setPending(true);
-    setError(null);
-
-    try {
-      let accumulated = '';
-      const toolCalls = new Map<string, ToolCallRecord>();
-
-      const pushUpdate = () => {
-        setMessages((prev) => {
-          const next = prev.slice();
-          next[next.length - 1] = {
-            role: 'assistant',
-            content: accumulated,
-            toolCalls: toolCalls.size > 0 ? Array.from(toolCalls.values()) : undefined,
-          };
-          return next;
-        });
-      };
-
-      for await (const event of streamChatResponse(
-        videoId,
-        history,
-        skillSlug,
-        modelChoice,
-      )) {
-        if (event.kind === 'text') {
-          accumulated += event.delta;
-          pushUpdate();
-        } else if (event.kind === 'tool_start') {
-          toolCalls.set(event.id, {
-            id: event.id,
-            name: event.name,
-            input: null,
-            result: null,
-            status: 'running',
-          });
-          pushUpdate();
-        } else if (event.kind === 'tool_end') {
-          const existing = toolCalls.get(event.id);
-          toolCalls.set(event.id, {
-            id: event.id,
-            name: event.name || (existing?.name ?? ''),
-            input: event.input,
-            // Keep any result already delivered: TOOL_CALL_RESULT can arrive
-            // before this frame, and 0.45's tool_end carries none.
-            result: event.result ?? existing?.result ?? null,
-            status: 'done',
-          });
-          pushUpdate();
-        } else if (event.kind === 'tool_result') {
-          // 0.45 delivers the result on its own frame, after tool_end and
-          // carrying only the id. Merge into the existing call so the name
-          // and input from the earlier frames survive — replacing here would
-          // blank the tool card.
-          const existing = toolCalls.get(event.id);
-          if (existing) {
-            toolCalls.set(event.id, { ...existing, result: event.result });
-            pushUpdate();
-          }
-        }
-      }
-
-      // After streaming completes, fetch the deterministic evidence for
-      // every timecode the model cited. Each entry pairs the citation with
-      // the real transcript chunk we matched to — rendered as expandable
-      // accordion panels below the message so the user can verify.
-      if (accumulated.trim().length > 0) {
-        try {
-          const evidence = await getChatResponseEvidence({
-            data: { videoId, responseText: accumulated },
-          });
-          setMessages((prev) => {
-            const next = prev.slice();
-            const last = next[next.length - 1];
-            if (last && last.role === 'assistant') {
-              next[next.length - 1] = { ...last, evidence };
-            }
-            return next;
-          });
-        } catch {
-          // Evidence is best-effort — the message already rendered.
-        }
-      }
-    } catch (err) {
-      setMessages((prev) => prev.slice(0, -1));
-      // A run failure arrives already translated by the model that answered
-      // (stream-errors.ts). Transport failures are translated here, as before.
-      setError(friendlyStreamError(err, 'Chat failed'));
-    } finally {
-      setPending(false);
-    }
+    void sendMessage(transformSlashCommand(trimmed));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -334,7 +275,7 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
             )}
             {messages.length > 0 && (
               <>
-                {messages.filter((m) => m.content.trim().length > 0).length >= 2 && (
+                {messages.filter((m) => messageText(m).trim().length > 0).length >= 2 && (
                   <Button
                     type="button"
                     variant="outline"
@@ -398,8 +339,9 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
         <div className="grid gap-4 pb-4">
           {messages.map((msg, i) => (
             <MessageRow
-              key={i}
+              key={msg.id ?? i}
               message={msg}
+              evidence={evidenceById.get(msg.id) ?? null}
               streaming={
                 pending && i === messages.length - 1 && msg.role === 'assistant'
               }
@@ -435,7 +377,9 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
               d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zm.5 9v1.5h-1V10.5h1zm0-6v5h-1v-5h1z"
             />
           </svg>
-          <span>{error}</span>
+          {/* Run failures arrive pre-translated by the model that answered
+              (stream-errors.ts); transport failures translate here. */}
+          <span>{friendlyStreamError(error, 'Chat failed')}</span>
         </div>
       )}
 
@@ -462,26 +406,33 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
 
 function MessageRow({
   message,
+  evidence,
   streaming,
 }: Readonly<{
-  message: Message;
+  message: UIMessage;
+  /** Held outside the message so transcript excerpts never ride the wire. */
+  evidence: EvidenceCitation[] | null;
   streaming: boolean;
 }>) {
+  // useChat keeps an ordered `parts` array; text and tool calls are derived.
+  const content = messageText(message);
+  const toolCalls = messageToolCalls(message);
+
   if (message.role === 'user') {
     return (
       <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-[var(--accent)]/10 px-4 py-2.5 text-sm text-[var(--ink)]">
-        {message.content}
+        {content}
       </div>
     );
   }
 
-  const isEmpty = message.content.length === 0 && streaming;
+  const isEmpty = content.length === 0 && streaming;
 
   return (
     <div className="mr-auto min-w-0 max-w-[95%]">
-      {message.toolCalls && message.toolCalls.length > 0 && (
+      {toolCalls.length > 0 && (
         <div className="mb-2">
-          <ToolCallsPanel toolCalls={message.toolCalls} />
+          <ToolCallsPanel toolCalls={toolCalls} />
         </div>
       )}
       {isEmpty ? (
@@ -498,7 +449,7 @@ function MessageRow({
             remarkPlugins={[remarkGfm]}
             components={buildMarkdownComponents()}
           >
-            {stripInlineTimecodes(message.content)}
+            {stripInlineTimecodes(content)}
           </ReactMarkdown>
           {streaming && (
             <span
@@ -506,8 +457,8 @@ function MessageRow({
               className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-[var(--ink-muted)] align-middle"
             />
           )}
-          {!streaming && message.evidence && message.evidence.length > 0 && (
-            <EvidencePanel evidence={message.evidence} />
+          {!streaming && evidence && evidence.length > 0 && (
+            <EvidencePanel evidence={evidence} />
           )}
         </div>
       )}

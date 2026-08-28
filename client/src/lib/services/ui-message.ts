@@ -138,3 +138,63 @@ export function latestUserText(
   }
   return '';
 }
+
+/**
+ * Drop assistant tool calls that have no matching tool result.
+ *
+ * WHY THIS IS NEEDED. The SDK's own conversion admits a tool call at
+ * `state: 'input-complete'` into the assistant turn
+ * (`isToolCallIncluded`, messages.js:303), but only emits a tool RESULT for
+ * `'complete'` or `'error'` (messages.js:369). A run stopped while a tool was
+ * executing therefore leaves an assistant `tool_use` with nothing answering
+ * it, and that survives uiMessagesToWire → chatParamsFromRequestBody → chat()
+ * unchanged — verified by round-tripping one.
+ *
+ * Anthropic rejects an unanswered `tool_use` with a 400. Ollama tolerates it,
+ * which is worse: the bug would sit dormant on the default tier and surface
+ * only for users who switched to the frontier model, mid-conversation, after
+ * cancelling a tool call. The hand-rolled `expandHistoryForModel` this
+ * replaced filtered on `status === 'done'` and so never had the problem;
+ * dropping that filter without replacing it would have been a regression.
+ *
+ * Orphans are removed rather than paired with a synthetic empty result: a
+ * fabricated "" result tells the model its tool returned nothing, which is a
+ * different claim from "this call never happened".
+ */
+export function dropOrphanToolCalls<T>(messages: ReadonlyArray<T>): T[] {
+  const answered = new Set<string>();
+  for (const m of messages as ReadonlyArray<Record<string, unknown>>) {
+    if (m?.role === 'tool' && typeof m.toolCallId === 'string') answered.add(m.toolCallId);
+  }
+
+  const out: T[] = [];
+  for (const m of messages) {
+    const msg = m as Record<string, unknown>;
+    const calls = msg?.toolCalls;
+    if (msg?.role !== 'assistant' || !Array.isArray(calls) || calls.length === 0) {
+      out.push(m);
+      continue;
+    }
+
+    const kept = calls.filter(
+      (c: { id?: string }) => typeof c?.id === 'string' && answered.has(c.id),
+    );
+    if (kept.length === calls.length) {
+      out.push(m);
+      continue;
+    }
+
+    // Every call was orphaned and the turn said nothing else: the message
+    // carried no information beyond the calls, so it goes too.
+    const content = msg.content;
+    const hasText = typeof content === 'string' ? content.trim().length > 0 : content != null;
+    if (kept.length === 0 && !hasText) continue;
+
+    out.push(
+      (kept.length === 0
+        ? { ...msg, toolCalls: undefined }
+        : { ...msg, toolCalls: kept }) as T,
+    );
+  }
+  return out;
+}

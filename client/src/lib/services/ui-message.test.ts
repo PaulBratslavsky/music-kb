@@ -9,7 +9,12 @@
 // request. These tests exist so that shape can't regress silently.
 
 import { describe, expect, it } from 'vitest';
-import { latestUserText, messageText, messageToolCalls } from './ui-message';
+import {
+  dropOrphanToolCalls,
+  latestUserText,
+  messageText,
+  messageToolCalls,
+} from './ui-message';
 
 describe('messageText', () => {
   it('reads a UIMessage built from parts', () => {
@@ -145,5 +150,72 @@ describe('latestUserText', () => {
   it('returns empty string when there is no user turn', () => {
     expect(latestUserText([{ role: 'assistant', content: 'hi' }] as never)).toBe('');
     expect(latestUserText([])).toBe('');
+  });
+});
+
+// An assistant tool_use with no matching tool_result is a 400 on Anthropic.
+// The SDK's own conversion admits one — isToolCallIncluded accepts
+// state:'input-complete' while a result is only emitted for 'complete'/'error'
+// — and it survives uiMessagesToWire → chatParamsFromRequestBody → chat().
+// The hand-rolled expandHistoryForModel these routes used to run filtered on
+// status === 'done', so removing it without this guard would be a regression.
+describe('dropOrphanToolCalls', () => {
+  const assistantWithCalls = (ids: string[], content: string | null = null) => ({
+    id: 'a1', role: 'assistant', content,
+    toolCalls: ids.map((id) => ({
+      id, type: 'function', function: { name: 'kb_web_search', arguments: '{}' },
+    })),
+  });
+  const toolResult = (id: string) => ({ role: 'tool', toolCallId: id, content: 'result' });
+
+  it('keeps a tool call that has its result', () => {
+    const msgs = [assistantWithCalls(['c1']), toolResult('c1')];
+    expect(dropOrphanToolCalls(msgs)).toEqual(msgs);
+  });
+
+  it('drops an assistant turn whose only tool call was never answered', () => {
+    const msgs = [
+      { role: 'user', content: 'search' },
+      assistantWithCalls(['c1']),
+      { role: 'user', content: 'never mind' },
+    ];
+    expect(dropOrphanToolCalls(msgs)).toEqual([
+      { role: 'user', content: 'search' },
+      { role: 'user', content: 'never mind' },
+    ]);
+  });
+
+  it('keeps the answered calls and drops only the orphan', () => {
+    const out = dropOrphanToolCalls<Record<string, any>>([
+      assistantWithCalls(['c1', 'c2']),
+      toolResult('c1'),
+    ]);
+    expect(out[0].toolCalls).toHaveLength(1);
+    expect(out[0].toolCalls[0].id).toBe('c1');
+  });
+
+  it('keeps an assistant turn that also said something', () => {
+    // The prose is real output; only the dangling call is removed.
+    const out = dropOrphanToolCalls<Record<string, any>>([
+      assistantWithCalls(['c1'], 'Here is what I found.'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].content).toBe('Here is what I found.');
+    expect(out[0].toolCalls).toBeUndefined();
+  });
+
+  it('leaves ordinary messages untouched', () => {
+    const msgs = [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' },
+    ];
+    expect(dropOrphanToolCalls(msgs)).toEqual(msgs);
+  });
+
+  it('does not invent a result for the orphan', () => {
+    // A synthetic empty result would tell the model its tool returned
+    // nothing, which is a different claim from "this never happened".
+    const out = dropOrphanToolCalls([assistantWithCalls(['c1'])]);
+    expect(out.some((m) => (m as { role?: string }).role === 'tool')).toBe(false);
   });
 });
