@@ -7,6 +7,7 @@ import {
   type StreamEvent,
 } from './chat-stream';
 import { friendlyOllamaError } from './ollama-errors';
+import wire052 from './__fixtures__/tool-call-wire-0.52.json';
 
 // Build a Response whose body streams the given byte chunks one-by-one
 // (so the parser sees realistic split-across-reads behaviour, not a
@@ -383,5 +384,112 @@ describe('streamChatSSE', () => {
       ]),
     );
     expect(events).toEqual([{ kind: 'text', delta: 'end' }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The 0.52 spec-only wire.
+//
+// Every tool fixture ABOVE this line is hand-authored in the 0.45 dialect, and
+// that is exactly why they could not catch this: @tanstack/ai 0.48 made the SSE
+// wire spec-only, TOOL_CALL_END lost its top-level `toolName`/`input`, and the
+// parser went on reading fields that are no longer there. Tool cards render
+// blank and `expandHistoryForModel` reports a nameless tool called with `{}` —
+// with no error anywhere. The fixtures stayed green through the whole thing
+// because they assert the parser matches what we BELIEVED the SDK emits.
+//
+// The frames below are captured from a live run instead. See the fixture file.
+// ---------------------------------------------------------------------------
+describe('0.52 spec-only wire (captured fixtures)', () => {
+  type Frame = Record<string, unknown>;
+  const frames = wire052.frames as Frame[];
+  const byType = (t: string): Frame => {
+    const f = frames.find((x) => x.type === t);
+    if (!f) throw new Error(`captured fixture is missing a ${t} frame`);
+    return f;
+  };
+  const sse = (fs: Frame[]) =>
+    streamingResponse([...fs.map((f) => `data: ${JSON.stringify(f)}\n\n`), 'data: [DONE]\n\n']);
+
+  const START = byType('TOOL_CALL_START');
+  const ARGS = byType('TOOL_CALL_ARGS');
+  const END = byType('TOOL_CALL_END');
+  const RESULT = byType('TOOL_CALL_RESULT');
+  const EXPECTED_INPUT = { query: 'Berklee college of music founding date' };
+
+  it('the captured END frame really has no top-level name or input', () => {
+    // Guard on the fixture itself. If a future capture reinstates these
+    // fields, the tests below stop proving anything and this fails loudly.
+    expect(END.toolName).toBeUndefined();
+    expect(END.input).toBeUndefined();
+  });
+
+  it('recovers name and input from a captured exchange', async () => {
+    const events = await collect(sse([START, ARGS, END, RESULT]));
+    const end = events.find((e) => e.kind === 'tool_end');
+    expect(end).toMatchObject({ name: 'kb_web_search', input: EXPECTED_INPUT });
+  });
+
+  it('recovers input from ARGS deltas alone when metadata is stripped', async () => {
+    // metadata.tanstack is a VENDOR EXTENSION, outside the spec. If a release
+    // or an intermediary drops it, accumulated TOOL_CALL_ARGS is the only
+    // remaining source, so it has to stand on its own.
+    const strip = (f: Frame): Frame => {
+      const { metadata: _metadata, ...rest } = f;
+      return rest;
+    };
+    const events = await collect(sse([strip(START), ARGS, strip(END)]));
+    const end = events.find((e) => e.kind === 'tool_end');
+    expect(end).toMatchObject({ name: 'kb_web_search', input: EXPECTED_INPUT });
+  });
+
+  it('still surfaces the tool result from its own frame', async () => {
+    const events = await collect(sse([START, ARGS, END, RESULT]));
+    const result = events.find((e) => e.kind === 'tool_result');
+    expect(result?.result).toContain('RESULT for');
+  });
+
+  it('keeps concurrent tool calls apart', async () => {
+    // The accumulator is per-stream and keyed by toolCallId. Single-slot or
+    // module-global state would swap these two calls' arguments.
+    const events = await collect(
+      sse([
+        { type: 'TOOL_CALL_START', toolCallId: 'a', toolCallName: 'first' },
+        { type: 'TOOL_CALL_START', toolCallId: 'b', toolCallName: 'second' },
+        { type: 'TOOL_CALL_ARGS', toolCallId: 'a', delta: '{"x":1}' },
+        { type: 'TOOL_CALL_ARGS', toolCallId: 'b', delta: '{"y":2}' },
+        { type: 'TOOL_CALL_END', toolCallId: 'b' },
+        { type: 'TOOL_CALL_END', toolCallId: 'a' },
+      ]),
+    );
+    const ends = events.filter((e) => e.kind === 'tool_end');
+    expect(ends.find((e) => e.id === 'a')?.input).toEqual({ x: 1 });
+    expect(ends.find((e) => e.id === 'b')?.input).toEqual({ y: 2 });
+  });
+
+  it('reassembles arguments split across several delta frames', async () => {
+    const events = await collect(
+      sse([
+        { type: 'TOOL_CALL_START', toolCallId: 'c', toolCallName: 'kb_web_search' },
+        { type: 'TOOL_CALL_ARGS', toolCallId: 'c', delta: '{"que' },
+        { type: 'TOOL_CALL_ARGS', toolCallId: 'c', delta: 'ry":"ber' },
+        { type: 'TOOL_CALL_ARGS', toolCallId: 'c', delta: 'klee"}' },
+        { type: 'TOOL_CALL_END', toolCallId: 'c' },
+      ]),
+    );
+    expect(events.find((e) => e.kind === 'tool_end')?.input).toEqual({ query: 'berklee' });
+  });
+
+  it('degrades rather than throwing on a malformed argument buffer', async () => {
+    const events = await collect(
+      sse([
+        { type: 'TOOL_CALL_START', toolCallId: 'z', toolCallName: 't' },
+        { type: 'TOOL_CALL_ARGS', toolCallId: 'z', delta: '{not json' },
+        { type: 'TOOL_CALL_END', toolCallId: 'z' },
+      ]),
+    );
+    const end = events.find((e) => e.kind === 'tool_end');
+    expect(end?.name).toBe('t');      // name still recovered
+    expect(end?.input).toBeNull();    // input degraded, stream intact
   });
 });

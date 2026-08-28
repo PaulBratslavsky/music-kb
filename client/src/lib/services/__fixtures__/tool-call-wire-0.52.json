@@ -1,0 +1,52 @@
+{
+  "_comment": "CAPTURED from a live `chat()` with a real tool through toServerSentEventsResponse against @tanstack/ai 0.52.0 + @tanstack/ai-ollama 0.10.3 (llama3.2:3b). Do not hand-edit. Re-capture with client/verify-sse.mjs after any SDK bump \u2014 a fixture you write proves the parser matches your belief; a fixture you capture proves it matches the SDK.",
+  "sdk": {
+    "@tanstack/ai": "0.52.0",
+    "@tanstack/ai-ollama": "0.10.3"
+  },
+  "capturedAt": "2026-08-28",
+  "frames": [
+    {
+      "type": "TOOL_CALL_START",
+      "toolCallId": "call_fhcpyf56",
+      "toolCallName": "kb_web_search",
+      "parentMessageId": "msg-1787945164270-vx0fze9aedq",
+      "timestamp": 1787945164272,
+      "metadata": {
+        "tanstack": {
+          "model": "llama3.2:3b",
+          "index": 0
+        }
+      }
+    },
+    {
+      "type": "TOOL_CALL_ARGS",
+      "toolCallId": "call_fhcpyf56",
+      "timestamp": 1787945164272,
+      "delta": "{\"query\":\"Berklee college of music founding date\"}"
+    },
+    {
+      "type": "TOOL_CALL_END",
+      "toolCallId": "call_fhcpyf56",
+      "timestamp": 1787945164272,
+      "metadata": {
+        "tanstack": {
+          "model": "llama3.2:3b",
+          "toolCallName": "kb_web_search",
+          "toolName": "kb_web_search",
+          "input": {
+            "query": "Berklee college of music founding date"
+          }
+        }
+      }
+    },
+    {
+      "type": "TOOL_CALL_RESULT",
+      "timestamp": 1787945164278,
+      "messageId": "msg-1787945164270-vx0fze9aedq",
+      "toolCallId": "call_fhcpyf56",
+      "content": "{\"results\":[\"RESULT for Berklee college of music founding date\"]}",
+      "role": "tool"
+    }
+  ]
+}

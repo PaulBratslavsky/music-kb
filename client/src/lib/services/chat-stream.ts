@@ -110,6 +110,10 @@ export async function* streamChatSSE(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  // Per-STREAM, not module-global: two chats open at once would otherwise
+  // interleave their argument buffers and hand each other's JSON to the
+  // wrong tool call.
+  const toolCalls: ToolCallAccumulator = new Map();
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -119,7 +123,7 @@ export async function* streamChatSSE(
       while (idx !== -1) {
         const eventBlock = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 2);
-        const event = parseSseEventBlock(eventBlock);
+        const event = parseSseEventBlock(eventBlock, toolCalls);
         if (event) yield event;
         idx = buffer.indexOf('\n\n');
       }
@@ -127,7 +131,7 @@ export async function* streamChatSSE(
     // Flush any trailing block after the stream closes (rare — most
     // streams end with the `\n\n` after [DONE], but be defensive).
     buffer += decoder.decode();
-    const tail = parseSseEventBlock(buffer);
+    const tail = parseSseEventBlock(buffer, toolCalls);
     if (tail) yield tail;
   } finally {
     reader.releaseLock();
@@ -138,13 +142,53 @@ export async function* streamChatSSE(
 // Internals
 // -----------------------------------------------------------------------------
 
+/**
+ * Per-stream tool-call state: `toolCallId` → the name from TOOL_CALL_START
+ * plus the argument JSON accumulated from TOOL_CALL_ARGS deltas.
+ *
+ * Required since @tanstack/ai 0.48, which made the SSE wire spec-only. The
+ * name and arguments are no longer repeated on TOOL_CALL_END, so the only way
+ * to know them at end-time is to have kept them.
+ */
+type ToolCallAccumulator = Map<string, { name: string; args: string }>;
+
 // Parse one SSE event block (newline-joined `data:` lines) into a typed
-// event, null to skip — or throw, for RUN_ERROR frames. The AG-UI wire
-// format has had two field-name dialects observed in the wild —
-// `toolName` / `input` vs. `toolCallName` / `args` — so we accept both
-// shapes via `??` fallbacks. Keeps the parser robust to upstream
-// TanStack AI version drift.
-function parseSseEventBlock(block: string): StreamEvent | null {
+// event, null to skip — or throw, for RUN_ERROR frames.
+//
+// WIRE DIALECTS. Verified live against 0.45.1 and 0.52.0 (client/verify-sse.mjs):
+//
+//   frame             0.45.1 (top level)              0.52.0 (top level)
+//   TOOL_CALL_START   toolCallName, toolName, model   toolCallName
+//   TOOL_CALL_ARGS    delta, args                     delta
+//   TOOL_CALL_END     toolName, input                 — moved, see below
+//   TOOL_CALL_RESULT  content, model                  content
+//
+// 0.48 made the wire spec-only: every chunk passes through `stripToSpec`, and
+// TOOL_CALL_END's spec key set is `toolCallId` alone. Reading `event.toolName`
+// / `event.input` there — as this parser used to — yields '' and null on any
+// modern SDK: tool cards render blank, and `expandHistoryForModel` then tells
+// the model it called a nameless tool with `{}`, corrupting its own tool-use
+// history. Nothing throws.
+//
+// The name and input are NOT lost, though. Captured live from 0.52.0, they
+// ride under the vendor extension:
+//
+//   "metadata":{"tanstack":{"toolCallName":"kb_web_search",
+//                           "input":{"query":"..."},"model":"llama3.2:3b"}}
+//
+// So there are three sources, tried in this order:
+//   1. top-level `toolName`/`input`   — pre-0.48 dialect, and a downgrade path
+//   2. `metadata.tanstack`            — current, and already parsed
+//   3. accumulated TOOL_CALL_ARGS     — spec-only fallback, needs JSON.parse
+//
+// Order matters: (2) is a vendor extension outside the spec, so (3) is kept as
+// the floor that works even if `metadata` is stripped by a future release or
+// an intermediary. Fixtures for all three are captured, not hand-written —
+// see chat-stream.test.ts.
+function parseSseEventBlock(
+  block: string,
+  toolCalls: ToolCallAccumulator,
+): StreamEvent | null {
   const lines = block.split('\n');
   let payload = '';
   for (const line of lines) {
@@ -214,23 +258,48 @@ function parseSseEventBlock(block: string): StreamEvent | null {
     case 'TOOL_CALL_START': {
       const id = event.toolCallId;
       const name = event.toolName ?? event.toolCallName;
-      return id && name ? { kind: 'tool_start', id, name } : null;
+      if (!id || !name) return null;
+      // START is the ONLY frame that still carries the name. Keep it.
+      toolCalls.set(id, { name, args: '' });
+      return { kind: 'tool_start', id, name };
+    }
+    case 'TOOL_CALL_ARGS': {
+      // Previously ignored, on the assumption END repeated the full input.
+      // Since 0.48 these deltas are the only place the arguments exist.
+      const id = event.toolCallId;
+      if (!id) return null;
+      const entry = toolCalls.get(id);
+      if (entry) entry.args += event.delta ?? '';
+      return null; // partial arguments are not a UI event
     }
     case 'TOOL_CALL_END': {
       const id = event.toolCallId;
-      // tool_end is the source of truth for `input` (TOOL_CALL_ARGS
-      // events stream args incrementally; we ignore those).
-      //
-      // `result` is read defensively: up to 0.10 the result rode along on
-      // this frame, but 0.45 sends it separately as TOOL_CALL_RESULT (see
-      // below). Keeping the fallback means both dialects work.
-      const name = event.toolName ?? event.toolCallName ?? '';
       if (!id) return null;
+      const entry = toolCalls.get(id);
+      toolCalls.delete(id); // the call is over; do not leak it for the stream's life
+
+      const meta = event.metadata?.tanstack;
+      const name =
+        event.toolName ?? event.toolCallName ?? meta?.toolName ?? meta?.toolCallName ?? entry?.name ?? '';
+
+      let input: unknown = event.input ?? event.args ?? meta?.input ?? null;
+      if (input == null && entry && entry.args.length > 0) {
+        // A truncated or malformed buffer must not kill the stream — the
+        // tool still ran; only its argument display is degraded.
+        try {
+          input = JSON.parse(entry.args) as unknown;
+        } catch {
+          input = null;
+        }
+      }
+
+      // `result` is read defensively: up to 0.10 the result rode along on
+      // this frame, but 0.45+ sends it separately as TOOL_CALL_RESULT.
       return {
         kind: 'tool_end',
         id,
         name,
-        input: event.input ?? event.args ?? null,
+        input,
         result: event.result ?? null,
       };
     }
@@ -267,6 +336,18 @@ type AgUiEvent = {
   toolName?: string;
   toolCallName?: string;
   input?: unknown;
+  /**
+   * TanStack's vendor extension. Since 0.48 the spec-only wire strips the
+   * name and input off TOOL_CALL_END's top level; they survive here.
+   */
+  metadata?: {
+    tanstack?: {
+      toolName?: string;
+      toolCallName?: string;
+      input?: unknown;
+      model?: string;
+    };
+  };
   args?: unknown;
   result?: string | null;
   citations?: Citation[];
