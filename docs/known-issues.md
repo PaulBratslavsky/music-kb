@@ -1,5 +1,10 @@
 # Known issues
 
+> **Both entries below are now FIXED** (2026-08-28). They are kept as records rather
+> than deleted, because the reasoning is the useful part: issue 2 was predicted, in
+> a source comment, by the same person who later triggered it — the comment named
+> the exact condition that would break it and the exact reason nobody would notice.
+
 Real defects, verified against the code, deliberately **not** fixed inside a larger change.
 Each entry says why it was deferred and what "fixed" looks like.
 
@@ -10,7 +15,7 @@ at the cited line.
 
 ## 1. `askAboutVideoService` advertises a tool it never passes
 
-**Severity:** low (degraded answers, no crash) · **Found:** 2026-08-27 · **Status:** FIXED 2026-08-28
+**Severity:** low (degraded answers, no crash) · **Found:** 2026-08-27 · **Status:** FIXED 2026-08-28 (commit ca7dedb)
 
 `buildVideoGroundingContext` — reached from `buildChatSystemPrompt` — tells the model it has a tool:
 
@@ -57,7 +62,7 @@ or it will advertise a name that no longer exists.
 
 ## 2. Anthropic stream errors are mapped by the Ollama translator
 
-**Severity:** medium (wrong user-facing recovery advice) · **Found:** 2026-08-27 · **Status:** open
+**Severity:** medium (wrong user-facing recovery advice) · **Found:** 2026-08-27 · **Status:** FIXED 2026-08-28 (commit 8599649)
 
 `chat-stream.ts` runs every `RUN_ERROR` through the **local** error mapper:
 
