@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fetchServerSentEvents, useChat } from '@tanstack/ai-react';
+import { createCapturingFetcher, type CaptureConfig } from './capture-frames';
 import type { UIMessage } from '@tanstack/ai';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -90,6 +91,13 @@ export type ChatProps = {
   /** A transient status line above the composer, e.g. "Saved to notes". */
   banner?: ReactNode;
 
+  /**
+   * Pull custom SSE frames out of the stream and bind them to the message
+   * they belong to — how /api/ask's pre-message CITATIONS frame reaches the
+   * UI without a server change. See capture-frames.ts.
+   */
+  captureFrames?: CaptureConfig<unknown>;
+
   className?: string;
 };
 
@@ -109,6 +117,7 @@ export function Chat({
   renderBelowBody,
   onFinish,
   banner,
+  captureFrames,
   className,
 }: Readonly<ChatProps>) {
   const [modelChoice, setModelChoice] = useState<string>('default');
@@ -128,9 +137,13 @@ export function Chat({
     setMessages,
   } = useChat({
     ...(threadId ? { threadId } : {}),
-    // The connection adapter assembles the AG-UI RunAgentInput body. Hand-
-    // writing that JSON is how the old clients and routes drifted apart.
-    connection: fetchServerSentEvents(endpoint),
+    // Default: the connection adapter assembles the AG-UI RunAgentInput body,
+    // because hand-writing that JSON is how the old clients and routes drifted
+    // apart. A surface that emits custom frames swaps in a fetcher that reads
+    // them out on the way through — same body, one extra pass.
+    ...(captureFrames
+      ? { fetcher: createCapturingFetcher(endpoint, captureFrames) }
+      : { connection: fetchServerSentEvents(endpoint) }),
     forwardedProps,
     ...(onFinish ? { onFinish } : {}),
   });
