@@ -173,7 +173,7 @@ export const Route = createFileRoute('/api/chat')({
           // `role: 'system'` message silently, which would lose the retrieved
           // transcript context and the skill persona without failing.
           ...withSystem(model, system, expanded),
-          // Agent loop: model can call `web_search(query)` when the
+          // Agent loop: model can call `kb_web_search(query)` when the
           // retrieved transcript passages don't answer the question.
           // Execution happens server-side; tool events stream as
           // TOOL_CALL_* SSE frames.
@@ -183,7 +183,7 @@ export const Route = createFileRoute('/api/chat')({
           // it is the call that most needs deterministic output, because a
           // tool call is structured. At 1.0 the model intermittently
           // *narrated* the call instead of emitting it, printing
-          // `[{"tool_name":"web_search",...}]` as ordinary prose: the tool
+          // `[{"tool_name":"kb_web_search",...}]` as ordinary prose: the tool
           // never ran, and the surrounding invented text reached the user
           // looking like a real result.
           // Tier-paired: the local branch returns Ollama sampling options, the

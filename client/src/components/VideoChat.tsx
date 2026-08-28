@@ -23,7 +23,7 @@ import type { EvidenceCitation } from '#/lib/services/transcript';
 export type ToolCallRecord = {
   /** Stream-provided unique id for this tool call. */
   id: string;
-  /** Tool name (e.g., "web_search"). */
+  /** Tool name (e.g., "kb_web_search"). */
   name: string;
   /** Final parsed input args (from TOOL_CALL_END). Null until the call completes. */
   input: unknown | null;
@@ -55,7 +55,7 @@ function transformSlashCommand(input: string): string {
   const webMatch = input.match(/^\/web\s+(.+)$/i);
   if (webMatch) {
     const query = webMatch[1].trim();
-    return `Use the web_search tool with the exact query "${query}", then summarize the top results in 2-3 short paragraphs. Cite each source URL inline. Do NOT answer from the transcript for this request — I explicitly want web search results.`;
+    return `Use the kb_web_search tool with the exact query "${query}", then summarize the top results in 2-3 short paragraphs. Cite each source URL inline. Do NOT answer from the transcript for this request — I explicitly want web search results.`;
   }
   return input;
 }
@@ -195,7 +195,7 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
     // Slash commands: deterministic triggers that rewrite the user's
     // message into an explicit tool-use prompt, bypassing the model's
     // sometimes-flaky decision to call a tool. `/web <query>` forces
-    // the web_search tool. Extend the switch when we add more tools.
+    // the kb_web_search tool. Extend the switch when we add more tools.
     const finalContent = transformSlashCommand(trimmed);
 
     const history: Message[] = [...messages, { role: 'user', content: finalContent }];
@@ -656,7 +656,7 @@ function EvidencePanel({
 }
 
 // Inline panel rendered above the assistant's message body when a tool
-// (e.g., web_search) was invoked. Each tool call is an accordion that
+// (e.g., kb_web_search) was invoked. Each tool call is an accordion that
 // expands to show the exact input args + the result the model received.
 // Matches the Claude/ChatGPT pattern of surfacing agentic steps without
 // cluttering the reading flow.

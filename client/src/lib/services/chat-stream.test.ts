@@ -57,17 +57,17 @@ describe('streamChatSSE', () => {
   it('parses tool_start + tool_end with `toolName` + `input` (VideoChat dialect)', async () => {
     const events = await collect(
       streamingResponse([
-        'data: {"type":"TOOL_CALL_START","toolCallId":"t1","toolName":"web_search"}\n\n',
-        'data: {"type":"TOOL_CALL_END","toolCallId":"t1","toolName":"web_search","input":{"query":"foo"},"result":"[]"}\n\n',
+        'data: {"type":"TOOL_CALL_START","toolCallId":"t1","toolName":"kb_web_search"}\n\n',
+        'data: {"type":"TOOL_CALL_END","toolCallId":"t1","toolName":"kb_web_search","input":{"query":"foo"},"result":"[]"}\n\n',
         'data: [DONE]\n\n',
       ]),
     );
     expect(events).toEqual([
-      { kind: 'tool_start', id: 't1', name: 'web_search' },
+      { kind: 'tool_start', id: 't1', name: 'kb_web_search' },
       {
         kind: 'tool_end',
         id: 't1',
-        name: 'web_search',
+        name: 'kb_web_search',
         input: { query: 'foo' },
         result: '[]',
       },
@@ -77,17 +77,17 @@ describe('streamChatSSE', () => {
   it('parses tool_start + tool_end with `toolCallName` + `args` (DigestChat dialect)', async () => {
     const events = await collect(
       streamingResponse([
-        'data: {"type":"TOOL_CALL_START","toolCallId":"t1","toolCallName":"web_search"}\n\n',
-        'data: {"type":"TOOL_CALL_END","toolCallId":"t1","toolCallName":"web_search","args":{"q":"x"},"result":null}\n\n',
+        'data: {"type":"TOOL_CALL_START","toolCallId":"t1","toolCallName":"kb_web_search"}\n\n',
+        'data: {"type":"TOOL_CALL_END","toolCallId":"t1","toolCallName":"kb_web_search","args":{"q":"x"},"result":null}\n\n',
         'data: [DONE]\n\n',
       ]),
     );
     expect(events).toEqual([
-      { kind: 'tool_start', id: 't1', name: 'web_search' },
+      { kind: 'tool_start', id: 't1', name: 'kb_web_search' },
       {
         kind: 'tool_end',
         id: 't1',
-        name: 'web_search',
+        name: 'kb_web_search',
         input: { q: 'x' },
         result: null,
       },
@@ -239,17 +239,17 @@ describe('streamChatSSE', () => {
     // run through toServerSentEventsResponse.
     const events = await collect(
       streamingResponse([
-        'data: {"type":"TOOL_CALL_START","toolCallId":"call_1","toolName":"web_search"}\n\n',
-        'data: {"type":"TOOL_CALL_END","toolCallId":"call_1","toolName":"web_search","input":{"query":"berklee"}}\n\n',
+        'data: {"type":"TOOL_CALL_START","toolCallId":"call_1","toolName":"kb_web_search"}\n\n',
+        'data: {"type":"TOOL_CALL_END","toolCallId":"call_1","toolName":"kb_web_search","input":{"query":"berklee"}}\n\n',
         'data: {"type":"TOOL_CALL_RESULT","toolCallId":"call_1","content":"{\\"results\\":[\\"1945\\"]}"}\n\n',
       ]),
     );
     expect(events).toEqual([
-      { kind: 'tool_start', id: 'call_1', name: 'web_search' },
+      { kind: 'tool_start', id: 'call_1', name: 'kb_web_search' },
       {
         kind: 'tool_end',
         id: 'call_1',
-        name: 'web_search',
+        name: 'kb_web_search',
         input: { query: 'berklee' },
         result: null,
       },

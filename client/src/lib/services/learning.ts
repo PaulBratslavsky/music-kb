@@ -1390,7 +1390,7 @@ function buildVideoGroundingContext(
     .join('\n');
 
   return [
-    'TOOLS AVAILABLE: `web_search(query)` — use it ONLY when the retrieved passages genuinely do not answer the user\'s question (they ask about something outside the video, or want current/external information). When you do use it, cite the source URL inline. Never call `web_search` for information that IS in the retrieved passages.',
+    'TOOLS AVAILABLE: `kb_web_search(query)` — use it ONLY when the retrieved passages genuinely do not answer the user\'s question (they ask about something outside the video, or want current/external information). When you do use it, cite the source URL inline. Never call `kb_web_search` for information that IS in the retrieved passages.',
     '',
     meta,
     '',

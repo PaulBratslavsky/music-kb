@@ -13,7 +13,7 @@ import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-reque
 //     the source video title in the system prompt
 //   - instructs the model to cite as `[<Video title> mm:ss]`
 //
-// The model has the same `web_search` tool available since cross-video
+// The model has the same `kb_web_search` tool available since cross-video
 // questions often spill outside the selected transcripts.
 
 type ClientToolCall = {
