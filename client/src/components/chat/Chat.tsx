@@ -22,7 +22,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '#/components/ui/button';
 import { ModelPicker } from '#/components/ModelPicker';
-import { friendlyStreamError } from '#/lib/services/chat-stream';
+import { friendlyStreamError } from '#/lib/services/chat-errors';
 import { messageText, messageToolCalls, type ToolCallRecord } from '#/lib/services/ui-message';
 import type { SwitchableSurface } from '#/lib/services/model-policy';
 
@@ -290,12 +290,11 @@ export function Chat({
       </div>
 
       {banner && (
-        <div
-          role="status"
-          className="mb-3 rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)] px-3 py-2 text-xs text-[var(--ink-muted)]"
+        <output
+          className="mb-3 rounded-lg border border-(--line) bg-(--bg-subtle) px-3 py-2 text-xs text-(--ink-muted)"
         >
           {banner}
-        </div>
+        </output>
       )}
 
       {error && (
@@ -369,18 +368,18 @@ function MessageBubble({
       {renderAboveBody?.(message, toolCalls)}
       {isEmpty ? (
         <div className="inline-flex items-center gap-2 rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg-subtle)] px-4 py-3 text-sm text-[var(--ink-muted)]">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--ink-muted)]" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-(--ink-muted)" />
           <span>Thinking…</span>
         </div>
       ) : (
-        <div className="chat-md min-w-0 rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg-subtle)] px-4 py-3 text-sm leading-relaxed text-[var(--ink)]">
+        <div className="chat-md min-w-0 rounded-2xl rounded-bl-sm border border-(--line) bg-(--bg-subtle) px-4 py-3 text-sm leading-relaxed text-[var(--ink)]">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
             {body}
           </ReactMarkdown>
           {isStreaming && (
             <span
               aria-hidden="true"
-              className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-[var(--ink-muted)] align-middle"
+              className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-(--ink-muted) align-middle"
             />
           )}
           {renderBelowBody?.(message, isStreaming)}

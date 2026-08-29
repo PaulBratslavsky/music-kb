@@ -30,7 +30,7 @@ import {
 import { MarkdownEditor } from './MarkdownEditor';
 import { listSkills, type Skill } from '#/lib/skills';
 import { createNote, updateNote, deleteNote } from '#/data/server-functions/notes';
-import { friendlyStreamError } from '#/lib/services/chat-stream';
+import { friendlyStreamError } from '#/lib/services/chat-errors';
 import type { StrapiNote } from '#/lib/services/notes';
 
 type Props = {

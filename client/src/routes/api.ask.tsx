@@ -13,7 +13,8 @@ import {
 import { buildLibraryTools } from '#/lib/services/library-tools';
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
-import { condenseQuestion } from '#/lib/services/condense-question';
+import { condenseQuestion, sanitizeHistory } from '#/lib/services/condense-question';
+import type { Citation } from '#/lib/services/citations';
 // Prior turns are flattened to role+text here, as they always were — this
 // surface seeds its own final user turn from retrieved passages, so no tool
 // calls survive into the model messages and no orphan guard is needed.
@@ -28,19 +29,8 @@ import { latestUserText, messageText } from '#/lib/services/ui-message';
 // The client reads the CITATIONS frame first, then accumulates text
 // deltas. Chips resolve to { video, startSec, text } by passage index.
 
-type CitationPayload = {
-  index: number;
-  videoDocumentId: string;
-  youtubeVideoId: string;
-  videoTitle: string | null;
-  videoAuthor: string | null;
-  videoThumbnailUrl: string | null;
-  startSec: number;
-  endSec: number;
-  text: string;
-};
 
-function toCitationPayload(p: RetrievedPassage, i: number): CitationPayload {
+function toCitation(p: RetrievedPassage, i: number): Citation {
   return {
     index: i,
     videoDocumentId: p.video.documentId,
@@ -85,19 +75,21 @@ export async function askHandler(request: Request): Promise<Response> {
     });
   }
 
-  // Prior turns for condensation: everything before the question being asked,
-  // flattened to role+text. The condenser wants topic, not structure.
-  const history = params.messages
-    .slice(0, -1)
-    .map((m) => ({
+  // Prior turns: everything before the question being asked, flattened to
+  // role+text. The condenser wants topic, not structure, and this surface
+  // seeds its own final user turn from retrieved passages.
+  //
+  // Still routed through sanitizeHistory even though the SDK has already
+  // validated the message SHAPE. Shape is not the same as size: these turns
+  // are replayed to the answering model, and sanitizeHistory is what bounds
+  // them — newest four, 2000 characters each. Inlining a `.slice(-4)` here
+  // silently dropped the per-turn cap.
+  const history = sanitizeHistory(
+    params.messages.map((m) => ({
       role: (m as { role?: string }).role,
       content: messageText(m).trim(),
-    }))
-    .filter(
-      (m): m is { role: 'user' | 'assistant'; content: string } =>
-        (m.role === 'user' || m.role === 'assistant') && m.content.length > 0,
-    )
-    .slice(-4);
+    })).slice(0, -1),
+  );
 
   // Retrieve against a STANDALONE query, not the raw follow-up.
   // "tell me more about the second one" contains none of the words that
@@ -223,7 +215,7 @@ export async function askHandler(request: Request): Promise<Response> {
   // harness captures it so reports record which model answered.
   const citationsFrame = `data: ${JSON.stringify({
     type: 'CITATIONS',
-    citations: passages.map(toCitationPayload),
+    citations: passages.map(toCitation),
     model: model.model,
   })}\n\n`;
 

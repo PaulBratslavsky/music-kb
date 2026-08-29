@@ -5,7 +5,7 @@ import { localStoragePersistence } from '@tanstack/ai-react';
 import { Button } from '#/components/ui/button';
 import { Chat } from '#/components/chat/Chat';
 import { messageText } from '#/lib/services/ui-message';
-import type { Citation } from '#/lib/services/chat-stream';
+import type { Citation } from '#/lib/services/citations';
 
 // Library-wide ask. Global FAB when closed; right-side drawer when open.
 //

@@ -136,6 +136,38 @@ describe('POST /api/ask — multi-turn', () => {
     expect(chatMock.mock.calls[0][0].messages).toHaveLength(1);
   });
 
+  it('bounds what prior turns can carry into the model', async () => {
+    // REGRESSION. Moving this route to AG-UI replaced sanitizeHistory with an
+    // inline `.slice(-4)`, which kept the turn count but silently dropped the
+    // 2000-char-per-turn cap. The SDK validates message SHAPE; it does not
+    // bound SIZE, and these turns are replayed to the answering model.
+    const huge = 'x'.repeat(50_000);
+    await askHandler(
+      thread('and now?', [
+        { role: 'user', content: huge },
+        { role: 'assistant', content: huge },
+      ]),
+    );
+
+    const messages = chatMock.mock.calls[0][0].messages;
+    const replayed = messages.slice(0, -1) as Array<{ content: string }>;
+    expect(replayed.length).toBeGreaterThan(0);
+    for (const m of replayed) expect(m.content.length).toBeLessThanOrEqual(2000);
+  });
+
+  it('keeps only the newest few turns', async () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      role: 'user' as const,
+      content: `turn ${i}`,
+    }));
+    await askHandler(thread('latest?', many));
+
+    const messages = chatMock.mock.calls[0][0].messages;
+    // 4 prior turns + the seeded question.
+    expect(messages).toHaveLength(5);
+    expect((messages[3] as { content: string }).content).toBe('turn 19');
+  });
+
   it('a condenser failure still produces an answer', async () => {
     condenseMock.mockRejectedValue(new Error('boom'));
     const res = await askHandler(thread('q', HISTORY));
