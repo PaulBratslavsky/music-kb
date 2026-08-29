@@ -1,5 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
-import { askInChat } from './chat-helpers';
+import { test, expect } from '@playwright/test';
+import { askInChat, chatErrorGuard } from './chat-helpers';
 
 // End-to-end smoke for DigestChat after the useChat migration.
 //
@@ -17,21 +17,12 @@ import { askInChat } from './chat-helpers';
 
 const VIDEOS = 'ScMK-5dwOYM,TRg-75VKOFU';
 
-function errorGuard(page: Page): () => void {
-  const hits: string[] = [];
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') hits.push(`console: ${msg.text()}`);
-  });
-  page.on('pageerror', (err) => hits.push(`pageerror: ${err.message}`));
-  return () => expect(hits, `unexpected page errors:\n${hits.join('\n')}`).toEqual([]);
-}
-
 test.describe('DigestChat on useChat', () => {
   test('renders the chat surface without errors', async ({ page }) => {
     // The /digest loader retrieves across every selected video before the page
     // paints, which is well past Playwright's 30s default on a cold cache.
     test.setTimeout(240_000);
-    const assertClean = errorGuard(page);
+    const assertClean = chatErrorGuard(page);
     await page.goto(`/digest?videos=${VIDEOS}`);
 
     await expect(page.getByRole('heading', { name: /ask across these videos/i })).toBeVisible();
@@ -42,7 +33,7 @@ test.describe('DigestChat on useChat', () => {
   test('sends a question and streams an answer back into the transcript', async ({ page }) => {
     // A real local model answers, so this needs a generous budget.
     test.setTimeout(240_000);
-    const assertClean = errorGuard(page);
+    const assertClean = chatErrorGuard(page);
     await page.goto(`/digest?videos=${VIDEOS}`);
 
     const input = page.getByPlaceholder(/ask about these videos/i);

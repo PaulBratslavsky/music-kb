@@ -41,7 +41,30 @@ export type ChatContext = {
   clear: () => void;
 };
 
-export type ChatProps = {
+/**
+ * Persistence and `threadId` travel together, mirroring the SDK's own pairing:
+ * a stored transcript needs a key to store it under. Expressed as a union so
+ * passing one without the other is a type error here rather than a runtime
+ * surprise inside useChat.
+ */
+type Durability =
+  | {
+      /**
+       * Durable transcript. A storage adapter caches it in the browser; its
+       * getItem/setItem may be async, so an adapter backed by a server
+       * function makes the same conversation cross-device without touching
+       * this component.
+       */
+      persistence: NonNullable<Parameters<typeof useChat>[0]['persistence']>;
+      threadId: string;
+    }
+  | {
+      persistence?: never;
+      /** Scopes correlation. Omit for an ephemeral conversation. */
+      threadId?: string;
+    };
+
+export type ChatProps = Durability & {
   /** Selects the ModelPicker's policy key. Never a model id. */
   surface: SwitchableSurface;
   /** The route this surface posts to. */
@@ -55,8 +78,7 @@ export type ChatProps = {
    * to update.
    */
   scope: Record<string, unknown>;
-  /** Scopes persistence and correlation. Omit for an ephemeral conversation. */
-  threadId?: string;
+
 
   chrome: {
     title: string;
@@ -66,8 +88,10 @@ export type ChatProps = {
     ariaLabel: string;
   };
 
-  /** Chips shown while the transcript is empty. Clicking one sends it. */
+  /** Chips shown until the user has spoken. Clicking one sends it. */
   suggestedPrompts?: string[];
+  /** Shown in place of an empty transcript, above any suggested prompts. */
+  emptyState?: ReactNode;
   /** Extra header controls (skill picker, summarise) that need chat state. */
   headerExtras?: (ctx: ChatContext) => ReactNode;
   /** Replaces the default empty-transcript reset (e.g. re-seed a greeting). */
@@ -75,8 +99,12 @@ export type ChatProps = {
 
   /** Rewrites the raw input before sending, e.g. the `/web` slash command. */
   transformInput?: (raw: string) => string;
-  /** Rewrites the assistant body before markdown, e.g. stripping timecodes. */
-  transformMarkdown?: (text: string) => string;
+  /**
+   * Rewrites the assistant body before markdown — stripping timecodes, or
+   * turning `[N]` citation markers into links. Receives the message so a
+   * caller can look up data it holds per message id.
+   */
+  transformMarkdown?: (text: string, message: UIMessage) => string;
   /** Custom markdown renderers, e.g. clickable timecodes. */
   markdownComponents?: Components;
 
@@ -90,6 +118,8 @@ export type ChatProps = {
 
   /** A transient status line above the composer, e.g. "Saved to notes". */
   banner?: ReactNode;
+  /** Extra classes on the scrolling transcript, e.g. drawer padding. */
+  bodyClassName?: string;
 
   /**
    * Pull custom SSE frames out of the stream and bind them to the message
@@ -106,8 +136,10 @@ export function Chat({
   endpoint,
   scope,
   threadId,
+  persistence,
   chrome,
   suggestedPrompts,
+  emptyState,
   headerExtras,
   onClear,
   transformInput,
@@ -119,6 +151,7 @@ export function Chat({
   banner,
   captureFrames,
   className,
+  bodyClassName,
 }: Readonly<ChatProps>) {
   const [modelChoice, setModelChoice] = useState<string>('default');
   const [input, setInput] = useState('');
@@ -135,8 +168,12 @@ export function Chat({
     isLoading: isStreaming,
     error,
     setMessages,
+    // Assembled then asserted once: ChatProps' `Durability` union already
+    // guarantees the persistence/threadId pairing the SDK's own union
+    // requires, but that guarantee does not survive being spread here.
   } = useChat({
     ...(threadId ? { threadId } : {}),
+    ...(persistence ? { persistence } : {}),
     // Default: the connection adapter assembles the AG-UI RunAgentInput body,
     // because hand-writing that JSON is how the old clients and routes drifted
     // apart. A surface that emits custom frames swaps in a fetcher that reads
@@ -146,7 +183,7 @@ export function Chat({
       : { connection: fetchServerSentEvents(endpoint) }),
     forwardedProps,
     ...(onFinish ? { onFinish } : {}),
-  });
+  } as Parameters<typeof useChat>[0]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -211,7 +248,8 @@ export function Chat({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className={`min-h-0 flex-1 overflow-y-auto ${bodyClassName ?? ''}`}>
+        {emptyState && messages.length === 0 && emptyState}
         {/* Prompts stay available until the user actually engages. A skill's
             greeting is an assistant message but is not engagement, so testing
             `messages.length === 0` would hide the chips the moment a skill was
@@ -304,7 +342,7 @@ function MessageBubble({
 }: Readonly<{
   message: UIMessage;
   isStreaming: boolean;
-  transformMarkdown?: (text: string) => string;
+  transformMarkdown?: (text: string, message: UIMessage) => string;
   markdownComponents?: Components;
   renderAboveBody?: (message: UIMessage, toolCalls: ToolCallRecord[]) => ReactNode;
   renderBelowBody?: (message: UIMessage, isStreaming: boolean) => ReactNode;
@@ -321,7 +359,7 @@ function MessageBubble({
     );
   }
 
-  const body = transformMarkdown ? transformMarkdown(content) : content;
+  const body = transformMarkdown ? transformMarkdown(content, message) : content;
   // An assistant turn with nothing in it yet is the gap between send and first
   // token — show that it is working rather than an empty bubble.
   const isEmpty = content.length === 0 && isStreaming;

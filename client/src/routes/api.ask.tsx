@@ -1,5 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { chat, toServerSentEventsResponse } from '@tanstack/ai';
+import {
+  chat,
+  chatParamsFromRequestBody,
+  toServerSentEventsResponse,
+} from '@tanstack/ai';
 import {
   ASK_LIBRARY_SYSTEM,
   formatSeedForPrompt,
@@ -9,7 +13,11 @@ import {
 import { buildLibraryTools } from '#/lib/services/library-tools';
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
-import { condenseQuestion, sanitizeHistory } from '#/lib/services/condense-question';
+import { condenseQuestion } from '#/lib/services/condense-question';
+// Prior turns are flattened to role+text here, as they always were — this
+// surface seeds its own final user turn from retrieved passages, so no tool
+// calls survive into the model messages and no orphan guard is needed.
+import { latestUserText, messageText } from '#/lib/services/ui-message';
 
 // Streaming library-QA endpoint. Parallels /api/chat in shape:
 //   - AG-UI style SSE (TEXT_MESSAGE_CONTENT + [DONE])
@@ -54,33 +62,42 @@ function toCitationPayload(p: RetrievedPassage, i: number): CitationPayload {
  * delegation.
  */
 export async function askHandler(request: Request): Promise<Response> {
-  let body: {
-    question?: string;
-    /** Choice token: 'default' | 'local:<id>' | 'frontier'. */
-    modelChoice?: string;
-    /**
-     * Prior turns, oldest first, EXCLUDING the question being asked.
-     * Optional: a client that omits it gets the previous single-shot
-     * behaviour rather than an error.
-     */
-    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
-  };
+  // AG-UI RunAgentInput, like the other two chat routes — which is what lets
+  // this surface use the shared <Chat> component. The multi-turn history that
+  // used to arrive in a bespoke `history` field, and be re-validated by a
+  // hand-written sanitiser, is now just the message array the SDK validates.
+  let params: Awaited<ReturnType<typeof chatParamsFromRequestBody>>;
   try {
-    body = await request.json();
-  } catch {
-    return new Response('Invalid JSON body', { status: 400 });
+    params = await chatParamsFromRequestBody(await request.json());
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'invalid body';
+    return new Response(`Invalid AG-UI request body: ${detail}`, { status: 400 });
   }
-  const question = body.question?.trim();
+
+  const forwarded = params.forwardedProps as { modelChoice?: unknown };
+  const modelChoice =
+    typeof forwarded.modelChoice === 'string' ? forwarded.modelChoice : undefined;
+
+  const question = latestUserText(params.messages);
   if (!question || question.length > 1000) {
     return new Response('question required (1–1000 chars)', {
       status: 400,
     });
   }
 
-  // Prior turns, defensively narrowed at the trust boundary. See
-  // sanitizeHistory — it owns the bounds so they cannot drift from the
-  // condenser's expectations.
-  const history = sanitizeHistory(body.history);
+  // Prior turns for condensation: everything before the question being asked,
+  // flattened to role+text. The condenser wants topic, not structure.
+  const history = params.messages
+    .slice(0, -1)
+    .map((m) => ({
+      role: (m as { role?: string }).role,
+      content: messageText(m).trim(),
+    }))
+    .filter(
+      (m): m is { role: 'user' | 'assistant'; content: string } =>
+        (m.role === 'user' || m.role === 'assistant') && m.content.length > 0,
+    )
+    .slice(-4);
 
   // Retrieve against a STANDALONE query, not the raw follow-up.
   // "tell me more about the second one" contains none of the words that
@@ -162,7 +179,7 @@ export async function askHandler(request: Request): Promise<Response> {
   // three independent reads of OLLAMA_SYNTHESIS_MODEL here.
   const { model, notice } = await resolveRequestModel(
     'library-ask',
-    body.modelChoice,
+    modelChoice,
   );
   if (notice) console.warn(`[ask] ${notice}`);
   console.log(

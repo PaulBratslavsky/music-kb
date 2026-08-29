@@ -1,0 +1,54 @@
+{
+  "_comment": "CAPTURED from a live POST /api/ask against @tanstack/ai 0.52.0. Do not hand-edit. This is the exact frame ORDER the citation interceptor depends on: CITATIONS arrives BEFORE the TEXT_MESSAGE_START that names the message it grounds. If a future SDK renames messageId or reorders these, citations stop binding silently \u2014 the answer still renders, the sources disclosure just never appears. Re-capture after any SDK bump.",
+  "sdk": {
+    "@tanstack/ai": "0.52.0"
+  },
+  "capturedAt": "2026-08-28",
+  "frames": [
+    {
+      "type": "CITATIONS",
+      "citations": [
+        {
+          "index": 0,
+          "videoDocumentId": "auh5lrbl2qwybz5qqmqsq5tw",
+          "youtubeVideoId": "5_yOVARO2Oc",
+          "videoTitle": "1. Introduction",
+          "videoAuthor": "YaleCourses",
+          "videoThumbnailUrl": "https://i.ytimg.com/vi/5_yOVARO2Oc/hqdefault.jpg",
+          "startSec": 2191.889,
+          "endSec": 2257.289,
+          "text": "It's a keyboard instrument. So let's listen to just a little\u2026"
+        },
+        {
+          "index": 1,
+          "videoDocumentId": "auh5lrbl2qwybz5qqmqsq5tw",
+          "youtubeVideoId": "5_yOVARO2Oc",
+          "videoTitle": "1. Introduction",
+          "videoAuthor": "YaleCourses",
+          "videoThumbnailUrl": "https://i.ytimg.com/vi/5_yOVARO2Oc/hqdefault.jpg",
+          "startSec": 1811.91,
+          "endSec": 1882.618,
+          "text": "> Student: Down. Prof: Down. It's generally going down. So t\u2026"
+        }
+      ],
+      "model": "gemma4-kb:latest"
+    },
+    {
+      "type": "TEXT_MESSAGE_START",
+      "messageId": "msg-1787953861329-vrjqya9xcfp",
+      "timestamp": 1787953871216,
+      "role": "assistant",
+      "metadata": {
+        "tanstack": {
+          "model": "gemma4-kb:latest"
+        }
+      }
+    },
+    {
+      "type": "TEXT_MESSAGE_CONTENT",
+      "messageId": "msg-1787953861329-vrjqya9xcfp",
+      "timestamp": 1787953871216,
+      "delta": "The"
+    }
+  ]
+}

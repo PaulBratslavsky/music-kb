@@ -8,6 +8,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createCapturingFetcher } from './capture-frames';
+import askWire from './__fixtures__/ask-wire-0.52.json';
 
 const sse = (frames: unknown[]) =>
   frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -32,7 +33,18 @@ const CITATIONS = { type: 'CITATIONS', citations: [{ index: 0, videoTitle: 'A' }
 const START = { type: 'TEXT_MESSAGE_START', messageId: 'msg-1', role: 'assistant' };
 const DELTA = { type: 'TEXT_MESSAGE_CONTENT', delta: 'hello' };
 
-const input = { messages: [], threadId: 't', runId: 'r', data: { modelChoice: 'default' } };
+// A REAL UIMessage, not an empty array. The first version of this suite passed
+// `messages: []`, which serialises identically whether or not the fetcher
+// converts to the wire format — so it proved nothing, and the missing
+// conversion only surfaced as a 400 in the browser.
+const input = {
+  messages: [
+    { id: 'm1', role: 'user' as const, parts: [{ type: 'text' as const, content: 'hello' }] },
+  ],
+  threadId: 't',
+  runId: 'r',
+  data: { modelChoice: 'default' },
+};
 const opts = { signal: new AbortController().signal };
 
 beforeEach(() => vi.unstubAllGlobals());
@@ -123,7 +135,9 @@ describe('createCapturingFetcher', () => {
       runId: 'r',
       forwardedProps: { modelChoice: 'default' },
     });
-    expect(body.messages).toEqual([]);
+    // Converted to the AG-UI wire shape: `content`, not `parts`. Posting
+    // UIMessages raw is a 400 the client surfaces as an empty answer bubble.
+    expect(body.messages).toEqual([{ id: 'm1', role: 'user', content: 'hello' }]);
   });
 
   it('returns a non-OK response untouched rather than parsing it', async () => {
@@ -133,5 +147,47 @@ describe('createCapturingFetcher', () => {
     const res = await fetcher(input, opts);
     expect(res.status).toBe(500);
     await expect(res.text()).resolves.toBe('nope');
+  });
+});
+
+// The real /api/ask stream — captured, not written.
+//
+// The interceptor depends on a frame ORDER and a field name that live in the
+// SDK, not in our code: CITATIONS arrives before the TEXT_MESSAGE_START whose
+// `messageId` names the message it grounds. If a bump renames that field or
+// reorders these frames, citations stop binding and NOTHING fails — the answer
+// still renders, the sources disclosure just never appears. That is the exact
+// silent regression this fixture exists to make loud.
+describe('against a captured /api/ask stream', () => {
+  const frames = askWire.frames as Array<Record<string, unknown>>;
+
+  it('the capture really has CITATIONS before TEXT_MESSAGE_START', () => {
+    // Guard on the fixture. If a re-capture ever reverses this, the binding
+    // test below would still pass while proving nothing.
+    const types = frames.map((f) => f.type);
+    expect(types.indexOf('CITATIONS')).toBeLessThan(types.indexOf('TEXT_MESSAGE_START'));
+    expect(frames.find((f) => f.type === 'TEXT_MESSAGE_START')?.messageId).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it('binds the real citations to the real message id', async () => {
+    vi.stubGlobal('fetch', mockFetch(sse(frames)));
+    const onCapture = vi.fn();
+
+    const fetcher = createCapturingFetcher('/api/ask', {
+      match: (f) => (f.type === 'CITATIONS' ? f.citations : null),
+      onCapture,
+    });
+    const out = await (await fetcher(input, opts)).text();
+
+    const expectedId = frames.find((f) => f.type === 'TEXT_MESSAGE_START')?.messageId;
+    const expectedCitations = frames.find((f) => f.type === 'CITATIONS')?.citations;
+    expect(onCapture).toHaveBeenCalledWith(expectedId, expectedCitations);
+
+    // And the SDK still receives a stream it fully understands.
+    expect(out).toContain('TEXT_MESSAGE_START');
+    expect(out).toContain('TEXT_MESSAGE_CONTENT');
+    expect(out).not.toContain('CITATIONS');
   });
 });

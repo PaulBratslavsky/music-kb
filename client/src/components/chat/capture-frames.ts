@@ -20,6 +20,8 @@
 // stream it fully understands and no server change is needed. This is why
 // `/api/ask` can keep its wire format AND use the shared component.
 
+import { uiMessagesToWire } from '@tanstack/ai';
+
 /** A parsed SSE frame. Shape is the server's business; we only route it. */
 type Frame = Record<string, unknown>;
 
@@ -41,7 +43,12 @@ export function createCapturingFetcher<T>(
   capture: CaptureConfig<T>,
 ) {
   return async (
-    input: { messages: unknown[]; threadId: string; runId: string; data?: unknown },
+    input: {
+      messages: Parameters<typeof uiMessagesToWire>[0];
+      threadId: string;
+      runId: string;
+      data?: unknown;
+    },
     options: { signal: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> => {
     const upstream = await fetch(endpoint, {
@@ -50,7 +57,12 @@ export function createCapturingFetcher<T>(
       body: JSON.stringify({
         threadId: input.threadId,
         runId: input.runId,
-        messages: input.messages,
+        // MUST be converted. useChat hands the fetcher UIMessages, whose
+        // content lives in `parts`; the AG-UI wire carries `content`. Posting
+        // them raw is a 400 — "messages[0].content must be a string" — and the
+        // connection adapter does this conversion for you, which is exactly
+        // what a custom fetcher gives up.
+        messages: uiMessagesToWire(input.messages),
         tools: [],
         context: [],
         state: {},

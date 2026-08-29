@@ -1,5 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
-import { askInChat } from './chat-helpers';
+import { test, expect } from '@playwright/test';
+import { askInChat, chatErrorGuard } from './chat-helpers';
 
 // End-to-end smoke for VideoChat after the useChat migration.
 //
@@ -19,19 +19,10 @@ import { askInChat } from './chat-helpers';
 
 const VIDEO_ID = 'TRg-75VKOFU';
 
-function errorGuard(page: Page): () => void {
-  const hits: string[] = [];
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') hits.push(`console: ${msg.text()}`);
-  });
-  page.on('pageerror', (err) => hits.push(`pageerror: ${err.message}`));
-  return () => expect(hits, `unexpected page errors:\n${hits.join('\n')}`).toEqual([]);
-}
-
 test.describe('VideoChat on useChat', () => {
   test('renders the chat surface without errors', async ({ page }) => {
     test.setTimeout(120_000);
-    const assertClean = errorGuard(page);
+    const assertClean = chatErrorGuard(page);
     await page.goto(`/learn/${VIDEO_ID}`);
 
     await expect(page.getByRole('heading', { name: /ask about this video/i })).toBeVisible();
@@ -40,7 +31,7 @@ test.describe('VideoChat on useChat', () => {
 
   test('sends a question and streams the answer into the transcript', async ({ page }) => {
     test.setTimeout(300_000);
-    const assertClean = errorGuard(page);
+    const assertClean = chatErrorGuard(page);
     await page.goto(`/learn/${VIDEO_ID}`);
 
     const input = page.getByPlaceholder(/ask about this video/i);
