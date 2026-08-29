@@ -1,7 +1,13 @@
 # 0012. useChat owns chat state; the AG-UI parser is kept for library-ask
 
-**Status:** Accepted (2026-08-28). Supersedes the hand-rolled stream reducers.
-Builds on ADR 0011 (per-request model choice).
+**Status:** Partly superseded (2026-08-29) by
+[ADR 0013](./0013-one-chat-component-across-all-three-surfaces.md), which moved
+library-ask onto `useChat` too and deleted the parser this ADR kept. The reason
+given below — that no channel carries a message id to correlate a pre-message
+citation — was inferred from `onCustomEvent`'s type and is wrong about the
+stream as a whole: `TEXT_MESSAGE_START` carries `messageId`. Everything else
+here still holds. Supersedes the hand-rolled stream reducers. Builds on ADR 0011
+(per-request model choice).
 
 ## Context
 

@@ -46,7 +46,7 @@ export class FriendlyStreamError extends Error {
 }
 
 /**
- * The single error-to-message helper for every `streamChatSSE` consumer.
+ * The single error-to-message helper for every chat surface.
  *
  * Pass whatever the catch block caught. A server-translated run failure is
  * returned verbatim; anything else (fetch rejection, non-OK response body) is
