@@ -1,50 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from '@tanstack/react-router';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import type { StrapiVideo } from '#/lib/services/videos';
-import { Button } from '#/components/ui/button';
-import { streamChatSSE, type StreamEvent } from '#/lib/services/chat-stream';
-import { friendlyOllamaError } from '#/lib/services/ollama-errors';
+import { Chat } from '#/components/chat/Chat';
+import { messageText, type ToolCallRecord } from '#/lib/services/ui-message';
 
-// Chat UI for the /digest page. Simpler than VideoChat: no timecode seek
-// (no embedded player), no evidence accordion (chunks come from N videos
-// so the per-citation plumbing would be heavier than worth it for v1),
-// no slash commands. Just send → stream → render markdown → repeat.
-
-type ToolCallRecord = {
-  id: string;
-  name: string;
-  input: unknown | null;
-  result: string | null;
-  status: 'running' | 'done';
-};
-
-type Message = {
-  role: 'user' | 'assistant';
-  content: string;
-  toolCalls?: ToolCallRecord[];
-};
-
-// Issue the digest-chat request and yield typed events from the
-// response stream. Wire framing + AG-UI parsing live in
-// `chat-stream.ts`; this wrapper owns only the request shape for the
-// cross-video digest endpoint.
-async function* streamDigestChat(
-  videoIds: string[],
-  messages: Message[],
-): AsyncGenerator<StreamEvent, void, void> {
-  const res = await fetch('/api/digest-chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ videoIds, messages }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`digest-chat (${res.status}): ${text || 'request failed'}`);
-  }
-  yield* streamChatSSE(res);
-}
+// Chat UI for the /digest page.
+//
+// Everything structural — transcript, composer, model picker, error banner,
+// tool-call state — lives in <Chat>. What is left here is the two things that
+// are genuinely specific to cross-video chat: the tool chips, and citations
+// resolved by matching `[<title> mm:ss]` against the selected videos and
+// rendered as router links. On the per-video page the same citation is a
+// player seek, which is why <Chat> takes a render prop rather than a flag.
 
 const SUGGESTED_PROMPTS = [
   'What do these videos agree on?',
@@ -57,221 +24,46 @@ export function DigestChat({
   videos,
   className,
 }: Readonly<{ videos: StrapiVideo[]; className?: string }>) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  const videoIds = videos.map((v) => v.youtubeVideoId);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages]);
-
-  const send = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || isStreaming) return;
-
-    setError(null);
-    const userMsg: Message = { role: 'user', content: trimmed };
-    const nextMessages = [...messages, userMsg];
-    setMessages([...nextMessages, { role: 'assistant', content: '' }]);
-    setInput('');
-    setIsStreaming(true);
-
-    try {
-      let assistantText = '';
-      const toolCalls: ToolCallRecord[] = [];
-      for await (const event of streamDigestChat(videoIds, nextMessages)) {
-        if (event.kind === 'text') {
-          assistantText += event.delta;
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.role === 'assistant') {
-              next[next.length - 1] = {
-                ...last,
-                content: assistantText,
-                toolCalls: [...toolCalls],
-              };
-            }
-            return next;
-          });
-        } else if (event.kind === 'tool_start') {
-          toolCalls.push({
-            id: event.id,
-            name: event.name,
-            input: null,
-            result: null,
-            status: 'running',
-          });
-        } else if (event.kind === 'tool_end') {
-          const idx = toolCalls.findIndex((t) => t.id === event.id);
-          if (idx >= 0) {
-            toolCalls[idx] = {
-              ...toolCalls[idx],
-              input: event.input,
-              // Keep any result already delivered: TOOL_CALL_RESULT can
-              // arrive before this frame, and 0.45's tool_end carries none.
-              result: event.result ?? toolCalls[idx].result,
-              status: 'done',
-            };
-          }
-        } else if (event.kind === 'tool_result') {
-          // 0.45 delivers the result on its own frame — merge, don't replace,
-          // since name and input arrived on the earlier events.
-          const idx = toolCalls.findIndex((t) => t.id === event.id);
-          if (idx >= 0) {
-            toolCalls[idx] = { ...toolCalls[idx], result: event.result };
-          }
-        }
-      }
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : 'Chat failed';
-      setError(friendlyOllamaError(raw));
-      // Drop the empty assistant placeholder if nothing streamed.
-      setMessages((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant' && !last.content) next.pop();
-        return next;
-      });
-    } finally {
-      setIsStreaming(false);
-    }
-  };
-
-  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    void send(input);
-  };
-
-  const clear = () => {
-    if (isStreaming) return;
-    setMessages([]);
-    setError(null);
-  };
+  // Memoized so its identity is stable between renders — <Chat> forwards it
+  // as chat-level props, and identity is what tells useChat to update.
+  const scope = useMemo(
+    () => ({ videoIds: videos.map((v) => v.youtubeVideoId) }),
+    [videos],
+  );
 
   return (
-    <section
-      className={`flex min-h-0 flex-col ${className ?? ''}`}
-      aria-label="Cross-video chat"
-    >
-      <header className="shrink-0 flex items-center justify-between gap-3 pb-4">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
-            Ask across these videos
-          </h2>
-          <p className="mt-1 text-xs text-[var(--ink-muted)]">
-            Answered using retrieved passages from all {videos.length} videos.
-          </p>
-        </div>
-        {messages.length > 0 && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={clear}
-            disabled={isStreaming}
-          >
-            Clear
-          </Button>
-        )}
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {messages.length === 0 && (
-          <div className="flex flex-wrap gap-2 pb-4">
-            {SUGGESTED_PROMPTS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => void send(p)}
-                disabled={isStreaming}
-                className="rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-3 py-1 text-xs text-[var(--ink-muted)] transition hover:border-[var(--line-strong)] hover:text-[var(--ink)] disabled:opacity-50"
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="grid gap-4 pb-4">
-          {messages.map((m, i) => (
-            <MessageBubble key={`msg-${i}`} message={m} videos={videos} />
-          ))}
-          <div ref={bottomRef} />
-        </div>
-      </div>
-
-      {error && (
-        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
-        </div>
+    <Chat
+      surface="digest-chat"
+      endpoint="/api/digest-chat"
+      scope={scope}
+      className={className}
+      chrome={{
+        ariaLabel: 'Cross-video chat',
+        title: 'Ask across these videos',
+        subtitle: `Answered using retrieved passages from all ${videos.length} videos.`,
+        placeholder: 'Ask about these videos…',
+      }}
+      suggestedPrompts={SUGGESTED_PROMPTS}
+      renderAboveBody={(_message, toolCalls) => <ToolChips toolCalls={toolCalls} />}
+      renderBelowBody={(message) => (
+        <CitationFooter content={messageText(message)} videos={videos} />
       )}
-
-      <form onSubmit={onSubmit} className="shrink-0 flex gap-2 pt-3">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about these videos…"
-          disabled={isStreaming}
-          className="h-10 min-w-0 flex-1 rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-4 text-sm text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:border-[var(--line-strong)] focus:outline-none disabled:opacity-50"
-        />
-        <Button
-          type="submit"
-          size="pill"
-          disabled={isStreaming || !input.trim()}
-        >
-          {isStreaming ? 'Thinking…' : 'Send'}
-        </Button>
-      </form>
-    </section>
+    />
   );
 }
 
-function MessageBubble({
-  message,
-  videos,
-}: Readonly<{ message: Message; videos: StrapiVideo[] }>) {
-  if (message.role === 'user') {
-    return (
-      <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-[var(--accent)]/10 px-4 py-2.5 text-sm text-[var(--ink)]">
-        {message.content}
-      </div>
-    );
-  }
-
-  // Assistant — render markdown + optionally tool-call chips
+function ToolChips({ toolCalls }: Readonly<{ toolCalls: ToolCallRecord[] }>) {
+  if (toolCalls.length === 0) return null;
   return (
-    <div className="mr-auto max-w-[95%]">
-      {message.toolCalls && message.toolCalls.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {message.toolCalls.map((tc) => (
-            <span
-              key={tc.id}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-2.5 py-0.5 text-[0.65rem] font-medium text-[var(--ink-muted)]"
-            >
-              {tc.status === 'running' ? '⋯' : '✓'} {tc.name}
-            </span>
-          ))}
-        </div>
-      )}
-      {message.content ? (
-        <div className="chat-md rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg-subtle)] px-4 py-3 text-sm leading-relaxed text-[var(--ink)]">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {message.content}
-          </ReactMarkdown>
-          <CitationFooter content={message.content} videos={videos} />
-        </div>
-      ) : (
-        <div className="inline-flex items-center gap-2 rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg-subtle)] px-4 py-3 text-sm text-[var(--ink-muted)]">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--ink-muted)]" />
-          <span>Thinking…</span>
-        </div>
-      )}
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {toolCalls.map((tc) => (
+        <span
+          key={tc.id}
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-2.5 py-0.5 text-[0.65rem] font-medium text-[var(--ink-muted)]"
+        >
+          {tc.status === 'running' ? '⋯' : '✓'} {tc.name}
+        </span>
+      ))}
     </div>
   );
 }

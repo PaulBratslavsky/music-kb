@@ -1,11 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { useMemo, useState } from 'react';
+import type { UIMessage } from '@tanstack/ai';
 import { Accordion } from 'radix-ui';
-import { buildMarkdownComponents, stripInlineTimecodes } from './TimecodeMarkdown';
 import { usePlayerControl } from '#/components/player';
-import { streamChatSSE, type StreamEvent } from '#/lib/services/chat-stream';
-import { friendlyOllamaError } from '#/lib/services/ollama-errors';
+import { buildMarkdownComponents, stripInlineTimecodes } from './TimecodeMarkdown';
 import { Button } from '#/components/ui/button';
 import {
   DropdownMenu,
@@ -14,483 +11,207 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { Chat, type ChatContext } from '#/components/chat/Chat';
+import type { EvidenceCitation } from '#/lib/services/transcript';
+import { messageText, type ToolCallRecord } from '#/lib/services/ui-message';
 import { getChatResponseEvidence } from '#/data/server-functions/videos';
 import { summarizeToNote } from '#/data/server-functions/notes';
 import { listSkills, type Skill } from '#/lib/skills';
-import type { EvidenceCitation } from '#/lib/services/transcript';
 
-export type ToolCallRecord = {
-  /** Stream-provided unique id for this tool call. */
-  id: string;
-  /** Tool name (e.g., "web_search"). */
-  name: string;
-  /** Final parsed input args (from TOOL_CALL_END). Null until the call completes. */
-  input: unknown | null;
-  /** Tool execution result, serialized. Null until complete. */
-  result: string | null;
-  /** Status: running while args are streaming, done after END. */
-  status: 'running' | 'done';
-};
-
-type Message = {
-  role: 'user' | 'assistant';
-  content: string;
-  evidence?: EvidenceCitation[];
-  toolCalls?: ToolCallRecord[];
-};
+// Per-video chat.
+//
+// The shell — transcript, composer, model picker, tool state, error banner —
+// is <Chat>. What stays here is what is genuinely specific to talking to ONE
+// video: skills and their greetings, summarising the conversation to a note,
+// the `/web` slash command, timecodes that seek the player, and the evidence
+// accordion that grounds each cited timecode against the real transcript.
 
 type Props = {
   videoId: string;
-  /** Called after a conversation is successfully saved as a note, so the
-   * parent can refresh any note-list UI that's currently open. */
   onNoteCreated?: (noteDocumentId: string) => void;
   className?: string;
 };
 
-// Rewrite slash-prefixed commands into explicit natural-language
-// instructions that reliably trigger the corresponding tool. Gemma's tool
-// reliability is probabilistic; these wrappers make intent unambiguous.
+// Slash commands: deterministic triggers that rewrite the user's message into
+// an explicit tool-use prompt, bypassing the model's sometimes-flaky decision
+// to call a tool. Extend the switch when we add more tools.
 function transformSlashCommand(input: string): string {
-  const webMatch = input.match(/^\/web\s+(.+)$/i);
-  if (webMatch) {
-    const query = webMatch[1].trim();
-    return `Use the web_search tool with the exact query "${query}", then summarize the top results in 2-3 short paragraphs. Cite each source URL inline. Do NOT answer from the transcript for this request — I explicitly want web search results.`;
+  const web = /^\/web\s+(.+)$/i.exec(input.trim());
+  if (web) {
+    return `Use the kb_web_search tool to search for "${web[1].trim()}", then answer using what it returns.`;
   }
   return input;
 }
 
-// Fallback prompts for the default Q&A skill (no skillSlug). Skills with
-// `suggestedPrompts` of their own override these. Tuned for music-tutorial
-// videos — the library is a music KB.
 const DEFAULT_SUGGESTED_PROMPTS = [
-  'What chords or progressions does this lesson cover?',
-  'What key and tonal center is this in?',
-  'What techniques does the player demonstrate, with timestamps?',
-  'Summarize the music-theory concepts in plain language',
+  'What are the key takeaways?',
+  'Explain the main concept simply',
+  'What should I practice first?',
 ];
 
-// Issue the chat request and yield typed events from the response stream.
-// Wire framing + AG-UI parsing live in `chat-stream.ts`; this wrapper
-// owns only the request shape (URL, body, headers) for the per-video
-// chat endpoint.
-async function* streamChatResponse(
-  videoId: string,
-  messages: Message[],
-  skillSlug: string | null,
-): AsyncGenerator<StreamEvent, void, void> {
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      videoId,
-      messages,
-      skillSlug: skillSlug ?? undefined,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`chat (${res.status}): ${text || 'request failed'}`);
-  }
-  yield* streamChatSSE(res);
+/**
+ * A skill's opening line, as a UIMessage.
+ *
+ * Seeded directly into the transcript rather than sent through the model: it
+ * is a fixed string from the skill registry, so a round trip would cost a
+ * generation and could return something else.
+ */
+function greetingMessage(greeting: string): UIMessage {
+  return {
+    id: `greeting-${greeting.slice(0, 24)}`,
+    role: 'assistant',
+    parts: [{ type: 'text', content: greeting }],
+  };
 }
 
 export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const skills = useMemo(() => listSkills('video-chat'), []);
+  const [skillSlug, setSkillSlug] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryMsg, setSummaryMsg] = useState<string | null>(null);
-  // Skills are code modules (see `#/lib/skills`), resolved synchronously
-  // at render time — no DB round-trip, no loading state. Memoized so the
-  // registry lookup isn't repeated on every render.
-  const skills = useMemo<Skill[]>(() => listSkills('video-chat'), []);
-  const [skillSlug, setSkillSlug] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages]);
+  // Evidence lives HERE, keyed by message id, not on the message. It is
+  // fetched after the answer completes and it is large: in message metadata
+  // it would round-trip every prior answer's transcript excerpts back to the
+  // model on every later turn.
+  const [evidenceById, setEvidenceById] = useState<Map<string, EvidenceCitation[]>>(
+    () => new Map(),
+  );
 
-  // Switching skills auto-primes the conversation with the skill's
-  // `defaultGreeting` (if any) — BUT only while the user hasn't
-  // engaged yet. Presence of a single auto-primer greeting doesn't
-  // count as engagement; only a user message does. This lets the user
-  // pick a skill, see the greeting, switch to a different skill, and
-  // see THAT greeting — without locking them into the first pick.
-  //
-  // Once the user sends even one message, we preserve conversation
-  // history on skill switch and let the new persona take over on the
-  // next assistant turn.
-  const changeSkill = (nextSlug: string | null) => {
-    if (pending) return;
+  const activeSkill = skillSlug ? skills.find((s) => s.slug === skillSlug) : null;
+
+  const scope = useMemo(
+    () => ({ videoId, skillSlug: skillSlug ?? undefined }),
+    [videoId, skillSlug],
+  );
+
+  // Switching skills auto-primes the conversation with the skill's greeting —
+  // but only while the user hasn't engaged. A greeting is an assistant message
+  // and does NOT count as engagement, so the user can pick a skill, read the
+  // greeting, switch again, and see THAT greeting. Once they send anything,
+  // history is preserved and the new persona takes over on the next turn.
+  const changeSkill = (ctx: ChatContext, nextSlug: string | null) => {
+    if (ctx.isStreaming) return;
     setSkillSlug(nextSlug);
-    const hasUserMessages = messages.some((m) => m.role === 'user');
-    if (hasUserMessages) return;
-    const selected = nextSlug
-      ? skills.find((s) => s.slug === nextSlug)
-      : null;
-    const greeting = selected?.defaultGreeting?.trim();
-    setMessages(greeting ? [{ role: 'assistant', content: greeting }] : []);
-    // Prime the input with the skill's first suggested prompt so Send
-    // is immediately enabled — the user can hit Send, edit the text,
-    // or click a different chip below to swap. Falls back to clearing
-    // the input for skills (or the default Q&A) without explicit
-    // prompts.
-    const firstPrompt = selected?.suggestedPrompts?.[0] ?? '';
-    setInput(firstPrompt);
+    if (ctx.messages.some((m) => m.role === 'user')) return;
+    const greeting = (nextSlug ? skills.find((s) => s.slug === nextSlug) : null)
+      ?.defaultGreeting?.trim();
+    ctx.setMessages(greeting ? [greetingMessage(greeting)] : []);
   };
 
-  const clear = () => {
-    if (pending) return;
-    setError(null);
-    setSummaryMsg(null);
-    // If the active skill has a greeting, re-seed it so the conversation
-    // starts from the same opening after Clear. Otherwise truly empty.
-    const active = skillSlug ? skills.find((s) => s.slug === skillSlug) : null;
-    const greeting = active?.defaultGreeting?.trim();
-    setMessages(greeting ? [{ role: 'assistant', content: greeting }] : []);
-  };
-
-  const summarize = async () => {
-    if (pending || summarizing) return;
+  const summarize = async (ctx: ChatContext) => {
+    if (ctx.isStreaming || summarizing) return;
     setSummarizing(true);
     setSummaryMsg(null);
-    const payload = messages
-      .filter((m) => m.content && m.content.trim().length > 0)
-      .map((m) => ({ role: m.role, content: m.content }));
-    const res = await summarizeToNote({
-      data: {
-        videoIds: [videoId],
-        messages: payload,
-        source: 'chat',
-        skillSlug: skillSlug ?? undefined,
-      },
-    });
-    setSummarizing(false);
-    if (res.status === 'ok') {
-      setSummaryMsg('Saved to notes.');
-      onNoteCreated?.(res.noteDocumentId);
-      // Clear the banner after a beat so it doesn't linger.
-      window.setTimeout(() => setSummaryMsg(null), 2500);
-    } else {
-      setSummaryMsg(`Save failed: ${res.error}`);
-    }
-  };
-
-  const sendPrompt = async (promptText: string) => {
-    if (pending) return;
-    const trimmed = promptText.trim();
-    if (!trimmed) return;
-
-    // Slash commands: deterministic triggers that rewrite the user's
-    // message into an explicit tool-use prompt, bypassing the model's
-    // sometimes-flaky decision to call a tool. `/web <query>` forces
-    // the web_search tool. Extend the switch when we add more tools.
-    const finalContent = transformSlashCommand(trimmed);
-
-    const history: Message[] = [...messages, { role: 'user', content: finalContent }];
-    setMessages([...history, { role: 'assistant', content: '' }]);
-    setInput('');
-    setPending(true);
-    setError(null);
-
+    const payload = ctx.messages
+      .filter((m): m is typeof m & { role: 'user' | 'assistant' } =>
+        m.role === 'user' || m.role === 'assistant',
+      )
+      .map((m) => ({ role: m.role, content: messageText(m).trim() }))
+      .filter((m) => m.content.length > 0);
     try {
-      let accumulated = '';
-      const toolCalls = new Map<string, ToolCallRecord>();
-
-      const pushUpdate = () => {
-        setMessages((prev) => {
-          const next = prev.slice();
-          next[next.length - 1] = {
-            role: 'assistant',
-            content: accumulated,
-            toolCalls: toolCalls.size > 0 ? Array.from(toolCalls.values()) : undefined,
-          };
-          return next;
-        });
-      };
-
-      for await (const event of streamChatResponse(videoId, history, skillSlug)) {
-        if (event.kind === 'text') {
-          accumulated += event.delta;
-          pushUpdate();
-        } else if (event.kind === 'tool_start') {
-          toolCalls.set(event.id, {
-            id: event.id,
-            name: event.name,
-            input: null,
-            result: null,
-            status: 'running',
-          });
-          pushUpdate();
-        } else if (event.kind === 'tool_end') {
-          const existing = toolCalls.get(event.id);
-          toolCalls.set(event.id, {
-            id: event.id,
-            name: event.name || (existing?.name ?? ''),
-            input: event.input,
-            // Keep any result already delivered: TOOL_CALL_RESULT can arrive
-            // before this frame, and 0.45's tool_end carries none.
-            result: event.result ?? existing?.result ?? null,
-            status: 'done',
-          });
-          pushUpdate();
-        } else if (event.kind === 'tool_result') {
-          // 0.45 delivers the result on its own frame, after tool_end and
-          // carrying only the id. Merge into the existing call so the name
-          // and input from the earlier frames survive — replacing here would
-          // blank the tool card.
-          const existing = toolCalls.get(event.id);
-          if (existing) {
-            toolCalls.set(event.id, { ...existing, result: event.result });
-            pushUpdate();
-          }
-        }
-      }
-
-      // After streaming completes, fetch the deterministic evidence for
-      // every timecode the model cited. Each entry pairs the citation with
-      // the real transcript chunk we matched to — rendered as expandable
-      // accordion panels below the message so the user can verify.
-      if (accumulated.trim().length > 0) {
-        try {
-          const evidence = await getChatResponseEvidence({
-            data: { videoId, responseText: accumulated },
-          });
-          setMessages((prev) => {
-            const next = prev.slice();
-            const last = next[next.length - 1];
-            if (last && last.role === 'assistant') {
-              next[next.length - 1] = { ...last, evidence };
-            }
-            return next;
-          });
-        } catch {
-          // Evidence is best-effort — the message already rendered.
-        }
+      const res = await summarizeToNote({
+        data: {
+          videoIds: [videoId],
+          messages: payload,
+          source: 'chat',
+          skillSlug: skillSlug ?? undefined,
+        },
+      });
+      if (res.status === 'ok') {
+        setSummaryMsg('Saved to notes.');
+        onNoteCreated?.(res.noteDocumentId);
+        window.setTimeout(() => setSummaryMsg(null), 2500);
+      } else {
+        setSummaryMsg(`Save failed: ${res.error}`);
       }
     } catch (err) {
-      const raw = err instanceof Error ? err.message : 'Chat failed';
-      setMessages((prev) => prev.slice(0, -1));
-      // Translate Ollama-specific errors (server unreachable, model
-      // missing, timeout) to a recovery hint. Other errors pass through.
-      setError(friendlyOllamaError(raw));
+      // A REJECTION, not an `{ status: 'error' }` result — a dropped network
+      // or a 500. Without this the flag stays true, so the button sits
+      // disabled reading "Saving…" forever with nothing explaining why.
+      setSummaryMsg(`Save failed: ${err instanceof Error ? err.message : 'request failed'}`);
     } finally {
-      setPending(false);
+      setSummarizing(false);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    void sendPrompt(input);
-  };
-
   return (
-    <section
-      className={`flex min-h-0 min-w-0 flex-col ${className ?? 'mb-12'}`}
-      aria-label="Chat with this video"
-    >
-      <header className="shrink-0 pb-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
-              Ask about this video
-            </h2>
-            <p className="mt-1 text-xs text-[var(--ink-muted)]">
-              Answers come from the transcript. Timestamps seek the player.
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {skills.length > 0 && (
-              <SkillPicker
-                skills={skills}
-                value={skillSlug}
-                onChange={changeSkill}
-                disabled={pending}
-              />
-            )}
-            {messages.length > 0 && (
-              <>
-                {messages.filter((m) => m.content.trim().length > 0).length >= 2 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void summarize()}
-                    disabled={pending || summarizing}
-                  >
-                    {summarizing ? 'Saving…' : 'Summarize to note'}
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={clear}
-                  disabled={pending || summarizing}
-                >
-                  Clear
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <div
-        ref={scrollRef}
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto"
-      >
-        {/* Show suggested-prompt chips while the user hasn't engaged yet.
-            "Engaged" = sent at least one user message. A skill's greeting
-            counts as an assistant message but NOT engagement, so the chips
-            stay available after picking a skill. Each skill can declare
-            its own `suggestedPrompts`; falls back to a generic Q&A set
-            for the default (no-skill) path. */}
-        {(() => {
-          const hasUserMessages = messages.some((m) => m.role === 'user');
-          if (hasUserMessages) return null;
-          const activeSkill = skillSlug
-            ? skills.find((s) => s.slug === skillSlug)
-            : null;
-          const prompts = activeSkill?.suggestedPrompts ?? DEFAULT_SUGGESTED_PROMPTS;
-          if (prompts.length === 0) return null;
-          return (
-            <div className="flex flex-wrap gap-2 pb-4">
-              {prompts.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => void sendPrompt(p)}
-                  disabled={pending}
-                  className="rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-3 py-1 text-xs text-[var(--ink-muted)] transition hover:border-[var(--line-strong)] hover:text-[var(--ink)] disabled:opacity-50"
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          );
-        })()}
-
-        <div className="grid gap-4 pb-4">
-          {messages.map((msg, i) => (
-            <MessageRow
-              key={i}
-              message={msg}
-              streaming={
-                pending && i === messages.length - 1 && msg.role === 'assistant'
-              }
-            />
-          ))}
-          <div ref={bottomRef} />
-        </div>
-      </div>
-
-      {summaryMsg && (
-        <div
-          role="status"
-          className="mb-3 rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)] px-3 py-2 text-xs text-[var(--ink-muted)]"
-        >
-          {summaryMsg}
-        </div>
-      )}
-
-      {error && (
-        <div
-          role="alert"
-          className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            width="12"
-            height="12"
-            aria-hidden="true"
-            className="mt-0.5 flex-none"
-          >
-            <path
-              fill="currentColor"
-              d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zm.5 9v1.5h-1V10.5h1zm0-6v5h-1v-5h1z"
-            />
-          </svg>
-          <span>{error}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="shrink-0 flex gap-2 pt-3">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about this video…  (/web <query> to force web search)"
-          disabled={pending}
-          className="h-10 min-w-0 flex-1 rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-4 text-sm text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:border-[var(--line-strong)] focus:outline-none disabled:opacity-50"
-        />
-        <Button
-          type="submit"
-          size="pill"
-          disabled={pending || !input.trim()}
-        >
-          {pending ? 'Thinking…' : 'Send'}
-        </Button>
-      </form>
-    </section>
-  );
-}
-
-function MessageRow({
-  message,
-  streaming,
-}: Readonly<{
-  message: Message;
-  streaming: boolean;
-}>) {
-  if (message.role === 'user') {
-    return (
-      <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-[var(--accent)]/10 px-4 py-2.5 text-sm text-[var(--ink)]">
-        {message.content}
-      </div>
-    );
-  }
-
-  const isEmpty = message.content.length === 0 && streaming;
-
-  return (
-    <div className="mr-auto min-w-0 max-w-[95%]">
-      {message.toolCalls && message.toolCalls.length > 0 && (
-        <div className="mb-2">
-          <ToolCallsPanel toolCalls={message.toolCalls} />
-        </div>
-      )}
-      {isEmpty ? (
-        <div className="inline-flex items-center gap-2 rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg-subtle)] px-4 py-3 text-sm text-[var(--ink-muted)]">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--ink-muted)]" />
-          <span>Thinking…</span>
-        </div>
-      ) : (
-        <div className="chat-md min-w-0 rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg-subtle)] px-4 py-3 text-sm leading-relaxed text-[var(--ink)]">
-          {/* Strip inline `[mm:ss]` / `(mm:ss)` timecodes from the chat body
-              — the Sources accordion below shows each citation with its
-              transcript excerpt, so inline chips are redundant. */}
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={buildMarkdownComponents()}
-          >
-            {stripInlineTimecodes(message.content)}
-          </ReactMarkdown>
-          {streaming && (
-            <span
-              aria-hidden="true"
-              className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-[var(--ink-muted)] align-middle"
+    <Chat
+      surface="video-chat"
+      endpoint="/api/chat"
+      scope={scope}
+      // Scopes the conversation to this video, so navigating between videos
+      // does not bleed one transcript's chat into another's.
+      threadId={videoId}
+      className={className ?? 'mb-12'}
+      chrome={{
+        ariaLabel: 'Chat with this video',
+        title: 'Ask about this video',
+        subtitle: 'Answers come from the transcript. Timestamps seek the player.',
+        placeholder: 'Ask about this video…  (/web <query> to force web search)',
+      }}
+      suggestedPrompts={activeSkill?.suggestedPrompts ?? DEFAULT_SUGGESTED_PROMPTS}
+      transformInput={transformSlashCommand}
+      transformMarkdown={stripInlineTimecodes}
+      markdownComponents={buildMarkdownComponents()}
+      banner={summaryMsg}
+      headerExtras={(ctx) => (
+        <>
+          {skills.length > 0 && (
+            <SkillPicker
+              skills={skills}
+              value={skillSlug}
+              onChange={(next) => changeSkill(ctx, next)}
+              disabled={ctx.isStreaming}
             />
           )}
-          {!streaming && message.evidence && message.evidence.length > 0 && (
-            <EvidencePanel evidence={message.evidence} />
+          {ctx.messages.filter((m) => messageText(m).trim().length > 0).length >= 2 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void summarize(ctx)}
+              disabled={ctx.isStreaming || summarizing}
+            >
+              {summarizing ? 'Saving…' : 'Summarize to note'}
+            </Button>
           )}
-        </div>
+        </>
       )}
-    </div>
+      onClear={(ctx) => {
+        setSummaryMsg(null);
+        // Re-seed the active skill's greeting so the conversation restarts
+        // from the same opening. Otherwise truly empty.
+        const greeting = activeSkill?.defaultGreeting?.trim();
+        ctx.setMessages(greeting ? [greetingMessage(greeting)] : []);
+      }}
+      onFinish={(message) => {
+        // Best-effort: the answer has already rendered. Resolves each cited
+        // timecode against the real transcript so the user can verify it.
+        const text = messageText(message).trim();
+        if (text.length === 0) return;
+        void getChatResponseEvidence({ data: { videoId, responseText: text } })
+          .then((evidence) => {
+            if (evidence.length === 0) return;
+            setEvidenceById((prev) => new Map(prev).set(message.id, evidence));
+          })
+          .catch(() => {
+            // Evidence is an enhancement; its failure must not disturb the chat.
+          });
+      }}
+      renderAboveBody={(_message, toolCalls) =>
+        toolCalls.length > 0 ? (
+          <div className="mb-2">
+            <ToolCallsPanel toolCalls={toolCalls} />
+          </div>
+        ) : null
+      }
+      renderBelowBody={(message, isStreaming) => {
+        const evidence = evidenceById.get(message.id);
+        if (isStreaming || !evidence || evidence.length === 0) return null;
+        return <EvidencePanel evidence={evidence} />;
+      }}
+    />
   );
 }
 
@@ -637,7 +358,7 @@ function EvidencePanel({
 }
 
 // Inline panel rendered above the assistant's message body when a tool
-// (e.g., web_search) was invoked. Each tool call is an accordion that
+// (e.g., kb_web_search) was invoked. Each tool call is an accordion that
 // expands to show the exact input args + the result the model received.
 // Matches the Claude/ChatGPT pattern of surfacing agentic steps without
 // cluttering the reading flow.

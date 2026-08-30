@@ -1844,42 +1844,58 @@
     "@tailwindcss/oxide" "4.3.3"
     tailwindcss "4.3.3"
 
-"@tanstack/ai-anthropic@0.16.6":
-  version "0.16.6"
-  resolved "https://registry.yarnpkg.com/@tanstack/ai-anthropic/-/ai-anthropic-0.16.6.tgz#809f2ee71f8ef194c40e5e251b13146ed76ff258"
-  integrity sha512-zAm9dm14J71ZANRYjTnHUJHRxGYjoFwuGiA0HUtMtYQ2bFEiJqmnxe5CcbDpoKZQtf1NteI7eGgI9CTUg4tkLg==
+"@tanstack/ai-anthropic@0.18.3":
+  version "0.18.3"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-anthropic/-/ai-anthropic-0.18.3.tgz#7cf8c43fb12e557578497231614318f794bf44ef"
+  integrity sha512-j9w/duqgvSkszp9s9i7Qgf4TqKMDMK4QC8wgtNnJlSqL980M7zk+p6S+GSaWBPeqcA+dZk0BQGM3zdnDNEWUWg==
   dependencies:
     "@anthropic-ai/sdk" "^0.97.1"
     "@tanstack/ai-utils" "^0.4.0"
 
-"@tanstack/ai-event-client@^0.8.0":
-  version "0.8.0"
-  resolved "https://registry.yarnpkg.com/@tanstack/ai-event-client/-/ai-event-client-0.8.0.tgz#4f977154b36c581715b78faf6228c4d9fa587177"
-  integrity sha512-UzhGQERwGU0yymziuGiHXNnKRZeR2JaGoPXeNzKuHwQtUmvMu1H8g0C9wpkpksj+pmTQPhdEBUOMlU6NhLDVpA==
+"@tanstack/ai-client@^0.29.2":
+  version "0.29.2"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-client/-/ai-client-0.29.2.tgz#ef5b336d5d8e12a6bb261ae0dda16af8e19ed464"
+  integrity sha512-SciysncXh5R5MHQ1GoF3kHfaygRFljUO1yVRvH97elR5l7Xjx9VYVB0KLnW7g11SIwxUrpODlLynlxEJSL2USg==
+  dependencies:
+    "@tanstack/ai" "^0.52.0"
+    "@tanstack/ai-event-client" "^0.11.2"
+    "@tanstack/ai-utils" "^0.4.0"
+
+"@tanstack/ai-event-client@^0.11.2":
+  version "0.11.2"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-event-client/-/ai-event-client-0.11.2.tgz#206babb940213a693e277375cb270a0847746d27"
+  integrity sha512-SlBC0jzlsjcdwYZqbvd7Wjny7GkGJGOZepHyJShDsfaiFNFUzGSP4SjOwV49YPfKwsFmR8hX67jQtBAmsnZWqQ==
   dependencies:
     "@tanstack/devtools-event-client" "^0.4.1"
 
-"@tanstack/ai-ollama@0.9.1":
-  version "0.9.1"
-  resolved "https://registry.yarnpkg.com/@tanstack/ai-ollama/-/ai-ollama-0.9.1.tgz#0c345332e594fa2eac8bc4d2e487bd3444f9e35e"
-  integrity sha512-ToWNsuq48VQB2m+db4tXdZLmQhVMliwHX6Vl8CMXPYG5C5L4pG0eIgi6dopU70lZtEXI5CCkGGMEQ6fC9+BEKw==
+"@tanstack/ai-ollama@0.10.3":
+  version "0.10.3"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-ollama/-/ai-ollama-0.10.3.tgz#c31c00b6b5d14fbbc8072e6e4a85ccfe0010f755"
+  integrity sha512-NQCW0TfmXpgcW617PU8bfxMqws5N+SXdl3tlCLQiAvf2nwYrgg0SczcC5SUN2YbrblWBKc6oSiS18VoWvjSw4A==
   dependencies:
     "@tanstack/ai-utils" "^0.4.0"
     ollama "^0.6.3"
+
+"@tanstack/ai-react@0.22.4":
+  version "0.22.4"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-react/-/ai-react-0.22.4.tgz#34fb4188f54b744f32f7ca03ccd6bc453b1048b6"
+  integrity sha512-S+rpbdKEv8qlFDxWSYzKSvg64HPNnZ+yntrJXigjElwmrwORRfGFS5BppsivzHijh38u4l7mjZjRQGSCC3IBYA==
+  dependencies:
+    "@tanstack/ai-client" "^0.29.2"
 
 "@tanstack/ai-utils@^0.4.0":
   version "0.4.0"
   resolved "https://registry.yarnpkg.com/@tanstack/ai-utils/-/ai-utils-0.4.0.tgz#d4ee407d446471d0ba1c500348e6b5be22e481ad"
   integrity sha512-xqvAgPJkIuGk1m+jZKyb7vBTQIaBmUD9EVzlPkDWWMp80n69uwL0TnBZCVk+OwL9goTQiFy648dnBfLsiJgl6A==
 
-"@tanstack/ai@0.45.1":
-  version "0.45.1"
-  resolved "https://registry.yarnpkg.com/@tanstack/ai/-/ai-0.45.1.tgz#680a11dada242450ebd9dbbee85cbae09d2f2cfc"
-  integrity sha512-mrqSBKX7loqm/+DUkqtHkCfr/yTCdWtmAdUd/yw2VtSNb9O61hJwB7ymGj2TU10darGLolqBxi/jGvZK9dK0hw==
+"@tanstack/ai@0.52.0", "@tanstack/ai@^0.52.0":
+  version "0.52.0"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai/-/ai-0.52.0.tgz#3d05f487afe9424f4bbedc43eacc889cbcce1e10"
+  integrity sha512-a2a+A+QguzZ3b8D7dqaA94A+CT42WUgxGYfscLrKJ+e2gHuEI8VNFGLq17KFuJI60A481bGpoGZ17fKpJF7q1A==
   dependencies:
     "@ag-ui/core" "0.1.1-canary.beta.0"
     "@standard-schema/spec" "^1.1.0"
-    "@tanstack/ai-event-client" "^0.8.0"
+    "@tanstack/ai-event-client" "^0.11.2"
     "@tanstack/ai-utils" "^0.4.0"
     partial-json "^0.1.7"
 

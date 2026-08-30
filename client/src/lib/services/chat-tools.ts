@@ -33,7 +33,7 @@ const WebSearchOutputSchema = z.object({
 });
 
 export const webSearchTool = toolDefinition({
-  name: 'web_search',
+  name: 'kb_web_search',
   description: [
     'Search the public web for additional context when the video transcript does not answer the user\'s question.',
     'Use this sparingly — only when the video genuinely lacks the needed information (e.g., the user asks about something not covered, or wants recent/external info).',
@@ -45,7 +45,7 @@ export const webSearchTool = toolDefinition({
 }).server(async ({ query }) => {
   const results = await webSearch(query, 5);
   console.log(
-    `[${new Date().toISOString().slice(11, 23)}] [tool web_search] "${query}" → ${results.length} results`,
+    `[${new Date().toISOString().slice(11, 23)}] [tool kb_web_search] "${query}" → ${results.length} results`,
   );
   return { results };
 });

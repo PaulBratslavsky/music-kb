@@ -1,47 +1,247 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import type { UIMessage } from '@tanstack/ai';
+import { localStoragePersistence } from '@tanstack/ai-react';
 import { Button } from '#/components/ui/button';
-import {
-  useLibraryChat,
-  type ChatMessage,
-  type Citation,
-} from '#/lib/hooks/useLibraryChat';
+import { Chat } from '#/components/chat/Chat';
+import { messageText } from '#/lib/services/ui-message';
+import type { Citation } from '#/lib/services/citations';
 
-// Root-mounted, route-independent library chat. FAB bottom-right when
-// closed; right-side drawer when open. State persists via localStorage
-// so the conversation survives navigation AND refresh. Cmd/Ctrl+K
-// toggles from any page; Esc closes.
+// Library-wide ask. Global FAB when closed; right-side drawer when open.
+//
+// The DRAWER is a container — FAB, ⌘K, Esc, backdrop, close. What it contains
+// is the same <Chat> the other two surfaces use.
+//
+// Citations are the reason this surface looked un-unifiable. /api/ask
+// retrieves before it generates, so it emits its citations AHEAD of the answer
+// they ground, as a raw CITATIONS frame. <Chat>'s `captureFrames` reads them
+// out of the stream and binds them to the message that follows, so they arrive
+// here keyed by message id with no server change. See capture-frames.ts.
+
+const STORAGE_KEY = 'ytkb:library-chat:v2';
+const CITATIONS_KEY = 'ytkb:library-chat-citations:v1';
+
+/**
+ * Citations persist ALONGSIDE the transcript, not inside it.
+ *
+ * useChat's own persistence restores the messages, but citations are not part
+ * of a message — they are held beside it, keyed by id, so transcript excerpts
+ * are never replayed to the model on later turns. That means a reload would
+ * restore every answer with its sources silently missing: the prose renders,
+ * the disclosure just never appears, and nothing errors.
+ *
+ * Same key discipline as the transcript: a version suffix, and a read that
+ * treats anything unexpected as absent rather than throwing on load.
+ */
+function loadCitations(): Map<string, Citation[]> {
+  if (typeof window === 'undefined') return new Map();
+  try {
+    const raw = window.localStorage.getItem(CITATIONS_KEY);
+    if (!raw) return new Map();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Map();
+    return new Map(parsed as Array<[string, Citation[]]>);
+  } catch {
+    return new Map();
+  }
+}
+
+function saveCitations(map: Map<string, Citation[]>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(CITATIONS_KEY, JSON.stringify([...map]));
+  } catch {
+    // Quota or a private window. The chat still works; sources just will not
+    // survive the next reload.
+  }
+}
+
+/**
+ * Clearing needs its own path, not `saveCitations(new Map())`.
+ *
+ * The write effect skips empty maps — it has to, or it would clobber storage
+ * on the first render, before the adopt effect restores anything. That guard
+ * also means an emptied map never reaches storage, so Clear has to remove the
+ * record itself or the cleared conversation's passages come back on reload.
+ */
+function clearStoredCitations(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(CITATIONS_KEY);
+  } catch {
+    // Nothing to do; the in-memory map is already cleared.
+  }
+}
+
 export function LibraryChat() {
-  const chat = useLibraryChat();
+  const [isOpen, setIsOpen] = useState(false);
+  // Citations by message id, populated by the frame interceptor below and
+  // rehydrated from storage so a reload keeps them.
+  const [citationsById, setCitationsById] = useState<Map<string, Citation[]>>(() => new Map());
+
+  // Adopted AFTER mount, not in the useState initializer. This tree is
+  // server-rendered, and reading localStorage during the first render makes
+  // the client disagree with the server's markup.
+  useEffect(() => {
+    const stored = loadCitations();
+    // Live captures win over stored ones: `prev` is spread last.
+    if (stored.size > 0) setCitationsById((prev) => new Map([...stored, ...prev]));
+  }, []);
+
+  useEffect(() => {
+    // The empty-map guard is load-bearing. Without it this effect runs once on
+    // mount — before the adopt effect above has restored anything — and writes
+    // an empty record over the citations it was about to read.
+    if (citationsById.size === 0) return;
+    saveCitations(citationsById);
+  }, [citationsById]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Cmd/Ctrl+K opens / toggles.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        chat.toggle();
+        setIsOpen((v) => !v);
         return;
       }
-      // Esc closes.
-      if (e.key === 'Escape' && chat.isOpen) {
-        chat.close();
-      }
+      if (e.key === 'Escape') setIsOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [chat]);
+  }, []);
+
+  const captureFrames = useMemo(
+    () => ({
+      match: (frame: Record<string, unknown>) =>
+        frame.type === 'CITATIONS' && Array.isArray(frame.citations)
+          ? (frame.citations as Citation[])
+          : null,
+      onCapture: (messageId: string, citations: unknown) => {
+        setCitationsById((prev) => new Map(prev).set(messageId, citations as Citation[]));
+      },
+    }),
+    [],
+  );
+
+  const renderBelowBody = useCallback(
+    (message: UIMessage, isStreaming: boolean) => (
+      <CitationDisclosure
+        content={messageText(message)}
+        citations={citationsById.get(message.id) ?? []}
+        isStreaming={isStreaming}
+      />
+    ),
+    [citationsById],
+  );
 
   return (
     <>
-      {!chat.isOpen && <LibraryChatFAB onClick={chat.open} />}
-      {chat.isOpen && <LibraryChatPanel chat={chat} />}
+      {!isOpen && <LibraryChatFAB onClick={() => setIsOpen(true)} />}
+      {isOpen && (
+        <div className="fixed inset-0 z-40 flex justify-end pointer-events-none">
+          {/* Subtle backdrop — click to close. Pointer-events-none above so
+              the backdrop only activates when it specifically handles clicks. */}
+          <button
+            type="button"
+            aria-label="Close chat"
+            onClick={() => setIsOpen(false)}
+            className="pointer-events-auto absolute inset-0 bg-black/10 backdrop-blur-[1px] transition-opacity"
+          />
+          <aside
+            className="pointer-events-auto relative flex h-full w-full max-w-xl flex-col border-l border-[var(--line)] bg-[var(--card)] px-5 py-4 shadow-[-4px_0_24px_rgba(9,9,11,0.1)]"
+            aria-label="Library chat"
+          >
+            <Chat
+              surface="library-ask"
+              endpoint="/api/ask"
+              scope={EMPTY_SCOPE}
+              // Persisted per browser, so the conversation survives a reload.
+              // Swapping this adapter for one backed by a server function is
+              // the whole change needed to make it cross-device — getItem and
+              // setItem are allowed to be async.
+              threadId={STORAGE_KEY}
+              persistence={localStoragePersistence()}
+              captureFrames={captureFrames}
+              chrome={{
+                ariaLabel: 'Ask your library',
+                title: 'Ask your library',
+                subtitle: 'Cites videos with clickable timestamps. Press Esc to close.',
+                placeholder: 'Ask anything about your library…',
+              }}
+              emptyState={<EmptyState />}
+              headerExtras={() => (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsOpen(false)}
+                  aria-label="Close"
+                >
+                  ✕
+                </Button>
+              )}
+              // Rewrites `[N]` markers into linked citation chips before the
+              // markdown renderer sees them. Needs the message, because the
+              // citations are held per message id out here.
+              transformMarkdown={(text, message) =>
+                annotateCitations(text, citationsById.get(message.id) ?? [])
+              }
+              onClear={(ctx) => {
+                // Citations are keyed by message id and live outside the
+                // transcript, so clearing the messages alone would leave every
+                // entry behind — the map would grow for the life of the
+                // browser profile and never be read again.
+                ctx.setMessages([]);
+                setCitationsById(new Map());
+                clearStoredCitations();
+              }}
+              renderBelowBody={renderBelowBody}
+              className="min-h-0 flex-1"
+            />
+          </aside>
+        </div>
+      )}
     </>
   );
 }
 
+/** Stable identity: this surface has no per-conversation scope of its own. */
+const EMPTY_SCOPE = {};
+
+/**
+ * Citations for one answer: inline `[N]` chips plus an expandable source list.
+ *
+ * While the answer is still streaming the whole retrieval pool is shown, so
+ * the panel is not empty during the typing animation. Once it settles, this
+ * drops to exactly what the model actually cited — an uncited answer shows no
+ * dangling "5 videos · 15 passages".
+ */
+function CitationDisclosure({
+  content,
+  citations,
+  isStreaming,
+}: Readonly<{ content: string; citations: Citation[]; isStreaming: boolean }>) {
+  if (citations.length === 0) return null;
+  const referenced = collectReferencedCitationIndices(content, citations);
+  const shown = isStreaming ? citations : citations.filter((c) => referenced.has(c.index));
+  if (shown.length === 0) return null;
+
+  return (
+    <details className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
+      <summary className="cursor-pointer text-xs font-medium text-[var(--ink-muted)]">
+        {formatCitationSummary(shown)}
+      </summary>
+      <div className="mt-3 grid gap-2">
+        {shown.map((c) => (
+          <CitationCard key={c.index} citation={c} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function LibraryChatFAB({ onClick }: Readonly<{ onClick: () => void }>) {
+
   return (
     <button
       type="button"
@@ -64,114 +264,6 @@ function LibraryChatFAB({ onClick }: Readonly<{ onClick: () => void }>) {
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
     </button>
-  );
-}
-
-function LibraryChatPanel({
-  chat,
-}: Readonly<{ chat: ReturnType<typeof useLibraryChat> }>) {
-  const [input, setInput] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [chat.messages]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = input.trim();
-    if (!q || chat.isStreaming) return;
-    setInput('');
-    void chat.ask(q);
-  };
-
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end pointer-events-none">
-      {/* Subtle backdrop — click to close. Pointer-events-none above so
-          the backdrop only activates when it specifically handles clicks. */}
-      <button
-        type="button"
-        aria-label="Close chat"
-        onClick={chat.close}
-        className="pointer-events-auto absolute inset-0 bg-black/10 backdrop-blur-[1px] transition-opacity"
-      />
-      <aside
-        className="pointer-events-auto relative flex h-full w-full max-w-xl flex-col border-l border-[var(--line)] bg-[var(--card)] shadow-[-4px_0_24px_rgba(9,9,11,0.1)]"
-        aria-label="Library chat"
-      >
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-3">
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--ink)]">
-              Ask your library
-            </h2>
-            <p className="mt-0.5 text-[0.7rem] text-[var(--ink-muted)]">
-              Cites videos with clickable timestamps. Local Gemma. Press Esc to
-              close.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {chat.messages.length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={chat.clear}
-                disabled={chat.isStreaming}
-              >
-                Clear
-              </Button>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={chat.close}
-              aria-label="Close"
-            >
-              ✕
-            </Button>
-          </div>
-        </header>
-
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-          {chat.messages.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <div className="grid gap-5">
-              {chat.messages.map((m) => (
-                <MessageRow key={m.id} message={m} />
-              ))}
-              <div ref={bottomRef} />
-            </div>
-          )}
-        </div>
-
-        <form
-          onSubmit={handleSubmit}
-          className="shrink-0 border-t border-[var(--line)] px-5 py-4"
-        >
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask anything about your library…"
-              disabled={chat.isStreaming}
-              autoFocus
-              className="h-11 min-w-0 flex-1 rounded-full border border-[var(--line)] bg-[var(--bg-subtle)] px-4 text-sm text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:border-[var(--line-strong)] focus:outline-none disabled:opacity-50"
-            />
-            <Button
-              type="submit"
-              size="pill"
-              disabled={chat.isStreaming || !input.trim()}
-            >
-              {chat.isStreaming ? 'Thinking…' : 'Ask'}
-            </Button>
-          </div>
-        </form>
-      </aside>
-    </div>
   );
 }
 
@@ -204,91 +296,6 @@ function EmptyState() {
   );
 }
 
-function MessageRow({ message }: Readonly<{ message: ChatMessage }>) {
-  if (message.role === 'user') {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl bg-[var(--ink)] px-4 py-2 text-sm text-[var(--cream)]">
-          {message.content}
-        </div>
-      </div>
-    );
-  }
-  return <AssistantMessage message={message} />;
-}
-
-function AssistantMessage({ message }: Readonly<{ message: ChatMessage }>) {
-  const allCitations = message.citations ?? [];
-  // Disclosure reflects only citations actually referenced in the
-  // answer. Two forms:
-  //   [N]       → specific passage, citation.index matches N
-  //   [Video N] → whole candidate, maps to that video's anchor
-  // While streaming, show the retrieval pool so the UI isn't empty
-  // during the typing animation. Once done, drop to exactly what was
-  // cited — an empty set means the disclosure hides (no dangling
-  // "5 videos · 15 passages" when the model answered without citing).
-  const referenced = collectReferencedCitationIndices(
-    message.content,
-    allCitations,
-  );
-  const citations =
-    message.status === 'done'
-      ? allCitations.filter((c) => referenced.has(c.index))
-      : allCitations;
-  if (message.status === 'pending') {
-    return (
-      <div className="max-w-full">
-        <span className="inline-flex items-center gap-2 text-xs text-[var(--ink-muted)]">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--ink-muted)]" />
-          Retrieving passages…
-        </span>
-      </div>
-    );
-  }
-  if (message.status === 'error') {
-    return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-        Couldn&apos;t complete: {message.error}
-      </div>
-    );
-  }
-  const components = {
-    // Replace bare text fragments containing [N] citation markers with
-    // linked chips. Anchored to word boundaries so inline prose like
-    // "[foo]" isn't rewritten.
-    p: (props: React.HTMLAttributes<HTMLParagraphElement>) => (
-      <p
-        {...props}
-        className="mb-2 text-sm leading-relaxed text-[var(--ink)]"
-      />
-    ),
-  };
-  return (
-    <div className="max-w-full">
-      <div className="prose prose-sm dark:prose-invert max-w-none">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-          {annotateCitations(message.content, citations)}
-        </ReactMarkdown>
-      </div>
-      {citations.length > 0 && message.status === 'done' && (
-        <details className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
-          <summary className="cursor-pointer text-xs font-medium text-[var(--ink-muted)]">
-            {formatCitationSummary(citations)}
-          </summary>
-          <div className="mt-3 grid gap-2">
-            {citations.map((c) => (
-              <CitationCard key={c.index} citation={c} />
-            ))}
-          </div>
-        </details>
-      )}
-    </div>
-  );
-}
-
-// Build the "Video N → anchor citation" lookup. Citations arrive in
-// rank order grouped by video (video 1's passages, then video 2's, …),
-// so the first citation per youtubeVideoId is that video's anchor.
 function buildVideoAnchorIndex(citations: Citation[]): Citation[] {
   const seen = new Set<string>();
   const anchors: Citation[] = [];

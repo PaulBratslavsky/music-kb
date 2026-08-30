@@ -1,46 +1,54 @@
 // Surface → model policy. ONE place decides which model backs which AI
-// surface and — the load-bearing part — which surfaces may reach a frontier
-// model at all.
+// surface, and which surfaces a user may re-point at another model.
 //
-// LOCAL-FIRST (CLAUDE.md, "Local-first, with exactly one documented
-// exception"): every surface in LOCAL_SURFACES resolves to a local Ollama
-// adapter, permanently, and that is expressed in the TYPE rather than in a
-// config row. `resolveModel` accepts only a LocalSurface and returns only a
-// LocalModel, so no env value and no table edit can point summaries, chat,
-// extraction, reading mode, notes or digests at Anthropic. Lesson
-// generation — the single documented exception — is resolved by
-// resolveLessonModel() in lesson-model.ts, which is the ONLY module in the
-// app that imports @tanstack/ai-anthropic as a value, and which
-// model-policy.test.ts pins to a single importer.
+// LOCAL-BY-DEFAULT (CLAUDE.md, amended 2026-08-27 — see ADR 0011). Every
+// surface still RESOLVES local by default: `resolveModel(surface)` takes a
+// LocalSurface and returns a LocalModel, exactly as before, and no env value
+// or table edit changes that. What the amendment added is an explicit,
+// per-request override on the four INTERACTIVE surfaces in
+// SWITCHABLE_SURFACES, routed through `resolveChatModel` in
+// frontier-model.ts.
 //
-// There is deliberately NO `Surface` union and no 'lesson' key here. A
-// surface key exists only for surfaces that are local; frontier is not a
-// value this module can produce or name, so there is no union for a future
-// edit to widen and no second lawful home for a surface key.
+// What did NOT change, and is still mechanised:
 //
-// ONE HONEST CAVEAT, so nobody reads a stronger claim than is true:
-// `synthesizeDigest` accepts a `ResolvedModel` override and lesson
-// generation passes its own (possibly frontier) model into it, so digest
-// synthesis IS frontier-reachable at runtime by tier inheritance. What
-// `resolveModel` guarantees is narrower and still the thing that matters:
-// no surface can reach frontier *by resolving its own model*. The digest's
-// own default is local, and its only frontier path is an explicit argument
-// from the one module allowed to build a frontier adapter.
+//   1. LOCAL_ONLY_SURFACES cannot be re-pointed at all. Bulk and background
+//      jobs — summaries, extraction, re-embedding, digest synthesis, query
+//      rewriting — have no override path, because CLAUDE.md's economic
+//      argument for local-first ("bulk jobs like re-embedding the whole
+//      library are free") applies to precisely those and not to a chat turn
+//      a human is waiting on.
+//
+//   2. frontier-model.ts is STILL the only module in the app that imports
+//      @tanstack/ai-anthropic as a value or reads ANTHROPIC_API_KEY. The
+//      widening moved which surfaces may ASK for a frontier model; it did
+//      not add a second place that can BUILD one. model-policy.test.ts pins
+//      that, same as before — only the filename in the assertion changed.
+//
+//   3. Tier-pairing by construction. A FrontierModel carries its own
+//      non-echoing friendlyError, its own redact, and toJSON/inspect hooks
+//      that stop `console.log(model)` traversing into the SDK client's live
+//      `.apiKey`. Those live ON the returned object, so a caller cannot pair
+//      a frontier adapter with the echoing local error mapper.
+//
+//   4. The key is server-side only and never reaches the browser. The client
+//      sends a CHOICE TOKEN ('default' | 'local:<id>' | 'frontier'), never a
+//      model id or a key, and the server validates it against the installed
+//      Ollama catalogue before constructing anything.
+//
+// The honest caveat from the original header still stands: `synthesizeDigest`
+// accepts a `ResolvedModel` override, so digest synthesis is frontier-reachable
+// by inheritance from a caller that already resolved one. Its own default is
+// local and digest.test.ts pins that no other caller passes an override.
 //
 // The `import type` below is erased (verbatimModuleSyntax: true, see
-// client/tsconfig.json), so nothing here puts @anthropic-ai/sdk in the
-// import graph of learning.ts / api.chat.tsx / the other nine local
-// surfaces.
-//
-// Promoting a surface to frontier therefore takes an edit to THIS file and
-// to lesson-model.ts — a reviewed code change, which is the bar CLAUDE.md
-// sets. Pinned by model-policy.test.ts.
+// client/tsconfig.json), so nothing here puts @anthropic-ai/sdk in the import
+// graph of the local surfaces.
 //
 // Why this table does not live in env.ts: env.ts is the leaf module every
-// other module imports, and it currently imports nothing. Putting the
-// policy there would drag @tanstack/ai-ollama (and `samplingOptions` /
-// `friendlyOllamaError`) into the import graph of every consumer of a
-// single env constant.
+// other module imports, and it currently imports nothing. Putting the policy
+// there would drag @tanstack/ai-ollama (and `samplingOptions` /
+// `friendlyOllamaError`) into the import graph of every consumer of a single
+// env constant.
 
 import { createOllamaChat, type OllamaTextAdapter } from '@tanstack/ai-ollama';
 import type { AnthropicChatModel, createAnthropicChat } from '@tanstack/ai-anthropic';
@@ -70,19 +78,63 @@ export type ModelTier = 'frontier' | 'local';
  * key: `api.chat.tsx`'s stream and `learning.ts`'s non-streaming
  * `askAboutVideoService` are both 'video-chat'.
  */
-export const LOCAL_SURFACES = [
+/**
+ * Surfaces that are local by policy and NOT user-switchable.
+ *
+ * These are the bulk / background jobs. CLAUDE.md's operative argument for
+ * local-first is economic — "the local-first constraint is what makes bulk jobs
+ * like re-embedding the whole library free" — and that argument still holds
+ * exactly here even after the 2026-08-27 amendment opened the interactive
+ * surfaces to a switcher. A summary pass or a re-extraction runs over the whole
+ * library unattended; nothing user-facing chooses its model, so nothing can
+ * quietly turn a bulk job into a metered one.
+ */
+export const LOCAL_ONLY_SURFACES = [
   'summary', //           learning.ts — single-pass, map, reduce, verdict re-rate
-  'video-chat', //        api.chat.tsx (stream) + learning.ts askAboutVideoService
   'query-rewrite', //     chat-retrieval.ts RRF leg
-  'digest-chat', //       api.digest-chat.tsx
   'digest-synthesis', //  digest.ts synthesizeDigest
   'digest-article', //    digest.ts synthesizeDigestArticle
   'music-extraction', //  music-extraction.ts
   'reader', //            reader.ts
   'note-summarize', //    notes.ts summarizeConversationToNote
-  'note-compose', //      api.notes.compose.tsx
-  'library-ask', //       api.ask.tsx
 ] as const;
+
+/**
+ * Interactive surfaces a user may re-point at another model per request.
+ *
+ * The line is "a human is waiting for this one answer", not "this feature is
+ * important". Each of these is user-initiated, one at a time, and its cost is
+ * bounded by someone sitting there — which is what makes an opt-in frontier
+ * call reasonable here and not in LOCAL_ONLY_SURFACES.
+ *
+ * A surface being switchable changes nothing by default: with no explicit
+ * choice, `resolveModel(surface)` still returns the same local model it always
+ * did, from the same env constant.
+ */
+export const SWITCHABLE_SURFACES = [
+  'video-chat', //    api.chat.tsx (stream) + learning.ts askAboutVideoService
+  'digest-chat', //   api.digest-chat.tsx
+  'library-ask', //   api.ask.tsx
+  'note-compose', //  api.notes.compose.tsx
+] as const;
+
+export type LocalOnlySurface = (typeof LOCAL_ONLY_SURFACES)[number];
+export type SwitchableSurface = (typeof SWITCHABLE_SURFACES)[number];
+
+/**
+ * Every surface whose DEFAULT is local — which is still all of them. Kept as a
+ * single list so `resolveModel` and `modelIdFor` keep their exhaustiveness
+ * guarantee over the whole set.
+ */
+export const LOCAL_SURFACES = [
+  ...LOCAL_ONLY_SURFACES,
+  ...SWITCHABLE_SURFACES,
+] as const;
+
+/** True when a surface may be re-pointed by an explicit user choice. */
+export function isSwitchableSurface(s: string): s is SwitchableSurface {
+  return (SWITCHABLE_SURFACES as readonly string[]).includes(s);
+}
 
 export type LocalSurface = (typeof LOCAL_SURFACES)[number];
 
@@ -110,7 +162,7 @@ export type FrontierModel = {
   friendlyError: (raw: string) => string;
   redact: (raw: string) => string;
   /**
-   * Log-safety hooks, supplied by lesson-model.ts's frontier branch.
+   * Log-safety hooks, supplied by frontier-model.ts's frontier branch.
    *
    * The Anthropic adapter closes over a live SDK client whose `.apiKey`
    * property holds the raw key at depth 2, so plain `console.log(model)` —
@@ -132,7 +184,7 @@ export type ResolvedModel = LocalModel | FrontierModel;
  * `modelIdFor`, precisely because a lesson run's model id depends on its
  * tier: a `modelIdFor('lesson')` would return the local id even on a
  * frontier run, and the first caller who stamped it into a persisted row
- * would record a lie. Consumed only by lesson-model.ts's local branch.
+ * would record a lie. Consumed only by frontier-model.ts's local branch.
  */
 export const LESSON_LOCAL_MODEL = OLLAMA_MODEL;
 
@@ -171,7 +223,7 @@ export function modelIdFor(surface: LocalSurface): string {
 }
 
 /**
- * Build a local model binding. Exported because lesson-model.ts's LOCAL
+ * Build a local model binding. Exported because frontier-model.ts's LOCAL
  * branch uses it — the two tiers must produce structurally identical
  * objects or the tier-pairing guarantee is only half true.
  *

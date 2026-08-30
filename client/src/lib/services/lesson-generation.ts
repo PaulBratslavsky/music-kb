@@ -51,11 +51,11 @@
 // explicit user Save), not an implicit side effect of generating a lesson.
 //
 // WHICH model runs steps 4/5 is decided exactly once, by
-// `resolveLessonModel()` (lesson-model.ts) — a frontier Anthropic model
+// `resolveLessonModel()` (frontier-model.ts) — a frontier Anthropic model
 // when ANTHROPIC_API_KEY is set, the local Ollama model otherwise. This
 // module never picks an adapter itself; it asks once and uses whatever it
 // gets back for every chat() call, so a lesson never mixes tiers. Both
-// tiers run this exact same staged pipeline — see lesson-model.ts for why
+// tiers run this exact same staged pipeline — see frontier-model.ts for why
 // (comparability between a local and a frontier lesson matters more than
 // letting a frontier model collapse the staging into one call).
 //
@@ -113,7 +113,7 @@ import {
   strapiRowToDigest,
 } from '#/lib/services/digests';
 import { cosineSimilarity, embedText } from '#/lib/services/embeddings';
-import { redactAnthropicKey, resolveLessonModel } from '#/lib/services/lesson-model';
+import { redactAnthropicKey, resolveLessonModel } from '#/lib/services/frontier-model';
 import type { ModelTier, ResolvedModel } from '#/lib/services/model-policy';
 import { friendlyOllamaError } from '#/lib/services/ollama-errors';
 import { chooseProseSource } from '#/lib/services/prose-grounding';
@@ -2260,7 +2260,7 @@ export async function planLesson(
   const maxVideos = Math.min(requestedMax, DIGEST_MAX_VIDEOS);
 
   // Decided ONCE, up front — the only place tier/model choice happens (see
-  // lesson-model.ts). Every chat() call below (in both phases) uses this
+  // frontier-model.ts). Every chat() call below (in both phases) uses this
   // same adapter (writeLesson re-resolves it independently, but from the
   // same env, so it never mixes tiers within one generation).
   const lessonModel = resolveLessonModel();

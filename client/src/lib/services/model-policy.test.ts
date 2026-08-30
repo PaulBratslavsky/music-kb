@@ -212,14 +212,14 @@ describe('structural guards', () => {
     expect(callers).toEqual(['lib/services/model-policy.ts']);
   });
 
-  it('only lesson-model.ts CALLS createAnthropicChat', () => {
+  it('only frontier-model.ts CALLS createAnthropicChat', () => {
     // The local-first rule at its narrowest: exactly one module in the app
     // may construct a frontier client.
     const callers = PROD_FILES.filter((f) => /\bcreateAnthropicChat\s*\(/.test(bodyOf(f))).map(rel);
-    expect(callers).toEqual(['lib/services/lesson-model.ts']);
+    expect(callers).toEqual(['lib/services/frontier-model.ts']);
   });
 
-  it('only lesson-model.ts IMPORTS ANTHROPIC_API_KEY from env.ts', () => {
+  it('only frontier-model.ts IMPORTS ANTHROPIC_API_KEY from env.ts', () => {
     // Matches the import, not the bare identifier: `anthropic-errors.ts`
     // names ANTHROPIC_API_KEY inside its canned user-facing hint strings
     // ("…or leave it unset to use the local model instead"), which is text,
@@ -231,7 +231,7 @@ describe('structural guards', () => {
         /\bANTHROPIC_API_KEY\b/.test(m[1]),
       );
     }).map(rel);
-    expect(readers).toEqual(['lib/services/lesson-model.ts']);
+    expect(readers).toEqual(['lib/services/frontier-model.ts']);
   });
 
   it('model-policy.ts imports @tanstack/ai-anthropic TYPE-ONLY', () => {
@@ -258,15 +258,15 @@ describe('structural guards', () => {
     // fight. This test is the thing that makes it impossible.
     const importers = PROD_FILES.filter((f) => /\bresolveLessonModel\b/.test(bodyOf(f)))
       .map(rel)
-      .filter((f) => f !== 'lib/services/lesson-model.ts');
+      .filter((f) => f !== 'lib/services/frontier-model.ts');
     expect(importers).toEqual(['lib/services/lesson-generation.ts']);
   });
 
-  it('lesson-model.ts exports nothing that could alias the frontier resolver', () => {
+  it('frontier-model.ts exports nothing that could alias the frontier resolver', () => {
     // The keystone above counts IMPORTERS of `resolveLessonModel`, which is
     // exactly the hole an adversarial audit walked through:
     //
-    //   // inside lesson-model.ts — no new importer of resolveLessonModel
+    //   // inside frontier-model.ts — no new importer of resolveLessonModel
     //   export function resolvePreferredModel() { return resolveLessonModel(); }
     //
     // learning.ts then imports `resolvePreferredModel`, the importer list
@@ -275,18 +275,56 @@ describe('structural guards', () => {
     // is what closes it: a new export here is red until someone adds it to
     // this list on purpose, at which point the alias is a deliberate,
     // reviewed act rather than an accident.
-    const src = readFileSync(join(SRC_ROOT, 'lib/services/lesson-model.ts'), 'utf8');
+    const src = readFileSync(join(SRC_ROOT, 'lib/services/frontier-model.ts'), 'utf8');
     const exported = [...src.matchAll(/^export\s+(?:async\s+)?(?:function|const|class|type|interface)\s+(\w+)/gm)]
       .map((m) => m[1])
       .sort();
-    expect(exported).toEqual(['redactAnthropicKey', 'resolveLessonModel']);
+    //
+    // Amended 2026-08-27 (ADR 0011). `resolveChatModel` is a SECOND deliberate
+    // frontier entry point, for the interactive surfaces. It is pinned by its
+    // own importer test below, exactly as resolveLessonModel is — the pattern
+    // is "every export that can RETURN a frontier model has a pinned importer
+    // list", not "there is only one such export".
+    //
+    // The other three additions cannot return a model at all:
+    //   parseModelChoice   -> a parsed token, no adapter
+    //   frontierAvailable  -> boolean
+    //   ModelChoiceToken / ParsedModelChoice -> types, erased at build
+    expect(exported).toEqual([
+      'ModelChoiceToken',
+      'ParsedModelChoice',
+      'frontierAvailable',
+      'parseModelChoice',
+      'redactAnthropicKey',
+      'resolveChatModel',
+      'resolveLessonModel',
+    ]);
     // `export { resolveLessonModel as resolvePreferredModel }` and
     // `export * from` would both slip past the declaration scan above.
     expect(src).not.toMatch(/^export\s*\{/m);
     expect(src).not.toMatch(/^export\s+\*/m);
-    // The scan found the two real exports, rather than a regex that matches
+    // The scan found the real exports, rather than a regex that matches
     // nothing and passes vacuously.
-    expect(exported).toHaveLength(2);
+    expect(exported).toHaveLength(7);
+  });
+
+  it('resolveChatModel is imported ONLY by switchable-surface entry points', () => {
+    // The sibling keystone to the resolveLessonModel test above. resolveChatModel
+    // can return a frontier model, so an import of it from (say) learning.ts's
+    // summary path or music-extraction.ts would reopen exactly the hole the
+    // lesson-side test closes: a local-only surface reaching frontier without
+    // calling a constructor and without touching LOCAL_SURFACES.
+    //
+    // The allow-list is the four SWITCHABLE_SURFACES' entry points and nothing
+    // else. Adding a file here is a deliberate, reviewed act.
+    const importers = PROD_FILES.filter((f) => /\bresolveChatModel\b/.test(bodyOf(f)))
+      .map(rel)
+      .filter((f) => f !== 'lib/services/frontier-model.ts')
+      .sort();
+    const allowed = [
+      'lib/services/chat-model-request.ts',
+    ];
+    expect(importers).toEqual(allowed);
   });
 
   it('every literal resolveModel(...) argument in the tree is a declared surface', () => {

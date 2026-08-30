@@ -40,15 +40,15 @@ vi.mock('@tanstack/ai', () => ({
 }));
 
 // lesson-generation.ts no longer picks an adapter itself — it asks
-// lesson-model.ts once via resolveLessonModel(). Mocking that call directly
+// frontier-model.ts once via resolveLessonModel(). Mocking that call directly
 // (rather than the two underlying adapter packages) matches the "ONLY
 // place the choice is made" contract and lets tests flip tier without
 // touching @tanstack/ai-ollama / @tanstack/ai-anthropic at all.
 const resolveLessonModelMock = vi.fn();
-vi.mock('./lesson-model', () => ({
+vi.mock('./frontier-model', () => ({
   resolveLessonModel: () => resolveLessonModelMock(),
   // Pass-through here — redaction itself is unit-tested for real against
-  // the actual module in lesson-model.test.ts. These tests only care that
+  // the actual module in frontier-model.test.ts. These tests only care that
   // friendlyAnthropicError's canned messages never echo input at all.
   redactAnthropicKey: (text: string) => text,
 }));

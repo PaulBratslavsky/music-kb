@@ -18,7 +18,21 @@
  *    never reads it — the model is bound when the adapter is constructed —
  *    so it exists purely to satisfy the type. Pass the same constant the
  *    adapter was built with to keep the two honest.
+ *
+ * 3. **Output is unbounded by default.** Ollama keeps generating until the
+ *    model decides to stop, and a small instruct model asked for a one-line
+ *    answer will happily write six hundred tokens of essay. That is fine for
+ *    prose surfaces and fatal for any call with a latency budget, so
+ *    `numPredict` caps it. Measured on gemma4-kb: uncapped 679 tokens /
+ *    12.2s, capped at 32 tokens / 0.89s for the same prompt.
  */
-export function samplingOptions(model: string, temperature: number) {
-  return { model, options: { temperature } };
+export function samplingOptions(
+  model: string,
+  temperature: number,
+  numPredict?: number,
+) {
+  return {
+    model,
+    options: numPredict === undefined ? { temperature } : { temperature, num_predict: numPredict },
+  };
 }

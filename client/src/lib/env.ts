@@ -20,14 +20,14 @@ const STRAPI_API_TOKEN = readEnv('STRAPI_API_TOKEN');
 
 const TRANSCRIPT_PROXY_URL = readEnv('TRANSCRIPT_PROXY_URL');
 
-// Frontier model for lesson generation only (see lesson-model.ts). Server-side
+// Frontier model for lesson generation only (see frontier-model.ts). Server-side
 // only, by construction: this module is never imported from a client
 // component (only from services/server-functions/API routes, same boundary
 // STRAPI_API_TOKEN already relies on), and the raw value never leaves this
-// constant — lesson-model.ts closes over it to build an SDK client and never
+// constant — frontier-model.ts closes over it to build an SDK client and never
 // re-exports it. Leave empty to keep lesson generation on the local model.
 const ANTHROPIC_API_KEY = readEnv('ANTHROPIC_API_KEY');
-// Only consulted when ANTHROPIC_API_KEY is set. lesson-model.ts validates
+// Only consulted when ANTHROPIC_API_KEY is set. frontier-model.ts validates
 // this against the adapter's known model list at call time and falls back
 // (with a warning) rather than trusting an env typo through to the API call.
 const LESSON_MODEL = readEnv('LESSON_MODEL') ?? 'claude-sonnet-5';
