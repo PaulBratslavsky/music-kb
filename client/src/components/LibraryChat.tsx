@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import type { UIMessage } from '@tanstack/ai';
-import { localStoragePersistence } from '@tanstack/ai-react';
 import { Button } from '#/components/ui/button';
 import { Chat } from '#/components/chat/Chat';
+import { serverPersistence } from '#/components/chat/server-persistence';
 import { messageText } from '#/lib/services/ui-message';
 import type { Citation } from '#/lib/services/citations';
 
@@ -18,83 +18,102 @@ import type { Citation } from '#/lib/services/citations';
 // out of the stream and binds them to the message that follows, so they arrive
 // here keyed by message id with no server change. See capture-frames.ts.
 
-const STORAGE_KEY = 'ytkb:library-chat:v2';
-const CITATIONS_KEY = 'ytkb:library-chat-citations:v1';
+const SURFACE = 'library-ask';
 
 /**
- * Citations persist ALONGSIDE the transcript, not inside it.
+ * What identifies this conversation.
  *
- * useChat's own persistence restores the messages, but citations are not part
- * of a message — they are held beside it, keyed by id, so transcript excerpts
- * are never replayed to the model on later turns. That means a reload would
- * restore every answer with its sources silently missing: the prose renders,
- * the disclosure just never appears, and nothing errors.
+ * THERE ARE NO USER ACCOUNTS IN THIS APP. Grepping the whole client for
+ * `userId` / `currentUser` / `session` returns nothing outside comments: every
+ * Strapi row — Video, Note, Digest, Loop — is global, and Strapi is reached
+ * with one app-level API token, not a per-user one. So the honest scope for a
+ * conversation today is "the library", and this is a constant.
  *
- * Same key discipline as the transcript: a version suffix, and a read that
- * treats anything unexpected as absent rather than throwing on load.
+ * THE ASSUMPTION, STATED: one Strapi instance serves one person. "Follows the
+ * user across devices" is therefore precisely "follows the Strapi instance" —
+ * two browsers pointed at the same backend share this conversation, which is
+ * the intended behaviour, and two people sharing one backend would also share
+ * it, which is the same trust boundary every other row in this app already has.
+ *
+ * WHEN ACCOUNTS ARRIVE, this function is the only thing that changes:
+ * `${userId}:${SURFACE}:v1`. It is a function rather than a bare constant for
+ * exactly that reason — the call site already reads like a lookup, so adding
+ * an argument does not ripple. The `unique` threadId column and the adapter
+ * both treat it as opaque.
+ *
+ * The `:v1` suffix is the same key discipline the localStorage version used: a
+ * change to what we store under this key gets a new key rather than a
+ * migration.
  */
-function loadCitations(): Map<string, Citation[]> {
-  if (typeof window === 'undefined') return new Map();
-  try {
-    const raw = window.localStorage.getItem(CITATIONS_KEY);
-    if (!raw) return new Map();
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Map();
-    return new Map(parsed as Array<[string, Citation[]]>);
-  } catch {
-    return new Map();
-  }
-}
-
-function saveCitations(map: Map<string, Citation[]>): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(CITATIONS_KEY, JSON.stringify([...map]));
-  } catch {
-    // Quota or a private window. The chat still works; sources just will not
-    // survive the next reload.
-  }
-}
-
-/**
- * Clearing needs its own path, not `saveCitations(new Map())`.
- *
- * The write effect skips empty maps — it has to, or it would clobber storage
- * on the first render, before the adopt effect restores anything. That guard
- * also means an emptied map never reaches storage, so Clear has to remove the
- * record itself or the cleared conversation's passages come back on reload.
- */
-function clearStoredCitations(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(CITATIONS_KEY);
-  } catch {
-    // Nothing to do; the in-memory map is already cleared.
-  }
+function conversationThreadId(): string {
+  return `${SURFACE}:v1`;
 }
 
 export function LibraryChat() {
   const [isOpen, setIsOpen] = useState(false);
   // Citations by message id, populated by the frame interceptor below and
-  // rehydrated from storage so a reload keeps them.
+  // rehydrated from the server so a reload — on any device — keeps them.
   const [citationsById, setCitationsById] = useState<Map<string, Citation[]>>(() => new Map());
+  // Set when the backend refuses a read or a write. This surface fails CLOSED
+  // (no localStorage fallback — see server-persistence.ts), and the SDK
+  // swallows adapter errors, so without this the conversation would silently
+  // stop being durable and look exactly like one that was saved.
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
 
-  // Adopted AFTER mount, not in the useState initializer. This tree is
-  // server-rendered, and reading localStorage during the first render makes
-  // the client disagree with the server's markup.
-  useEffect(() => {
-    const stored = loadCitations();
-    // Live captures win over stored ones: `prev` is spread last.
-    if (stored.size > 0) setCitationsById((prev) => new Map([...stored, ...prev]));
-  }, []);
+  const threadId = conversationThreadId();
+
+  const persistence = useMemo(
+    () =>
+      serverPersistence({
+        surface: SURFACE,
+        // Restored from the server INSIDE getItem, which the SDK calls after
+        // mount on the client. Same reason the old localStorage version
+        // adopted in an effect rather than a useState initializer: this tree is
+        // server-rendered, and producing stored state during the first render
+        // makes the client disagree with the server's markup. The adapter
+        // returns null on the server for that reason.
+        onCitationsRestored: (stored) => {
+          if (stored.length === 0) return;
+          // Live captures win over stored ones: `prev` is spread last.
+          setCitationsById((prev) => new Map([...stored, ...prev]));
+        },
+        onError: (op, message) => setPersistenceError(`${op}: ${message}`),
+      }),
+    [],
+  );
 
   useEffect(() => {
-    // The empty-map guard is load-bearing. Without it this effect runs once on
-    // mount — before the adopt effect above has restored anything — and writes
-    // an empty record over the citations it was about to read.
+    // The empty-map guard is still load-bearing, for the same reason it was
+    // against localStorage. This effect runs once on mount, before getItem has
+    // restored anything, and pushing an empty list in would make the next
+    // write drop the citations the adapter is about to read. Clear does NOT
+    // rely on this path — it goes through the SDK's removeItem, which deletes
+    // the whole row, so an emptied map never needing to reach the server is a
+    // property rather than a gap.
     if (citationsById.size === 0) return;
-    saveCitations(citationsById);
-  }, [citationsById]);
+    persistence.setCitations([...citationsById]);
+  }, [citationsById, persistence]);
+
+  // Flush points for state the debounce is still holding.
+  //
+  // The RELIABLE ones are unmount (the drawer closing) and a tab going hidden;
+  // both leave the page alive long enough for the write to complete. `pagehide`
+  // is best-effort only — an unload kills the in-flight request, which is why
+  // the durable guarantee is the `onFinish` flush at the <Chat> call site
+  // rather than anything here.
+  useEffect(() => {
+    const flush = () => void persistence.flush();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHide);
+      flush();
+    };
+  }, [persistence]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -155,13 +174,27 @@ export function LibraryChat() {
               surface="library-ask"
               endpoint="/api/ask"
               scope={EMPTY_SCOPE}
-              // Persisted per browser, so the conversation survives a reload.
-              // Swapping this adapter for one backed by a server function is
-              // the whole change needed to make it cross-device — getItem and
-              // setItem are allowed to be async.
-              threadId={STORAGE_KEY}
-              persistence={localStoragePersistence()}
+              // Persisted in Strapi, so the conversation follows the user to
+              // any browser pointed at this backend. This is the swap the old
+              // comment here predicted: <Chat> did not need to change, because
+              // the SDK allows every persistence method to be async.
+              threadId={threadId}
+              persistence={persistence}
               captureFrames={captureFrames}
+              // Force the debounced write out the moment a run completes.
+              //
+              // Found by an e2e reload, not by reasoning. The debounce means
+              // the only writes to land during a long answer are MAX_WAIT
+              // checkpoints, and a reload shortly after the final token
+              // restored a transcript truncated MID-SENTENCE — with no `[N]`
+              // markers in it yet, so the citations disclosure correctly
+              // rendered nothing and the whole thing looked like a citation
+              // bug. The pagehide flush cannot save this: an unload kills the
+              // in-flight POST. A completed turn is exactly when durability
+              // matters, and it is a moment the SDK already tells us about.
+              onFinish={() => {
+                void persistence.flush();
+              }}
               chrome={{
                 ariaLabel: 'Ask your library',
                 title: 'Ask your library',
@@ -186,14 +219,24 @@ export function LibraryChat() {
               transformMarkdown={(text, message) =>
                 annotateCitations(text, citationsById.get(message.id) ?? [])
               }
+              banner={
+                persistenceError
+                  ? `Not saved — this conversation is memory-only until the backend is reachable. (${persistenceError})`
+                  : undefined
+              }
               onClear={(ctx) => {
                 // Citations are keyed by message id and live outside the
                 // transcript, so clearing the messages alone would leave every
-                // entry behind — the map would grow for the life of the
-                // browser profile and never be read again.
+                // entry behind.
+                //
+                // Emptying the transcript is enough to delete them now: the SDK
+                // calls removeItem when the message list goes empty, and the
+                // citations live in the SAME row, so one delete takes both. The
+                // localStorage version needed a separate clear call here
+                // precisely because they lived under a second key it owned.
                 ctx.setMessages([]);
                 setCitationsById(new Map());
-                clearStoredCitations();
+                setPersistenceError(null);
               }}
               renderBelowBody={renderBelowBody}
               className="min-h-0 flex-1"

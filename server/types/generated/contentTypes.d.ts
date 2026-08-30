@@ -443,6 +443,48 @@ export interface AdminUser extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiChatConversationChatConversation
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'chat_conversations';
+  info: {
+    description: "One durable chat transcript, addressed by `threadId` \u2014 the key TanStack AI's ChatClientPersistence stores under. Holds the SDK's whole ChatPersistedState (`messages` + optional `resume`) plus the `citations` that live BESIDE the transcript rather than inside it. Upsert by threadId, same as Digest upserts by videoSetKey (ADR 0006). Replaces the browser-only localStorage persistence on library-ask so a conversation follows the user to any browser pointed at this Strapi.";
+    displayName: 'Chat Conversation';
+    pluralName: 'chat-conversations';
+    singularName: 'chat-conversation';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    citations: Schema.Attribute.JSON;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::chat-conversation.chat-conversation'
+    > &
+      Schema.Attribute.Private;
+    messages: Schema.Attribute.JSON & Schema.Attribute.Required;
+    publishedAt: Schema.Attribute.DateTime;
+    resume: Schema.Attribute.JSON;
+    surface: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 60;
+      }>;
+    threadId: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 200;
+      }>;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
 export interface ApiCompositionComposition extends Struct.CollectionTypeSchema {
   collectionName: 'compositions';
   info: {
@@ -1527,6 +1569,7 @@ declare module '@strapi/strapi' {
       'admin::transfer-token': AdminTransferToken;
       'admin::transfer-token-permission': AdminTransferTokenPermission;
       'admin::user': AdminUser;
+      'api::chat-conversation.chat-conversation': ApiChatConversationChatConversation;
       'api::composition.composition': ApiCompositionComposition;
       'api::digest.digest': ApiDigestDigest;
       'api::lesson.lesson': ApiLessonLesson;
