@@ -109,21 +109,29 @@ export function VideoChat({ videoId, onNoteCreated, className }: Readonly<Props>
       )
       .map((m) => ({ role: m.role, content: messageText(m).trim() }))
       .filter((m) => m.content.length > 0);
-    const res = await summarizeToNote({
-      data: {
-        videoIds: [videoId],
-        messages: payload,
-        source: 'chat',
-        skillSlug: skillSlug ?? undefined,
-      },
-    });
-    setSummarizing(false);
-    if (res.status === 'ok') {
-      setSummaryMsg('Saved to notes.');
-      onNoteCreated?.(res.noteDocumentId);
-      window.setTimeout(() => setSummaryMsg(null), 2500);
-    } else {
-      setSummaryMsg(`Save failed: ${res.error}`);
+    try {
+      const res = await summarizeToNote({
+        data: {
+          videoIds: [videoId],
+          messages: payload,
+          source: 'chat',
+          skillSlug: skillSlug ?? undefined,
+        },
+      });
+      if (res.status === 'ok') {
+        setSummaryMsg('Saved to notes.');
+        onNoteCreated?.(res.noteDocumentId);
+        window.setTimeout(() => setSummaryMsg(null), 2500);
+      } else {
+        setSummaryMsg(`Save failed: ${res.error}`);
+      }
+    } catch (err) {
+      // A REJECTION, not an `{ status: 'error' }` result — a dropped network
+      // or a 500. Without this the flag stays true, so the button sits
+      // disabled reading "Saving…" forever with nothing explaining why.
+      setSummaryMsg(`Save failed: ${err instanceof Error ? err.message : 'request failed'}`);
+    } finally {
+      setSummarizing(false);
     }
   };
 

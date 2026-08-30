@@ -210,7 +210,7 @@ describe('withFriendlyErrors', () => {
   });
 });
 
-describe('withFriendlyErrors → toServerSentEventsResponse (@tanstack/ai 0.45.1)', () => {
+describe('withFriendlyErrors → toServerSentEventsResponse (@tanstack/ai 0.52.0)', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });

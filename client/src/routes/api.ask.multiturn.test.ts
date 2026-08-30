@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const retrieveMock = vi.fn();
 const chatMock = vi.fn();
 const condenseMock = vi.fn();
+const toSSEMock = vi.fn();
 
 // Only `chat` and the response encoder are stubbed. chatParamsFromRequestBody
 // stays REAL: parsing and validating the AG-UI body is part of this route's
@@ -20,7 +21,7 @@ const condenseMock = vi.fn();
 vi.mock('@tanstack/ai', async (orig) => ({
   ...(await orig()),
   chat: (...a: unknown[]) => chatMock(...a),
-  toServerSentEventsResponse: () => new Response('ok'),
+  toServerSentEventsResponse: (...a: unknown[]) => toSSEMock(...a),
 }));
 vi.mock('#/lib/services/ask-library', () => ({
   ASK_LIBRARY_SYSTEM: 'SYSTEM',
@@ -90,6 +91,8 @@ beforeEach(() => {
   retrieveMock.mockResolvedValue([PASSAGE]);
   chatMock.mockReturnValue({});
   condenseMock.mockImplementation(async (q: string) => ({ query: q, condensed: false }));
+  toSSEMock.mockReset();
+  toSSEMock.mockImplementation(() => new Response('ok'));
 });
 
 describe('POST /api/ask — multi-turn', () => {
@@ -166,6 +169,49 @@ describe('POST /api/ask — multi-turn', () => {
     // 4 prior turns + the seeded question.
     expect(messages).toHaveLength(5);
     expect((messages[3] as { content: string }).content).toBe('turn 19');
+  });
+
+  it('surfaces a mid-stream failure instead of truncating the response', async () => {
+    // REGRESSION. The composed stream used `finally { close() }`, so a
+    // rejected read closed the stream before the error could propagate — and a
+    // closed stream cannot then transition to errored. The client received a
+    // truncated body with no error frame and no [DONE], and the message
+    // withFriendlyErrors had just produced was lost.
+    toSSEMock.mockImplementation(() => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new TextEncoder().encode('data: {"type":"TEXT_MESSAGE_START"}\n\n'));
+          c.error(new Error('Ollama is not running.'));
+        },
+      });
+      return new Response(stream);
+    });
+
+    const res = await askHandler(thread('q'));
+
+    // Reading the body to completion is what a client does. A truncated
+    // stream resolves; an errored one rejects.
+    await expect(res.text()).rejects.toThrow(/Ollama is not running/);
+  });
+
+  it('cancels the upstream run when the client aborts', async () => {
+    // Without a cancel handler the model keeps generating to completion,
+    // holding a connection nobody is reading.
+    const cancelled = vi.fn();
+    toSSEMock.mockImplementation(() => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new TextEncoder().encode('data: {"type":"TEXT_MESSAGE_START"}\n\n'));
+        },
+        cancel: cancelled,
+      });
+      return new Response(stream);
+    });
+
+    const res = await askHandler(thread('q'));
+    await res.body!.cancel('client went away');
+
+    expect(cancelled).toHaveBeenCalled();
   });
 
   it('a condenser failure still produces an answer', async () => {

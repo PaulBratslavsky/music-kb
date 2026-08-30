@@ -19,13 +19,82 @@ import type { Citation } from '#/lib/services/citations';
 // here keyed by message id with no server change. See capture-frames.ts.
 
 const STORAGE_KEY = 'ytkb:library-chat:v2';
+const CITATIONS_KEY = 'ytkb:library-chat-citations:v1';
+
+/**
+ * Citations persist ALONGSIDE the transcript, not inside it.
+ *
+ * useChat's own persistence restores the messages, but citations are not part
+ * of a message — they are held beside it, keyed by id, so transcript excerpts
+ * are never replayed to the model on later turns. That means a reload would
+ * restore every answer with its sources silently missing: the prose renders,
+ * the disclosure just never appears, and nothing errors.
+ *
+ * Same key discipline as the transcript: a version suffix, and a read that
+ * treats anything unexpected as absent rather than throwing on load.
+ */
+function loadCitations(): Map<string, Citation[]> {
+  if (typeof window === 'undefined') return new Map();
+  try {
+    const raw = window.localStorage.getItem(CITATIONS_KEY);
+    if (!raw) return new Map();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Map();
+    return new Map(parsed as Array<[string, Citation[]]>);
+  } catch {
+    return new Map();
+  }
+}
+
+function saveCitations(map: Map<string, Citation[]>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(CITATIONS_KEY, JSON.stringify([...map]));
+  } catch {
+    // Quota or a private window. The chat still works; sources just will not
+    // survive the next reload.
+  }
+}
+
+/**
+ * Clearing needs its own path, not `saveCitations(new Map())`.
+ *
+ * The write effect skips empty maps — it has to, or it would clobber storage
+ * on the first render, before the adopt effect restores anything. That guard
+ * also means an emptied map never reaches storage, so Clear has to remove the
+ * record itself or the cleared conversation's passages come back on reload.
+ */
+function clearStoredCitations(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(CITATIONS_KEY);
+  } catch {
+    // Nothing to do; the in-memory map is already cleared.
+  }
+}
 
 export function LibraryChat() {
   const [isOpen, setIsOpen] = useState(false);
-  // Citations by message id, populated by the frame interceptor below.
-  const [citationsById, setCitationsById] = useState<Map<string, Citation[]>>(
-    () => new Map(),
-  );
+  // Citations by message id, populated by the frame interceptor below and
+  // rehydrated from storage so a reload keeps them.
+  const [citationsById, setCitationsById] = useState<Map<string, Citation[]>>(() => new Map());
+
+  // Adopted AFTER mount, not in the useState initializer. This tree is
+  // server-rendered, and reading localStorage during the first render makes
+  // the client disagree with the server's markup.
+  useEffect(() => {
+    const stored = loadCitations();
+    // Live captures win over stored ones: `prev` is spread last.
+    if (stored.size > 0) setCitationsById((prev) => new Map([...stored, ...prev]));
+  }, []);
+
+  useEffect(() => {
+    // The empty-map guard is load-bearing. Without it this effect runs once on
+    // mount — before the adopt effect above has restored anything — and writes
+    // an empty record over the citations it was about to read.
+    if (citationsById.size === 0) return;
+    saveCitations(citationsById);
+  }, [citationsById]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -117,6 +186,15 @@ export function LibraryChat() {
               transformMarkdown={(text, message) =>
                 annotateCitations(text, citationsById.get(message.id) ?? [])
               }
+              onClear={(ctx) => {
+                // Citations are keyed by message id and live outside the
+                // transcript, so clearing the messages alone would leave every
+                // entry behind — the map would grow for the life of the
+                // browser profile and never be read again.
+                ctx.setMessages([]);
+                setCitationsById(new Map());
+                clearStoredCitations();
+              }}
               renderBelowBody={renderBelowBody}
               className="min-h-0 flex-1"
             />

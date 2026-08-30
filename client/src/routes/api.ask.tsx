@@ -235,9 +235,21 @@ export async function askHandler(request: Request): Promise<Response> {
           if (done) break;
           controller.enqueue(value);
         }
-      } finally {
         controller.close();
+      } catch (err) {
+        // NOT `finally { close() }`. A closed stream cannot then transition to
+        // errored, so closing on the way out of a rejected read swallows the
+        // failure: the client sees a truncated body with no error frame and no
+        // [DONE], and the message withFriendlyErrors just produced is lost —
+        // the exact silent failure this route's error translation exists to
+        // prevent.
+        controller.error(err);
       }
+    },
+    async cancel(reason) {
+      // The browser aborted the ask. Without this the upstream model run keeps
+      // generating to completion, holding a connection nobody is reading.
+      await baseReader.cancel(reason);
     },
   });
 

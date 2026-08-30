@@ -197,12 +197,24 @@ export async function notesComposeHandler(request: Request): Promise<Response> {
     body.modelChoice,
   );
   if (notice) console.warn(`[notes/compose] ${notice}`);
+  // Bridge the incoming request's signal to the controller chat() wants, so a
+  // disconnected client stops the model rather than just stopping the reader.
+  const abortController = new AbortController();
+  if (request.signal.aborted) abortController.abort();
+  else request.signal.addEventListener('abort', () => abortController.abort(), { once: true });
+
   const stream = chat({
     adapter: model.adapter,
     ...withSystem(model, skill.composerPrompt, [
       { role: 'user', content: userPrompt },
     ]),
     modelOptions: model.modelOptions(0.3),
+    // Stop in the composer aborts the HTTP request; without this the model
+    // carries on generating server-side, so the button looks like it worked
+    // while the work continues and the tokens are still spent. chat() takes a
+    // controller rather than a signal, so the request's signal is bridged to
+    // one above.
+    abortController,
   });
 
   // NOT STREAMED. The composer accumulates every delta and calls

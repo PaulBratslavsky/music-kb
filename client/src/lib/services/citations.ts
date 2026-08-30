@@ -11,7 +11,13 @@
  * grounds by the transport interceptor — see components/chat/capture-frames.ts.
  */
 export type Citation = {
-  /** 1-based position, and the `[N]` marker the model is told to cite with. */
+  /**
+   * Position in the retrieved set, 0-based — it is the array index the
+   * producer emits (`passages.map(toCitation)`), and the `[N]` marker the
+   * model is told to cite with. Kept 0-based rather than "fixed" to 1: the
+   * prompt, the model's output and the renderer already agree on it, and
+   * shifting it would silently mis-link every existing citation.
+   */
   index: number;
   videoDocumentId: string;
   youtubeVideoId: string;

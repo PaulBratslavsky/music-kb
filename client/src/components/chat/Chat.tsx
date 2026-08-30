@@ -162,28 +162,46 @@ export function Chat({
     [scope, modelChoice],
   );
 
+  const base = { forwardedProps, ...(onFinish ? { onFinish } : {}) };
+
+  // Narrowed once, so the call below reads as four explicit literals rather
+  // than four spreads TypeScript cannot check.
+  const transport = captureFrames
+    ? ({ kind: 'fetcher', fetcher: createCapturingFetcher(endpoint, captureFrames) } as const)
+    : ({ kind: 'connection', connection: fetchServerSentEvents(endpoint) } as const);
+
+  // `persistence` and `threadId` are paired by ChatProps; this makes the pair
+  // visible to the compiler at the call site too.
+  const durable = persistence && threadId ? { persistence, threadId } : null;
+
   const {
     messages,
     sendMessage,
     isLoading: isStreaming,
     error,
     setMessages,
-    // Assembled then asserted once: ChatProps' `Durability` union already
-    // guarantees the persistence/threadId pairing the SDK's own union
-    // requires, but that guarantee does not survive being spread here.
-  } = useChat({
-    ...(threadId ? { threadId } : {}),
-    ...(persistence ? { persistence } : {}),
-    // Default: the connection adapter assembles the AG-UI RunAgentInput body,
-    // because hand-writing that JSON is how the old clients and routes drifted
-    // apart. A surface that emits custom frames swaps in a fetcher that reads
-    // them out on the way through — same body, one extra pass.
-    ...(captureFrames
-      ? { fetcher: createCapturingFetcher(endpoint, captureFrames) }
-      : { connection: fetchServerSentEvents(endpoint) }),
-    forwardedProps,
-    ...(onFinish ? { onFinish } : {}),
-  } as Parameters<typeof useChat>[0]);
+  } = useChat(
+    // Branching at the OBJECT LITERAL rather than spreading a pre-built bag.
+    //
+    // useChat's options are two discriminated unions — fetcher XOR connection,
+    // and persistence+threadId XOR neither — and a union does not survive
+    // being spread: TypeScript widens `...(x ? {a} : {})` to an optional
+    // property and can no longer tell which branch was meant. Assembling one
+    // object and asserting it past that check is how a genuine mismatch would
+    // get in. Written out, every combination is checked.
+    //
+    // The default transport is the connection adapter, which assembles the
+    // AG-UI RunAgentInput body itself — hand-writing that JSON is how the old
+    // clients and routes drifted apart. A surface emitting custom frames swaps
+    // in a fetcher that reads them out on the way through.
+    transport.kind === 'fetcher'
+      ? durable
+        ? { ...base, fetcher: transport.fetcher, persistence: durable.persistence, threadId: durable.threadId }
+        : { ...base, fetcher: transport.fetcher, ...(threadId ? { threadId } : {}) }
+      : durable
+        ? { ...base, connection: transport.connection, persistence: durable.persistence, threadId: durable.threadId }
+        : { ...base, connection: transport.connection, ...(threadId ? { threadId } : {}) },
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });

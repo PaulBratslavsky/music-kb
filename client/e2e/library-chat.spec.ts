@@ -54,3 +54,29 @@ test.describe('LibraryChat on <Chat>', () => {
     assertClean();
   });
 });
+
+test.describe('LibraryChat persistence', () => {
+  test('citations survive a reload, not just the messages', async ({ page }) => {
+    // useChat restores the transcript on its own, but citations live BESIDE a
+    // message (keyed by id, so excerpts are never replayed to the model). If
+    // they are not persisted too, a reload brings back every answer with its
+    // sources silently missing — the prose renders, the disclosure does not,
+    // and nothing errors.
+    test.setTimeout(300_000);
+    await openDrawer(page);
+
+    const input = page.getByPlaceholder(/ask anything about your library/i);
+    const send = page.getByRole('button', { name: /^ask$|^send$/i });
+    await askInChat(input, send, 'What instruments are discussed? One sentence.');
+
+    await expect(page.locator('.chat-md').first()).not.toBeEmpty({ timeout: 280_000 });
+    await expect(page.locator('details').first()).toBeVisible({ timeout: 30_000 });
+
+    await page.reload();
+    await openDrawer(page);
+
+    // Both halves must come back.
+    await expect(page.locator('.chat-md').first()).not.toBeEmpty({ timeout: 30_000 });
+    await expect(page.locator('details').first()).toBeVisible({ timeout: 30_000 });
+  });
+});
