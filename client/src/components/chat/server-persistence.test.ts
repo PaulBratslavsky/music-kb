@@ -34,6 +34,7 @@ const opts = () => ({
   surface: 'library-ask',
   onCitationsRestored: vi.fn(),
   onError: vi.fn(),
+  onRecovered: vi.fn(),
 });
 
 beforeEach(() => {
@@ -117,26 +118,92 @@ describe('clear', () => {
     expect(saveConversation).not.toHaveBeenCalled();
   });
 
-  it('drops a write already in flight when a clear overtakes it', async () => {
-    // The save is slow; the clear happens while it is awaiting. The stale
-    // write must not report success — and must not be treated as the
-    // current state.
-    let release: () => void = () => {};
+  it('deletes AFTER an in-flight save, so a clear cannot be undone by it', async () => {
+    // THE BUG THIS REPLACES. A save and a delete are both find-then-write
+    // against Strapi. Unordered, the delete can land first and the save then
+    // recreates the row — the user clears the conversation, sees it vanish,
+    // and it is back on the next reload with nothing reporting it. The old
+    // test here asserted only that the stale save stayed quiet, which is true
+    // of the broken behaviour too.
+    const order: string[] = [];
+    let releaseSave: () => void = () => {};
     saveConversation.mockImplementation(
-      () => new Promise((r) => { release = () => r({ status: 'error', error: 'stale' }); }),
+      () =>
+        new Promise((r) => {
+          releaseSave = () => {
+            order.push('save');
+            r({ status: 'ok' });
+          };
+        }),
     );
+    deleteConversation.mockImplementation(async () => {
+      order.push('delete');
+      return { status: 'ok' };
+    });
+
     const o = opts();
     const p = serverPersistence(o);
 
     p.setItem('t', { messages: [msg('m1')] } as never);
-    await vi.advanceTimersByTimeAsync(500); // save starts, hangs
-    await p.removeItem('t');
-    release();
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(500); // the save is now awaiting the server
 
-    // The in-flight save failed, but it belongs to a superseded generation, so
-    // it must not surface as an error on the cleared conversation.
-    expect(o.onError).not.toHaveBeenCalled();
+    const cleared = p.removeItem('t'); // must queue, not overtake
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order, 'delete jumped ahead of the in-flight save').toEqual([]);
+
+    releaseSave();
+    await cleared;
+
+    expect(order).toEqual(['save', 'delete']);
+  });
+
+  it('refuses to write after a failed load, so an outage cannot destroy the transcript', async () => {
+    // A failed load and "nothing stored" are the SAME value at the SDK's port:
+    // null. So the SDK starts an empty conversation, and an unguarded adapter
+    // then PUTs that empty transcript over the real one. Degrading has to mean
+    // not writing, or it means destroying.
+    loadConversation.mockResolvedValue({ status: 'error', error: 'ECONNREFUSED' });
+    const o = opts();
+    const p = serverPersistence(o);
+
+    await p.getItem('t');
+    expect(o.onError).toHaveBeenCalledWith('load', 'ECONNREFUSED');
+
+    p.setItem('t', { messages: [msg('only the new turn')] } as never);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(saveConversation).not.toHaveBeenCalled();
+  });
+
+  it('resumes writing once a load succeeds, and clears the banner', async () => {
+    loadConversation.mockResolvedValueOnce({ status: 'error', error: 'down' });
+    const o = opts();
+    const p = serverPersistence(o);
+    await p.getItem('t');
+
+    loadConversation.mockResolvedValue({ status: 'ok', conversation: null });
+    await p.getItem('t');
+
+    expect(o.onRecovered).toHaveBeenCalled();
+    p.setItem('t', { messages: [msg('m')] } as never);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(saveConversation).toHaveBeenCalled();
+  });
+
+  it('a clear unblocks writing after a failed load', async () => {
+    // Clearing is the user saying "start fresh": there is no longer a stored
+    // transcript to protect, so the guard must lift or the chat is read-only
+    // until reload.
+    loadConversation.mockResolvedValue({ status: 'error', error: 'down' });
+    const o = opts();
+    const p = serverPersistence(o);
+    await p.getItem('t');
+
+    await p.removeItem('t');
+    p.setItem('t', { messages: [msg('fresh')] } as never);
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(saveConversation).toHaveBeenCalled();
   });
 
   it('forgets restored citations, so the next write cannot carry them back', async () => {

@@ -78,6 +78,10 @@ export function LibraryChat() {
           setCitationsById((prev) => new Map([...stored, ...prev]));
         },
         onError: (op, message) => setPersistenceError(`${op}: ${message}`),
+        // Clears the banner once the backend answers again. Without this it is
+        // sticky: the first failure latches it for the life of the page, so it
+        // reports the past rather than the present.
+        onRecovered: () => setPersistenceError(null),
       }),
     [],
   );

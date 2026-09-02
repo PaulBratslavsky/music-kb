@@ -35,6 +35,29 @@ const ok = (data: unknown) => ({ ok: true as const, data });
 const fail = (status = 500, error = 'boom') => ({ ok: false as const, status, error });
 
 describe('findConversationByThreadIdService', () => {
+  it('filters by the threadId it was given', async () => {
+    // The ENTIRE contract of this module is upsert-by-threadId, and nothing
+    // asserted it: a query that filtered on nothing, or on the wrong field,
+    // would return the first conversation in the table and every other test
+    // here would still pass. With one user that reads as "my chat came back";
+    // with two it is one user reading another's transcript.
+    mocked.mockResolvedValueOnce(ok([row()]) as never);
+    await findConversationByThreadIdService('library-ask:v1');
+
+    const [, path, init] = mocked.mock.calls[0] as [string, string, { query: any }];
+    expect(path).toBe('/api/chat-conversations');
+    expect(init.query.filters).toEqual({ threadId: { $eq: 'library-ask:v1' } });
+  });
+
+  it('reads only one row — this is a lookup, not a listing', async () => {
+    // pageSize 1 is the difference between a keyed read and pulling every
+    // conversation over the wire to use the first one.
+    mocked.mockResolvedValueOnce(ok([row()]) as never);
+    await findConversationByThreadIdService('library-ask:v1');
+    const [, , init] = mocked.mock.calls[0] as [string, string, { query: any }];
+    expect(init.query.pagination).toEqual({ pageSize: 1 });
+  });
+
   it('returns the stored record for a saved thread', async () => {
     mocked.mockResolvedValueOnce(ok([row()]) as never);
     const result = await findConversationByThreadIdService('library-ask:v1');
@@ -104,6 +127,13 @@ describe('saveConversationService', () => {
 
     expect(mocked.mock.calls[1][0]).toBe('PUT');
     expect(mocked.mock.calls[1][1]).toBe('/api/chat-conversations/doc-1');
+
+    // The BODY, not just the verb and URL. An implementation that PUT an empty
+    // object to the right address passed every assertion above.
+    const { body } = mocked.mock.calls[1][2] as { body: { data: Record<string, unknown> } };
+    expect(body.data.threadId).toBe('library-ask:v1');
+    expect(body.data.messages).toEqual(state.messages);
+    expect(body.data.citations).toEqual(state.citations);
   });
 
   it('creates when the thread is new', async () => {

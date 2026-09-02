@@ -151,6 +151,15 @@ export type ServerPersistenceOptions = {
    * without this a broken backend is completely silent.
    */
   onError?: (op: 'load' | 'save' | 'delete', message: string) => void;
+  /**
+   * Called when an operation succeeds after a failure, so a "not saved" banner
+   * can clear itself.
+   *
+   * Separate from `onError` rather than `onError(null)`: a caller that only
+   * wants to report failures should not have to understand a sentinel, and a
+   * sticky banner that never clears once the backend recovers is its own bug.
+   */
+  onRecovered?: () => void;
 };
 
 export type ServerPersistence = {
@@ -190,14 +199,36 @@ export function serverPersistence(options: ServerPersistenceOptions): ServerPers
   let timer: ReturnType<typeof setTimeout> | null = null;
   /** When the current burst began, for the MAX_WAIT_MS ceiling. */
   let burstStartedAt = 0;
+
   /**
-   * Bumped by `removeItem`. A write scheduled before a clear must never land
-   * after it — `setItem` resolves as soon as it has SCHEDULED a write, so the
-   * SDK is free to call `removeItem` while a timer is still armed. Cancelling
-   * the timer handles the common case; this guard covers a write already
-   * in flight.
+   * EVERY server operation runs on this chain, in call order.
+   *
+   * `setItem` returns void rather than a promise — it has to, or the SDK
+   * serialises one write per token behind its own queue and the debounce buys
+   * nothing. But that also means the SDK's queue cannot order OUR operations,
+   * so without this chain a delete, a save and a load are free to interleave.
+   * Every race found in review came from that one fact:
+   *
+   *   - Clear during an in-flight save: the delete lands, the save recreates
+   *     the row, and the conversation returns on the next reload.
+   *   - Two checkpoints overlapping: the older find-then-PUT commits last.
+   *   - A slow load resolving after a clear and re-publishing its citations.
+   *
+   * Serialising here fixes all three at the source. It costs nothing in the
+   * common case, where the chain is already settled.
    */
-  let generation = 0;
+  let chain: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Set when a load failed, cleared when one succeeds or the user clears.
+   *
+   * THIS IS WHAT FAIL-CLOSED ACTUALLY MEANS. A failed load is indistinguishable
+   * from "nothing stored" at the SDK's port — both are `null` — so the SDK
+   * starts an empty conversation, and the next message would PUT that empty
+   * transcript over the real one. Refusing to write until we have successfully
+   * READ is the difference between degrading and destroying.
+   */
+  let loadFailed = false;
 
   const isBrowser = () => typeof window !== 'undefined';
 
@@ -209,37 +240,47 @@ export function serverPersistence(options: ServerPersistenceOptions): ServerPers
     burstStartedAt = 0;
   };
 
+  /** Queue `op` behind everything already in flight, preserving call order. */
+  function serialise<T>(op: () => Promise<T>): Promise<T> {
+    // `.then(op, op)` rather than `.then(op)`: a failed predecessor must not
+    // strand the queue, and every op already handles its own errors.
+    const run = chain.then(op, op);
+    chain = run.catch(() => undefined);
+    return run;
+  }
+
   async function writeNow(): Promise<void> {
     const next = pending;
     if (!next) return;
     pending = null;
     cancelTimer();
 
-    const writeGeneration = generation;
-    try {
-      const result = await saveConversation({
-        data: {
-          threadId: next.id,
-          surface: options.surface,
-          state: {
-            // Out through the same JSON door they came in by. The SDK's value
-            // is what we store; we never reinterpret it.
-            messages: next.state.messages as unknown as JsonValue[],
-            ...(next.state.resume == null
-              ? {}
-              : { resume: next.state.resume as unknown as JsonValue }),
-            citations,
+    // Never write over a transcript we could not read. See `loadFailed`.
+    if (loadFailed) return;
+
+    await serialise(async () => {
+      try {
+        const result = await saveConversation({
+          data: {
+            threadId: next.id,
+            surface: options.surface,
+            state: {
+              // Out through the same JSON door they came in by. The SDK's value
+              // is what we store; we never reinterpret it.
+              messages: next.state.messages as unknown as JsonValue[],
+              ...(next.state.resume == null
+                ? {}
+                : { resume: next.state.resume as unknown as JsonValue }),
+              citations,
+            },
           },
-        },
-      });
-      // A clear happened while this was in flight. The delete has already been
-      // issued, so saying nothing here would leave the row we just re-created.
-      if (writeGeneration !== generation) return;
-      if (result.status === 'error') options.onError?.('save', result.error);
-    } catch (e) {
-      if (writeGeneration !== generation) return;
-      options.onError?.('save', e instanceof Error ? e.message : String(e));
-    }
+        });
+        if (result.status === 'error') options.onError?.('save', result.error);
+        else options.onRecovered?.();
+      } catch (e) {
+        options.onError?.('save', e instanceof Error ? e.message : String(e));
+      }
+    });
   }
 
   function schedule(id: string, state: PersistedState): void {
@@ -261,38 +302,49 @@ export function serverPersistence(options: ServerPersistenceOptions): ServerPers
   }
 
   return {
-    async getItem(id) {
+    getItem(id) {
       // useChat builds its ChatClient inside a `useMemo`, i.e. DURING render —
       // so on a server-rendered tree this runs on the server. Returning null
       // there keeps hydration honest: the client re-reads after mount and the
       // SDK's own async-hydration path applies it. Same reason the citations
       // map is adopted in an effect rather than a useState initializer.
-      if (!isBrowser()) return null;
-      try {
-        const result = await loadConversation({ data: { threadId: id } });
-        if (result.status === 'error') {
-          options.onError?.('load', result.error);
-          // `undefined`/`null` both mean "nothing stored" to the SDK, and there
-          // is no third answer available to us. The onError call above is what
-          // keeps this from being silent — see the fail-closed note at the top.
+      if (!isBrowser()) return Promise.resolve(null);
+
+      // On the chain like everything else, so a load cannot resolve after a
+      // clear and re-publish the citations the clear just discarded.
+      return serialise(async () => {
+        try {
+          const result = await loadConversation({ data: { threadId: id } });
+          if (result.status === 'error') {
+            // Blocks writes until a load succeeds. Without this the SDK reads
+            // `null` as "empty conversation" and the next message overwrites
+            // the transcript we failed to read.
+            loadFailed = true;
+            options.onError?.('load', result.error);
+            return null;
+          }
+
+          loadFailed = false;
+          options.onRecovered?.();
+
+          const stored = result.conversation;
+          if (!stored) return null;
+
+          citations = stored.citations;
+          options.onCitationsRestored(stored.citations);
+
+          return {
+            messages: reviveDates(stored.messages),
+            ...(stored.resume == null
+              ? {}
+              : { resume: stored.resume as unknown as PersistedState['resume'] }),
+          };
+        } catch (e) {
+          loadFailed = true;
+          options.onError?.('load', e instanceof Error ? e.message : String(e));
           return null;
         }
-        const stored = result.conversation;
-        if (!stored) return null;
-
-        citations = stored.citations;
-        options.onCitationsRestored(stored.citations);
-
-        return {
-          messages: reviveDates(stored.messages),
-          ...(stored.resume == null
-            ? {}
-            : { resume: stored.resume as unknown as PersistedState['resume'] }),
-        };
-      } catch (e) {
-        options.onError?.('load', e instanceof Error ? e.message : String(e));
-        return null;
-      }
+      });
     },
 
     // Returns void, not a promise. The SDK treats a returned promise as "this
@@ -304,18 +356,28 @@ export function serverPersistence(options: ServerPersistenceOptions): ServerPers
       schedule(id, state);
     },
 
-    async removeItem(id) {
-      generation++;
+    removeItem(id) {
       pending = null;
       cancelTimer();
       citations = [];
-      if (!isBrowser()) return;
-      try {
-        const result = await deleteConversation({ data: { threadId: id } });
-        if (result.status === 'error') options.onError?.('delete', result.error);
-      } catch (e) {
-        options.onError?.('delete', e instanceof Error ? e.message : String(e));
-      }
+      // The user asked for a fresh conversation, so there is nothing left to
+      // protect: a clear is also how you recover from a failed load.
+      loadFailed = false;
+      if (!isBrowser()) return Promise.resolve();
+
+      // Queued behind any save already talking to the server. Both operations
+      // are find-then-write against Strapi, so an unordered delete can be
+      // overtaken by a save that recreates the row — and the conversation
+      // comes back on the next reload with nothing reporting it.
+      return serialise(async () => {
+        try {
+          const result = await deleteConversation({ data: { threadId: id } });
+          if (result.status === 'error') options.onError?.('delete', result.error);
+          else options.onRecovered?.();
+        } catch (e) {
+          options.onError?.('delete', e instanceof Error ? e.message : String(e));
+        }
+      });
     },
 
     setCitations(next) {
@@ -323,8 +385,12 @@ export function serverPersistence(options: ServerPersistenceOptions): ServerPers
     },
 
     async flush() {
-      if (!pending) return;
+      // Awaits the CHAIN, not just a pending write. `onFinish` calls this to
+      // guarantee the final turn landed; returning early because `pending` is
+      // null would skip a checkpoint still talking to the server, and a reload
+      // straight afterwards restored a transcript truncated mid-sentence.
       await writeNow();
+      await chain;
     },
   };
 }
