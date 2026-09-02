@@ -69,7 +69,14 @@ export type StoredConversation = {
 };
 
 type StrapiChatConversation = {
-  id: number;
+  /**
+   * The identifier. Strapi 5 addresses documents by `documentId`, and the
+   * numeric `id` it also returns is deliberately NOT declared here: it is a
+   * database detail that is not stable across versions or environments, and a
+   * field present on the type is an invitation to reach for it. Every
+   * PUT/DELETE path in this module goes through `findRowId`, which returns
+   * this and nothing else.
+   */
   documentId: string;
   threadId: string;
   surface: string | null;
