@@ -1,0 +1,41 @@
+{
+  "kind": "collectionType",
+  "collectionName": "chat_conversations",
+  "info": {
+    "singularName": "chat-conversation",
+    "pluralName": "chat-conversations",
+    "displayName": "Chat Conversation",
+    "description": "One durable chat transcript, addressed by `threadId` — the key TanStack AI's ChatClientPersistence stores under. Holds the SDK's whole ChatPersistedState (`messages` + optional `resume`) plus the `citations` that live BESIDE the transcript rather than inside it. Upsert by threadId, same as Digest upserts by videoSetKey (ADR 0006). Replaces the browser-only localStorage persistence on library-ask so a conversation follows the user to any browser pointed at this Strapi."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "threadId": {
+      "type": "string",
+      "required": true,
+      "unique": true,
+      "maxLength": 200,
+      "description": "The SDK's storage key for this conversation, verbatim. `unique` is what makes read-modify-write an upsert instead of a duplicate-row generator. Today this is a per-surface constant (there are no user accounts in this app); when accounts arrive it becomes `<userId>:<surface>` and nothing else here changes."
+    },
+    "surface": {
+      "type": "string",
+      "maxLength": 60,
+      "description": "Which chat surface owns this row ('library-ask'). Not part of the key — the threadId already encodes it — but stored so rows are legible in the admin UI and so a future cleanup job can expire per-surface."
+    },
+    "messages": {
+      "type": "json",
+      "required": true,
+      "description": "ChatPersistedState['messages']: the UIMessage array, stored verbatim so the SDK gets back exactly what it wrote. This is the ONLY field ever replayed to a model."
+    },
+    "resume": {
+      "type": "json",
+      "description": "ChatPersistedState['resume'] — which run to rejoin / which interrupts to rehydrate. Present only while a run is in flight or paused. Stored because the SDK folds it into the same record it writes; dropping it would silently break resume-after-reload while leaving the transcript looking fine."
+    },
+    "citations": {
+      "type": "json",
+      "description": "Retrieval citations keyed by message id, as [messageId, Citation[]] pairs. Deliberately NOT inside a UIMessage: keeping them out is what stops transcript excerpts being replayed to the model on later turns. They live in THIS row rather than a sibling one so transcript and sources are written and restored atomically — a half-restored conversation (prose back, sources silently gone) was the exact bug the localStorage version shipped with."
+    }
+  }
+}

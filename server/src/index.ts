@@ -180,6 +180,16 @@ export default {
       'api::lesson.lesson.findOne',
       'api::lesson.lesson.create',
       'api::lesson.lesson.update',
+      // ChatConversation is a durable chat transcript keyed by threadId,
+      // written by the library-ask persistence adapter through a server
+      // function. Needs delete as well as create/update: the SDK calls
+      // removeItem whenever a conversation is cleared, and a clear that
+      // 403s would leave the old transcript to come back on reload.
+      'api::chat-conversation.chat-conversation.find',
+      'api::chat-conversation.chat-conversation.findOne',
+      'api::chat-conversation.chat-conversation.create',
+      'api::chat-conversation.chat-conversation.update',
+      'api::chat-conversation.chat-conversation.delete',
     ];
 
     try {
