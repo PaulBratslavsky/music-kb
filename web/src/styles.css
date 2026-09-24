@@ -451,7 +451,22 @@ button.clear-focus:hover {
 .instruments {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+}
+
+.instrument-tablist {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* The inactive panels stay mounted so the chord builder can still export
+   them, so this rule is load-bearing rather than cosmetic: `.panel` sets no
+   `display`, which lets the UA's `[hidden] { display: none }` through today,
+   but giving `.panel` a display value later would silently un-hide all four
+   boards at once. Pin it here. */
+.instrument-tabpanel[hidden] {
+  display: none;
 }
 
 .notation-row {

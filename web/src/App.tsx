@@ -30,6 +30,7 @@ import LessonsIndexPage from './lessons';
 import { LessonPage } from './lessons/LessonPage';
 import { TheoryPage } from './theory-page/TheoryPage';
 import { ChordBuilderPanel } from './music/ChordBuilderPanel';
+import { InstrumentTabs } from './components/InstrumentTabs';
 
 export default function App() {
   const route = useRoute();
@@ -350,124 +351,136 @@ function VisualizerHome() {
         </div>
       )}
 
-      {/* `data-board` lets the chord builder below find each board's SVG to
-          export it, so the panel never has to draw a second copy. */}
-      <div className="instruments" ref={boardsRef}>
-        <div className="panel" data-board="piano">
-          <h2 className="panel-title">Piano</h2>
-          <GameModePanel
-            instrument="piano"
-            game={appState.gameMode.piano}
-            onToggle={() => appState.toggleGameMode('piano')}
-            onCheck={() => appState.checkGame('piano')}
-            onReset={() => appState.resetGameRound('piano')}
-          />
-          <PianoView
-            highlighted={resolved.piano}
-            rootPitchClass={resolved.rootPitchClass}
-            matchByPitchClass={resolved.pianoMatchByPitchClass}
-            focusedPitchClass={appState.focusedPitchClass}
-            onPickPitchClass={appState.toggleFocusedPitchClass}
-            onPlayNote={(midi) => synth.playNote(midi)}
-            pcLabels={pcLabels}
-            emphasizedPitchClasses={resolved.previewedChordPCs}
-            gameMode={appState.gameMode.piano}
-            onGameGuess={(pos) => appState.submitGuess('piano', pos)}
-          />
-        </div>
-        <div className="panel" data-board="guitar">
-          <h2 className="panel-title">
-            Guitar (standard tuning)
-            {appState.state.mode === 'scale' && (
-              <a
-                className="ref-link"
-                href={guitarScaleOrgUrl(
-                  appState.state.scale.root,
-                  appState.state.scale.type,
-                  appState.state.preferFlats,
-                )}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open this scale on guitarscale.org"
-              >
-                ↗ guitarscale.org
-              </a>
-            )}
-          </h2>
-          <GameModePanel
-            instrument="guitar"
-            game={appState.gameMode.guitar}
-            onToggle={() => appState.toggleGameMode('guitar')}
-            onCheck={() => appState.checkGame('guitar')}
-            onReset={() => appState.resetGameRound('guitar')}
-          />
-          <GuitarView
-            highlighted={resolved.guitar}
-            rootPitchClass={resolved.rootPitchClass}
-            matchByPitchClass={resolved.guitarMatchByPitchClass}
-            focusedPitchClass={appState.focusedPitchClass}
-            onPickPitchClass={appState.toggleFocusedPitchClass}
-            onPlayNote={(midi) => synth.playNote(midi)}
-            pcLabels={pcLabels}
-            shapePositions={resolved.guitarShapePositions}
-            barre={resolved.guitarBarre}
-            showNaturals={appState.showNaturals}
-            emphasizedPitchClasses={resolved.previewedChordPCs}
-            gameMode={appState.gameMode.guitar}
-            onGameGuess={(pos) => appState.submitGuess('guitar', pos)}
-            cellColors={cellColors}
-          />
-          {boxOptions.length > 0 && (
-            <div className="box-chords">
-              <span className="box-chords-label">BOX</span>
-              {boxOptions.map((b, i) => (
-                <button
-                  key={b}
-                  type="button"
-                  className={`chip${boxIdx === i ? ' active' : ''}`}
-                  onClick={() => setBoxIdx((cur) => (cur === i ? null : i))}
+      {/* The boards live in a tab set; all four stay mounted so the chord
+          builder below can export any of them, and `data-board` is how it
+          finds each one. See InstrumentTabs for why hiding beats unmounting. */}
+      <InstrumentTabs
+        boardsRef={boardsRef}
+        panels={{
+          piano: (
+            <>
+            <h2 className="panel-title">Piano</h2>
+            <GameModePanel
+              instrument="piano"
+              game={appState.gameMode.piano}
+              onToggle={() => appState.toggleGameMode('piano')}
+              onCheck={() => appState.checkGame('piano')}
+              onReset={() => appState.resetGameRound('piano')}
+            />
+            <PianoView
+              highlighted={resolved.piano}
+              rootPitchClass={resolved.rootPitchClass}
+              matchByPitchClass={resolved.pianoMatchByPitchClass}
+              focusedPitchClass={appState.focusedPitchClass}
+              onPickPitchClass={appState.toggleFocusedPitchClass}
+              onPlayNote={(midi) => synth.playNote(midi)}
+              pcLabels={pcLabels}
+              emphasizedPitchClasses={resolved.previewedChordPCs}
+              gameMode={appState.gameMode.piano}
+              onGameGuess={(pos) => appState.submitGuess('piano', pos)}
+            />
+            </>
+          ),
+          guitar: (
+            <>
+            <h2 className="panel-title">
+              Guitar (standard tuning)
+              {appState.state.mode === 'scale' && (
+                <a
+                  className="ref-link"
+                  href={guitarScaleOrgUrl(
+                    appState.state.scale.root,
+                    appState.state.scale.type,
+                    appState.state.preferFlats,
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open this scale on guitarscale.org"
                 >
-                  {shapeName(b, appState.state.scale.type)}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="panel" data-board="bass">
-          <h2 className="panel-title">Bass (4-string, standard tuning)</h2>
-          <BassView
-            highlighted={resolved.bass}
-            rootPitchClass={resolved.rootPitchClass}
-            focusedPitchClass={appState.focusedPitchClass}
-            onPickPitchClass={appState.toggleFocusedPitchClass}
-            onPlayNote={(midi) => synth.playNote(midi)}
-            pcLabels={pcLabels}
-            showNaturals={appState.showNaturals}
-            emphasizedPitchClasses={resolved.previewedChordPCs}
-          />
-        </div>
-        <div className="panel" data-board="push">
-          <h2 className="panel-title">Ableton Push (chromatic)</h2>
-          <GameModePanel
-            instrument="push"
-            game={appState.gameMode.push}
-            onToggle={() => appState.toggleGameMode('push')}
-            onCheck={() => appState.checkGame('push')}
-            onReset={() => appState.resetGameRound('push')}
-          />
-          <PushView
-            highlighted={resolved.push}
-            rootPitchClass={resolved.rootPitchClass}
-            focusedPitchClass={appState.focusedPitchClass}
-            onPickPitchClass={appState.toggleFocusedPitchClass}
-            onPlayNote={(midi) => synth.playNote(midi)}
-            pcLabels={pcLabels}
-            emphasizedPitchClasses={resolved.previewedChordPCs}
-            gameMode={appState.gameMode.push}
-            onGameGuess={(pos) => appState.submitGuess('push', pos)}
-          />
-        </div>
-      </div>
+                  ↗ guitarscale.org
+                </a>
+              )}
+            </h2>
+            <GameModePanel
+              instrument="guitar"
+              game={appState.gameMode.guitar}
+              onToggle={() => appState.toggleGameMode('guitar')}
+              onCheck={() => appState.checkGame('guitar')}
+              onReset={() => appState.resetGameRound('guitar')}
+            />
+            <GuitarView
+              highlighted={resolved.guitar}
+              rootPitchClass={resolved.rootPitchClass}
+              matchByPitchClass={resolved.guitarMatchByPitchClass}
+              focusedPitchClass={appState.focusedPitchClass}
+              onPickPitchClass={appState.toggleFocusedPitchClass}
+              onPlayNote={(midi) => synth.playNote(midi)}
+              pcLabels={pcLabels}
+              shapePositions={resolved.guitarShapePositions}
+              barre={resolved.guitarBarre}
+              showNaturals={appState.showNaturals}
+              emphasizedPitchClasses={resolved.previewedChordPCs}
+              gameMode={appState.gameMode.guitar}
+              onGameGuess={(pos) => appState.submitGuess('guitar', pos)}
+              cellColors={cellColors}
+            />
+            {boxOptions.length > 0 && (
+              <div className="box-chords">
+                <span className="box-chords-label">BOX</span>
+                {boxOptions.map((b, i) => (
+                  <button
+                    key={b}
+                    type="button"
+                    className={`chip${boxIdx === i ? ' active' : ''}`}
+                    onClick={() => setBoxIdx((cur) => (cur === i ? null : i))}
+                  >
+                    {shapeName(b, appState.state.scale.type)}
+                  </button>
+                ))}
+              </div>
+            )}
+            </>
+          ),
+          bass: (
+            <>
+            <h2 className="panel-title">Bass (4-string, standard tuning)</h2>
+            <BassView
+              highlighted={resolved.bass}
+              rootPitchClass={resolved.rootPitchClass}
+              focusedPitchClass={appState.focusedPitchClass}
+              onPickPitchClass={appState.toggleFocusedPitchClass}
+              onPlayNote={(midi) => synth.playNote(midi)}
+              pcLabels={pcLabels}
+              showNaturals={appState.showNaturals}
+              emphasizedPitchClasses={resolved.previewedChordPCs}
+            />
+            </>
+          ),
+          push: (
+            <>
+            <h2 className="panel-title">Ableton Push (chromatic)</h2>
+            <GameModePanel
+              instrument="push"
+              game={appState.gameMode.push}
+              onToggle={() => appState.toggleGameMode('push')}
+              onCheck={() => appState.checkGame('push')}
+              onReset={() => appState.resetGameRound('push')}
+            />
+            <PushView
+              highlighted={resolved.push}
+              rootPitchClass={resolved.rootPitchClass}
+              focusedPitchClass={appState.focusedPitchClass}
+              onPickPitchClass={appState.toggleFocusedPitchClass}
+              onPlayNote={(midi) => synth.playNote(midi)}
+              pcLabels={pcLabels}
+              emphasizedPitchClasses={resolved.previewedChordPCs}
+              gameMode={appState.gameMode.push}
+              onGameGuess={(pos) => appState.submitGuess('push', pos)}
+            />
+            </>
+          ),
+        }}
+      />
 
       <ChordBuilderPanel
         appState={appState}

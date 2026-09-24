@@ -89,3 +89,28 @@ describe('the allowlist itself', () => {
     }
   });
 });
+
+// Hidden boards must still be exportable.
+//
+// The Builder page keeps all four instrument panels mounted and hides the
+// inactive ones, so the chord builder's export buttons work whichever tab is
+// open. That only holds because exportFretboardPng never measures layout: it
+// reads the SVG's own `viewBox`, and for a cropped export it reads the marker
+// circles' attributes. A display:none element reports a 0x0 bounding rect, so
+// a board that shipped WITHOUT a viewBox would fall back to that rect and
+// rasterize a 1x1 image — an empty download, with nothing on screen to
+// suggest anything is wrong.
+const BOARD_SOURCES = [
+  'instruments/piano/PianoView.tsx',
+  'instruments/guitar/GuitarView.tsx',
+  'instruments/bass/BassView.tsx',
+  'instruments/push/PushView.tsx',
+];
+
+describe('every exportable board carries its own viewBox', () => {
+  it.each(BOARD_SOURCES)('%s', (relPath) => {
+    const text = SOURCE_TEXT[`/src/${relPath}`];
+    expect(text, `${relPath} no longer exists`).toBeDefined();
+    expect(text).toMatch(/viewBox=/);
+  });
+});
