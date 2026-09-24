@@ -14,6 +14,7 @@ import type {
 import type { ChordQuality } from '@music-kb/music/types';
 import { ChordMini } from '#/components/ChordMini';
 import { ProgressionSheet } from '#/components/ProgressionSheet';
+import { ChordCard } from '#/components/ChordCard';
 import { guitarVoicingCount } from '@music-kb/music/theory/voicings/guitar';
 import { exportFretboardPng } from '#/lib/music/png-export';
 
@@ -86,6 +87,8 @@ export function ProgressionPanel({
   const skipNextSync = useRef(false);
   // Off-screen sheet (composed SVG of all chords) for PNG export.
   const sheetRef = useRef<HTMLDivElement | null>(null);
+  // Off-screen compact one-chord cards, one svg each, for per-chord export.
+  const singlesRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = async () => {
     const res = videoDocumentId
@@ -229,6 +232,38 @@ export function ProgressionPanel({
       filename: `${base || 'progression'}-${instrument}.png`,
       cropToShape: false,
     });
+  };
+
+  // One PNG per chord — for dropping individual diagrams into a video as
+  // overlays. Downloads run sequentially with a short gap; browsers throttle
+  // (or silently drop) a burst of programmatic downloads.
+  const handleExportEach = async () => {
+    const host = singlesRef.current;
+    if (!host) return;
+    const svgs = Array.from(
+      host.querySelectorAll('svg.instrument-svg'),
+    ) as SVGSVGElement[];
+    if (svgs.length === 0) return;
+    const themeRoot =
+      (svgs[0].closest('.theory-companion') as HTMLElement | null) ?? document.body;
+    const safe = (s: string) => s.replace(/[^A-Za-z0-9#°+ -]/g, '');
+    const base = safe(name.trim() || 'progression') || 'progression';
+    const width = Math.max(2, String(svgs.length).length);
+    for (let i = 0; i < svgs.length; i++) {
+      const n = String(i + 1).padStart(width, '0');
+      const chord = safe(chordLabel(chords[i])) || 'chord';
+      await exportFretboardPng({
+        svg: svgs[i],
+        themeRoot,
+        filename: `${base}-${n}-${chord}-${instrument}.png`,
+        // Overlay use wants more pixels than the in-app sheet, and a
+        // transparent backing so the card's rounded corners show the video.
+        scale: 4,
+        background: 'transparent',
+        cropToShape: false,
+      });
+      await new Promise((r) => setTimeout(r, 250));
+    }
   };
 
   const handleDelete = async (p: StrapiProgression) => {
@@ -407,6 +442,17 @@ export function ProgressionPanel({
             ⬇ Export chords
           </Button>
         )}
+        {chords.length > 1 && (
+          <Button
+            type="button"
+            size="pill"
+            variant="outline"
+            onClick={() => void handleExportEach()}
+            title="Export each chord diagram as its own PNG (e.g. for video overlays)"
+          >
+            ⬇ Export each
+          </Button>
+        )}
         <div className="flex-1" />
         <input
           type="text"
@@ -539,6 +585,20 @@ export function ProgressionPanel({
         className="pointer-events-none absolute -left-[99999px] top-0 opacity-0"
       >
         <ProgressionSheet chords={chords} instrument={instrument} />
+      </div>
+      <div
+        ref={singlesRef}
+        aria-hidden
+        className="pointer-events-none absolute -left-[99999px] top-0 opacity-0"
+      >
+        {chords.map((c, i) => (
+          <ChordCard
+            key={`${chordKey(c)}-${i}`}
+            chord={c}
+            label={chordLabel(c)}
+            instrument={instrument}
+          />
+        ))}
       </div>
     </section>
   );
