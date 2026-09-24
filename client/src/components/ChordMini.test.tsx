@@ -55,11 +55,27 @@ describe('ChordMini piano card — inversions', () => {
     );
   });
 
-  it('draws one octave for a closed triad and two when the voicing crosses a C', () => {
+  it('draws two octaves whether or not the voicing needs them', () => {
     // Key count is the readable proxy for octaves drawn: 12 keys per octave.
+    //
+    // This used to fit the board to the voicing, so a closed triad drew one
+    // octave and anything crossing a C drew two. Both are rendered at the
+    // same fixed width, so the two cases came out at different key sizes and
+    // a progression strip looked like it mixed two different diagrams. The
+    // floor is 2 now: consistent, and the room an inversion needs to put its
+    // bass below the rest.
     const keys = (svg: SVGElement) => svg.querySelectorAll('rect').length;
-    expect(keys(piano({ root: 'C', quality: 'maj', inversion: 0, voicingIndex: 0 }))).toBe(12);
-    // G4-A#4-D5 straddles C5.
+    // A closed C triad — fits in one octave, still drawn across two.
+    expect(keys(piano({ root: 'C', quality: 'maj', inversion: 0, voicingIndex: 0 }))).toBe(24);
+    // G4-A#4-D5 straddles C5, so it needed two octaves either way.
     expect(keys(piano({ ...gm, midis: [G, Bb, D5] }))).toBe(24);
+  });
+
+  it('still grows past two octaves for a voicing that spans further', () => {
+    // The floor is a minimum, not a cap — a spread wide enough to cross two
+    // Cs has to keep every note on the board.
+    const keys = (svg: SVGElement) => svg.querySelectorAll('rect').length;
+    const D6 = midiFromPitchOctave('D', 6);
+    expect(keys(piano({ ...gm, midis: [G, Bb, D6] }))).toBe(36);
   });
 });
