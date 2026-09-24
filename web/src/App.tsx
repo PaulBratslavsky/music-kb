@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { PianoView } from './instruments/piano/PianoView';
 import { GuitarView } from './instruments/guitar/GuitarView';
 import { BassView } from './instruments/bass/BassView';
@@ -29,6 +29,7 @@ import { PlayerPage } from './music/PlayerPage';
 import LessonsIndexPage from './lessons';
 import { LessonPage } from './lessons/LessonPage';
 import { TheoryPage } from './theory-page/TheoryPage';
+import { ChordBuilderPanel } from './music/ChordBuilderPanel';
 
 export default function App() {
   const route = useRoute();
@@ -113,6 +114,9 @@ function Header({
 
 function VisualizerHome() {
   const appState = useAppState();
+  // The instruments grid, handed to the chord builder so it can export the
+  // board SVGs that are already on the page.
+  const boardsRef = useRef<HTMLDivElement>(null);
   const resolved = useMemo(
     () => resolveSelection(appState.state, appState.previewedChordDegree),
     [appState.state, appState.previewedChordDegree],
@@ -346,8 +350,10 @@ function VisualizerHome() {
         </div>
       )}
 
-      <div className="instruments">
-        <div className="panel">
+      {/* `data-board` lets the chord builder below find each board's SVG to
+          export it, so the panel never has to draw a second copy. */}
+      <div className="instruments" ref={boardsRef}>
+        <div className="panel" data-board="piano">
           <h2 className="panel-title">Piano</h2>
           <GameModePanel
             instrument="piano"
@@ -369,7 +375,7 @@ function VisualizerHome() {
             onGameGuess={(pos) => appState.submitGuess('piano', pos)}
           />
         </div>
-        <div className="panel">
+        <div className="panel" data-board="guitar">
           <h2 className="panel-title">
             Guitar (standard tuning)
             {appState.state.mode === 'scale' && (
@@ -427,7 +433,7 @@ function VisualizerHome() {
             </div>
           )}
         </div>
-        <div className="panel">
+        <div className="panel" data-board="bass">
           <h2 className="panel-title">Bass (4-string, standard tuning)</h2>
           <BassView
             highlighted={resolved.bass}
@@ -440,7 +446,7 @@ function VisualizerHome() {
             emphasizedPitchClasses={resolved.previewedChordPCs}
           />
         </div>
-        <div className="panel">
+        <div className="panel" data-board="push">
           <h2 className="panel-title">Ableton Push (chromatic)</h2>
           <GameModePanel
             instrument="push"
@@ -462,6 +468,12 @@ function VisualizerHome() {
           />
         </div>
       </div>
+
+      <ChordBuilderPanel
+        appState={appState}
+        boardsRef={boardsRef}
+        currentLabel={resolved.label}
+      />
 
       <div className="notation-row">
         <div className="panel notation-panel">

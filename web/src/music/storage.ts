@@ -163,13 +163,26 @@ export function deleteLoop(id: string): boolean {
 // ---------------------------------------------------------------------------
 // Progressions
 // ---------------------------------------------------------------------------
-// Scoped to a video: a section of one song should only be offered chords
-// saved against that song. Newest first so a just-saved progression is at
-// the top of the picker.
+// Either scoped to a video or standalone. A section of one song should only
+// be offered chords saved against that song, so the video-scoped reader
+// matches on id and never returns standalone rows; the Builder home page
+// reads the complement. Newest first in both, so a just-saved progression
+// is at the top of the picker.
 
 export function progressionsForVideo(videoId: string): SavedProgression[] {
   return safeReadArray<SavedProgression>(PROGRESSIONS_KEY)
     .filter((p) => p.videoId === videoId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Progressions built on the Builder home page, which belong to no video.
+ *  The complement of `progressionsForVideo` over the same key — a row is
+ *  standalone exactly when its videoId is null (or, for rows written before
+ *  the field was nullable, absent). Newest first, like the video-scoped
+ *  reader. */
+export function standaloneProgressions(): SavedProgression[] {
+  return safeReadArray<SavedProgression>(PROGRESSIONS_KEY)
+    .filter((p) => p.videoId == null)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 

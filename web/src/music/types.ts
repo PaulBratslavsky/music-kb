@@ -95,8 +95,13 @@ export type ProgressionChord = {
 
 export type SavedProgression = {
   id: string;
-  /** Foreign-key to SavedVideo.id — progressions are scoped to a song. */
-  videoId: string;
+  /**
+   * Foreign-key to SavedVideo.id, or null for a *standalone* progression —
+   * one built on the Builder home page, which belongs to no song. Both
+   * kinds share the `tv:progressions` key; `progressionsForVideo` and
+   * `standaloneProgressions` are the two disjoint readers over it.
+   */
+  videoId: string | null;
   /** User-supplied name shown in the picker and saved list. */
   name: string;
   chords: ProgressionChord[];
