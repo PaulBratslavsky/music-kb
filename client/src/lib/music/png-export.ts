@@ -11,10 +11,16 @@
 // resolved from the live DOM. The standalone SVG then carries its own theme
 // inline.
 //
-// The list below is the union of CSS variables the upstream visualizer's
-// instrument components reference. Adding a new one in the visualizer? Add it
-// here too or the exported PNG will render that property black.
-const VAR_NAMES = [
+// The list below is the union of CSS variables every exportable SVG
+// references. Adding a new one in a component that can be exported? Add it
+// here too — `png-export.test.ts` scans the sources and fails if you don't.
+//
+// Omitting one does NOT degrade gracefully. An unresolved var() makes the
+// presentation attribute invalid, so the property falls back to its INITIAL
+// value: `stroke` becomes `none` (lines disappear entirely) and `fill`
+// becomes black. In web/ that combination shipped, and exported chord
+// diagrams came out as black dots on blank paper with no fret grid.
+export const VAR_NAMES = [
   // music-kb theme tokens (light/dark switch)
   '--ink',
   '--ink-soft',
@@ -39,6 +45,11 @@ const VAR_NAMES = [
   '--string',
   '--focus',
   '--natural',
+  // Game-mode feedback colours, painted by the board views while a drill is
+  // running. Defined in theory-companion.css alongside the rest.
+  '--game-correct',
+  '--game-wrong',
+  '--game-pending',
 ];
 
 function readCssVars(host: Element): Record<string, string> {

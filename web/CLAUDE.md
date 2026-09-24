@@ -61,7 +61,9 @@ web/src/
       TabView.tsx              # 6-line guitar TAB with note-letter labels
   components/
     SelectionBar.tsx           # all the picker chips
-  music/                       # the YouTube player, loops, saved progressions
+  music/                       # the YouTube player, loops, saved progressions,
+                               #   and the Builder home page's chord builder
+                               #   (ChordBuilderPanel + PNG export)
   lessons/                     # self-contained lesson pages
   theory-page/                 # the standalone theory tools
 ```
@@ -154,6 +156,7 @@ When transcribing shapes from images, list each string's fret positions and doub
 - Don't add a fret-shifting / arrow-key feature for shapes — shapes are anchored to the scale's tonic, not free-floating. (We had this and removed it.)
 - Don't introduce: Redux/Zustand, a backend, an auth provider, or an analytics SDK unless the user explicitly asks. (Strapi has been suggested twice and rejected twice — static reference data doesn't need a CMS.) Tailwind v4 *is* in, added deliberately to match the knowledge-base app; the conversion from inline styles is partial and proceeds opportunistically.
 - Note display uses the **correct enharmonic per key** (F major shows Bb, not A#). The PC type is sharps-only internally; `resolve.ts` builds a `pcDisplay` map from tonal's actual note names and the views use that.
+- **Drawing a new `var(--x)` into an SVG that can be exported? Add it to `VAR_NAMES` in `src/music/png-export.ts`.** `png-export.test.ts` fails if you don't. The failure it prevents is invisible on screen and only appears in a downloaded PNG — an unresolved `var()` makes `stroke` `none` (lines vanish) and `fill` black. This app's chord diagrams draw with `--ink` / `--ink-muted` / `--line` / `--card`, the aliases `styles.css` layers over the theme tokens, which is exactly the set that was once missing. See the root `CLAUDE.md` gotcha for the full story.
 
 ## State machine
 
