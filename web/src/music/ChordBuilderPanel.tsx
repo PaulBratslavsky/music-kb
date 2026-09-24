@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChordMini } from './ChordMini';
 import { ProgressionSheet } from './ProgressionSheet';
+import { ChordCard } from './ChordCard';
 import { chordLabel } from './chordShapes';
 import { chordToCapture } from './capture-chord';
 import { exportFretboardPng } from './png-export';
@@ -118,6 +119,8 @@ export function ChordBuilderPanel({
 
   // --- Export --------------------------------------------------------------
   const sheetRef = useRef<HTMLDivElement>(null);
+  // Compact one-chord cards, one svg each, for per-chord export.
+  const singlesRef = useRef<HTMLDivElement>(null);
 
   const exportBoard = async (board: BoardKey) => {
     const svg = boardsRef.current?.querySelector(
@@ -147,6 +150,33 @@ export function ChordBuilderPanel({
       filename: `${base}-${stripInstrument}.png`,
       cropToShape: false,
     });
+  };
+
+  // One PNG per chord — for dropping individual diagrams into a video as
+  // overlays. Downloads run sequentially with a short gap; browsers throttle
+  // (or silently drop) a burst of programmatic downloads.
+  const exportEachChord = async () => {
+    const svgs = Array.from(
+      singlesRef.current?.querySelectorAll('svg.instrument-svg') ?? [],
+    ) as SVGSVGElement[];
+    if (svgs.length === 0) return;
+    const base = safeFilePart(name.trim() || defaultName) || 'progression';
+    const width = Math.max(2, String(svgs.length).length);
+    for (let i = 0; i < svgs.length; i++) {
+      const n = String(i + 1).padStart(width, '0');
+      const chord = safeFilePart(chordLabel(chords[i])) || 'chord';
+      await exportFretboardPng({
+        svg: svgs[i],
+        themeRoot: document.body,
+        filename: `${base}-${n}-${chord}-${stripInstrument}.png`,
+        // Overlay use wants more pixels than the in-app sheet, and a
+        // transparent backing so the card's rounded corners show the video.
+        scale: 4,
+        background: 'transparent',
+        cropToShape: false,
+      });
+      await new Promise((r) => setTimeout(r, 250));
+    }
   };
 
   // --- Save / load ---------------------------------------------------------
@@ -240,6 +270,14 @@ export function ChordBuilderPanel({
               title="Export every chord in the progression as a single PNG"
             >
               ⬇ Export progression
+            </button>
+            <button
+              type="button"
+              className="chip"
+              onClick={() => void exportEachChord()}
+              title="Export each chord diagram as its own PNG (e.g. for video overlays)"
+            >
+              ⬇ Export each
             </button>
           </>
         )}
@@ -411,6 +449,17 @@ export function ChordBuilderPanel({
           the panel isn't duplicating the strip that's already visible. */}
       <div ref={sheetRef} aria-hidden style={offscreenStyle}>
         <ProgressionSheet chords={chords} instrument={stripInstrument} />
+      </div>
+      {/* One card per chord, same idea — the source for "Export each". */}
+      <div ref={singlesRef} aria-hidden style={offscreenStyle}>
+        {chords.map((c, i) => (
+          <ChordCard
+            key={`${c.root}-${c.quality}-${c.voicingIndex ?? 0}-${i}`}
+            chord={c}
+            label={chordLabel(c)}
+            instrument={stripInstrument}
+          />
+        ))}
       </div>
     </div>
   );

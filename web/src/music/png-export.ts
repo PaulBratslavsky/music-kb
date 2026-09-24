@@ -11,10 +11,16 @@
 // resolved from the live DOM. The standalone SVG then carries its own theme
 // inline.
 //
-// The list below is the union of CSS variables the upstream visualizer's
-// instrument components reference. Adding a new one in the visualizer? Add it
-// here too or the exported PNG will render that property black.
-const VAR_NAMES = [
+// The list below is the union of CSS variables every exportable SVG
+// references. Adding a new one in a component that can be exported? Add it
+// here too — `png-export.test.ts` scans the sources and fails if you don't.
+//
+// Omitting one does NOT degrade gracefully. An unresolved var() makes the
+// presentation attribute invalid, so the property falls back to its INITIAL
+// value: `stroke` becomes `none` (lines disappear entirely) and `fill`
+// becomes black. That combination is what made exported chord diagrams come
+// out as black dots floating on blank paper with no fret grid.
+export const VAR_NAMES = [
   // this app's theme tokens (light/dark switch)
   '--text',
   '--text-dim',
@@ -23,7 +29,20 @@ const VAR_NAMES = [
   '--panel-2',
   '--chip-hover',
   '--bg',
+  '--bg-subtle',
   '--accent',
+  // Chord-diagram tokens. styles.css aliases these onto the theme tokens
+  // above (--ink: var(--text), --line: var(--border), --card: var(--panel)),
+  // so they resolve on screen whether or not they are listed here — which is
+  // exactly why their absence went unnoticed until a PNG came out wrong.
+  '--ink',
+  '--ink-muted',
+  '--line',
+  '--card',
+  // Game-mode feedback colours, used by the board views while a drill is on.
+  '--game-correct',
+  '--game-pending',
+  '--game-wrong',
   // visualizer-intrinsic colors (fixed in both themes)
   '--root',
   '--highlight',

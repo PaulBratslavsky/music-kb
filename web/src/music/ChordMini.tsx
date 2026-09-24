@@ -109,10 +109,15 @@ function pushPadsFor(chord: ProgressionChord) {
 
 function MiniPiano({ chord, responsive }: { chord: ProgressionChord; responsive?: boolean }) {
   const midis = soundingMidis(chord);
-  // minOctaves 1: a closed triad still draws one octave. The second octave
-  // appears only when the voicing actually needs it — a drop-2, a wide
-  // spread, or any shape that crosses a C.
-  const { baseMidi, octaves } = fitPianoRange(midis, { minOctaves: 1 });
+  // minOctaves 2, so every card draws the same board.
+  //
+  // Fitting the window to the voicing (minOctaves 1) made a closed triad one
+  // octave and anything crossing a C two, at the same overall width — so C
+  // and Am sat side by side with visibly different key sizes, and the strip
+  // read as though the two chords were drawn to different scales. The second
+  // octave is also the room an inversion needs: the bass has to sit below the
+  // rest, and a one-octave board has nowhere to put it.
+  const { baseMidi, octaves } = fitPianoRange(midis, { minOctaves: 2 });
   const lit = new Set(midis);
   const bassMidi = midis.length > 0 ? midis[0] : null;
 
