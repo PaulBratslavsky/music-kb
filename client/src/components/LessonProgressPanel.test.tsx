@@ -98,3 +98,25 @@ describe('deriveWriteStage — structural stage, not "last event seen"', () => {
     expect(deriveWriteStage(events)).toBe('Sections finished — choosing diagrams next…');
   });
 });
+
+describe('ProgressStepList — an illustrate failure is not reported as "no diagrams needed" (issue #11)', () => {
+  const illustrate = (extra: Record<string, unknown>) =>
+    [{ type: 'illustrate', index: 0, total: 1, heading: 'Shapes', diagrams: 0, ...extra }] as unknown as LessonProgressEvent[];
+
+  it('says the diagrams FAILED, and never "nothing needed a diagram"', () => {
+    render(<ProgressStepList events={illustrate({ failed: 'rate_limit_error: too many requests' })} />);
+    expect(screen.getByText(/diagrams failed/i)).toBeTruthy();
+    expect(screen.queryByText(/nothing needed a diagram/i)).toBeNull();
+  });
+
+  it('still says "nothing needed a diagram" when that is what happened', () => {
+    render(<ProgressStepList events={illustrate({})} />);
+    expect(screen.getByText(/nothing needed a diagram/i)).toBeTruthy();
+    expect(screen.queryByText(/diagrams failed/i)).toBeNull();
+  });
+
+  it('shows the illustrate pass\'s repairs', () => {
+    render(<ProgressStepList events={illustrate({ diagrams: 1, repaired: 1 })} />);
+    expect(screen.getByText(/1 repaired/)).toBeTruthy();
+  });
+});

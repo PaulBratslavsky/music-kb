@@ -2517,3 +2517,77 @@ describe('findKeyPinnedNote — measured against a real generated lesson', () =>
     expect(findKeyPinnedNote(caption)).not.toBeNull();
   });
 });
+
+// -----------------------------------------------------------------------------
+// The progress stream must not report outcomes that didn't happen (issue #11).
+// -----------------------------------------------------------------------------
+
+describe('writeLesson — illustrate outcomes are reported truthfully', () => {
+  beforeEach(usePassageVideos);
+
+  const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
+  const WRITE = '::prose{src=yt-A}\nFive shapes, one neck.\n::';
+
+  it('a failed illustrate call is reported as a failure, not as "nothing needed a diagram"', async () => {
+    // Both attempts fail — a frontier 429 is the realistic case, since every
+    // section illustrates concurrently.
+    mockedChat
+      .mockResolvedValueOnce(WRITE)
+      .mockRejectedValueOnce(new Error('rate_limit_error: too many requests'))
+      .mockRejectedValueOnce(new Error('rate_limit_error: too many requests'));
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(oneSection(), onProgress);
+
+    // Non-fatal: the section keeps its text and the lesson still saves.
+    expect(result.ok).toBe(true);
+    const illustrate = events.find((e) => e.type === 'illustrate');
+    expect(illustrate).toMatchObject({ diagrams: 0, failed: expect.stringMatching(/rate_limit/) });
+  });
+
+  it('a pass that genuinely adds nothing is NOT marked failed', async () => {
+    mockedChat.mockResolvedValueOnce(WRITE).mockResolvedValueOnce('');
+    const { events, onProgress } = collector();
+
+    await writeLesson(oneSection(), onProgress);
+
+    const illustrate = events.find((e) => e.type === 'illustrate');
+    expect(illustrate).toMatchObject({ diagrams: 0 });
+    expect(illustrate).not.toHaveProperty('failed');
+  });
+
+  it('counts the illustrate pass\'s repairs toward `repaired`', async () => {
+    // An over-length caption is truncated with a warning: the diagram
+    // survives, repaired. Diagrams are only drawn in this pass, so this is
+    // where repairs happen — the write pass has no drawing directives.
+    const long = 'x'.repeat(300);
+    mockedChat
+      .mockResolvedValueOnce(WRITE)
+      .mockResolvedValueOnce(
+        `::diagram{mode=theory instrument=guitar stringSet=e–B–G root=C quality=major caption="${long}"}\n::`,
+      );
+    const { events, onProgress } = collector();
+
+    await writeLesson(oneSection(), onProgress);
+
+    expect(events.find((e) => e.type === 'illustrate')).toMatchObject({ diagrams: 1, repaired: 1 });
+  });
+
+  it('says unlinked sourcing claims were KEPT, because they are', async () => {
+    // groundParsedBlocks counts an unsourced block and then keeps it. The
+    // notice used to say it was dropped.
+    mockedChat.mockResolvedValueOnce(
+      'The rule is simple: "count frets, not notes, every single time".',
+    );
+    const { events, onProgress } = collector();
+
+    const result = await writeLesson(oneSection(), onProgress);
+
+    expect(result.ok).toBe(true);
+    const notice = events.find((e) => e.type === 'notice' && e.step === 'citation');
+    expect(notice).toBeDefined();
+    const message = (notice as { message: string }).message;
+    expect(message).toMatch(/kept/i);
+    expect(message).not.toMatch(/dropped/i);
+  });
+});
