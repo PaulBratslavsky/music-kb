@@ -23,6 +23,56 @@
 // a gap and no error anywhere — the exact failure mode this task is about.
 import { z } from 'zod';
 
+/**
+ * The fretboards' physical size — hand-copied from the client's
+ * `client/src/lib/lesson/diagram-params.ts` (this package cannot import
+ * client or @music-kb/music; see pitch-label-parity.test.ts for why) and kept
+ * equal by client/src/lib/lesson/lesson-limits-parity.test.ts.
+ */
+export const NECK_MAX_FRET = { guitar: 22, bass: 20 } as const;
+export const NECK_STRING_COUNT = { guitar: 6, bass: 4 } as const;
+
+/**
+ * Runaway limits, hand-copied from the client's markdown parser
+ * (`markdown-blocks.ts`) and pinned equal by the same parity test. The client
+ * truncates or drops past these; this tool REJECTS instead, naming the limit —
+ * a model calling a tool can fix its input, and silently cut content is the
+ * failure those client limits were raised to avoid. (Issue #10.)
+ */
+export const LESSON_LIMITS = {
+  tableHeaders: 12,
+  tableRows: 24,
+  degreeChips: 12,
+  /** Every position on the largest board: 6 strings x frets 0–22. */
+  diagramDots: NECK_STRING_COUNT.guitar * (NECK_MAX_FRET.guitar + 1),
+  /** Marks are addressed by pitch class, so there are only 12 distinct keys. */
+  keyboardMarks: 12,
+  videoRefLabel: 120,
+  paramPickerLabel: 40,
+} as const;
+
+/**
+ * Report every dot that falls off `instrument`'s board. Worded like the
+ * client parser's `keepOnBoard`, which drops the same dots on the app path.
+ */
+function checkDotsOnNeck(
+  dots: ReadonlyArray<{ string: number; fret: number }>,
+  instrument: NeckInstrument,
+  ctx: z.RefinementCtx,
+  path: (string | number)[],
+): void {
+  dots.forEach((dot, i) => {
+    if (dot.string < NECK_STRING_COUNT[instrument] && dot.fret <= NECK_MAX_FRET[instrument]) return;
+    ctx.addIssue({
+      code: 'custom',
+      path: [...path, i],
+      message:
+        `dot string=${dot.string} fret=${dot.fret} is off a ${instrument} neck (strings 0–${NECK_STRING_COUNT[instrument] - 1}, ` +
+        `frets 0–${NECK_MAX_FRET[instrument]}) — it would render outside the board, where nobody sees it.`,
+    });
+  });
+}
+
 export const PITCH_CLASSES = [
   'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B',
 ] as const;
@@ -33,7 +83,7 @@ const TRIAD_QUALITIES = ['major', 'minor', 'augmented', 'diminished'] as const;
 // (or a human) reaches for the ASCII hyphen on a keyboard and produces a
 // string that LOOKS right but fails the enum. The superRefine below
 // detects exactly that mistake and names the fix.
-const STRING_SETS = ['e–B–G', 'B–G–D', 'G–D–A', 'D–A–E'] as const;
+export const STRING_SETS = ['e–B–G', 'B–G–D', 'G–D–A', 'D–A–E'] as const;
 
 // -----------------------------------------------------------------------------
 // Theory-mode intents: which COMBINATIONS the theory layer can actually draw
@@ -531,6 +581,10 @@ const diagramBlock = z
       .describe('When true, the lesson-level reader-controlled key supplies root at render time instead of this block\'s own `root`.'),
     dots: z
       .array(neckDotSchema)
+      .max(
+        LESSON_LIMITS.diagramDots,
+        `at most ${LESSON_LIMITS.diagramDots} dots — that is every position on a guitar neck, so more means repeats.`,
+      )
       .optional()
       .describe('Required (non-empty) when mode="explicit" — hand-placed dots. Ignored when mode="theory".'),
     fromFret: z.number().int().min(0).optional(),
@@ -549,6 +603,7 @@ const diagramBlock = z
             'mode="explicit" requires at least one entry in `dots`. An empty (or missing) `dots` array renders no diagram at all — a silent gap, not an error, so this tool rejects it up front.',
         });
       }
+      checkDotsOnNeck(block.dots ?? [], block.instrument, ctx, ['dots']);
       return;
     }
     // mode === 'theory'
@@ -683,6 +738,10 @@ const keyboardDiagramBlock = z
     octaves: z.number().int().min(1).max(3).optional(),
     marks: z
       .array(keyMarkSchema)
+      .max(
+        LESSON_LIMITS.keyboardMarks,
+        `at most ${LESSON_LIMITS.keyboardMarks} marks — they are addressed by pitch class, so more means repeats.`,
+      )
       .optional()
       .describe('Required (non-empty) when mode="explicit". Ignored when mode="theory".'),
     caption: captionSchema,
@@ -867,6 +926,9 @@ const neckPatternBlock = z
       'pentatonic boxes, seven three-note-per-string shapes): stacking that many separate fretboards makes the page unreadable.',
   )
   .superRefine((block, ctx) => {
+    block.patterns.forEach((pattern, pi) =>
+      checkDotsOnNeck(pattern.dots, block.instrument, ctx, ['patterns', pi, 'dots']),
+    );
     if (block.patterns.length < 2) {
       ctx.addIssue({
         code: 'custom',
@@ -893,6 +955,7 @@ const degreeChipsBlock = z
     degrees: z
       .array(z.string())
       .min(1, 'degrees must contain at least one entry.')
+      .max(LESSON_LIMITS.degreeChips, `at most ${LESSON_LIMITS.degreeChips} degree chips.`)
       .describe('Scale-degree labels in order, e.g. ["1","2","3","4","5","6","7"] or ["R","♭3","5"].'),
     label: z
       .string()
@@ -911,10 +974,14 @@ const degreeChipsBlock = z
 const tableBlock = z
   .object({
     __component: z.literal('lesson.table'),
-    headers: z.array(z.string()).min(1, 'headers must contain at least one column.'),
+    headers: z
+      .array(z.string())
+      .min(1, 'headers must contain at least one column.')
+      .max(LESSON_LIMITS.tableHeaders, `at most ${LESSON_LIMITS.tableHeaders} columns.`),
     rows: z
       .array(z.array(z.string()))
       .min(1, 'rows must contain at least one row.')
+      .max(LESSON_LIMITS.tableRows, `at most ${LESSON_LIMITS.tableRows} rows.`)
       .describe('Each row must have exactly as many cells as `headers` has columns.'),
     caption: captionSchema,
   })
@@ -934,7 +1001,11 @@ const tableBlock = z
 const paramPickerBlock = z
   .object({
     __component: z.literal('lesson.param-picker'),
-    label: z.string().optional().describe('Override for the control label. Defaults to the lesson parameter\'s own label.'),
+    label: z
+      .string()
+      .max(LESSON_LIMITS.paramPickerLabel)
+      .optional()
+      .describe('Override for the control label. Defaults to the lesson parameter\'s own label.'),
   })
   .strict()
   .describe('Renders the control for the lesson-level `parameter`. Only useful if the lesson sets one — otherwise renders nothing.');
@@ -944,7 +1015,7 @@ const videoRefBlock = z
     __component: z.literal('lesson.video-ref'),
     videoId: z.string().min(1).max(32).describe('youtubeVideoId (NOT documentId) of a video in the library.'),
     timeSec: z.number().int().min(0).optional(),
-    label: z.string().optional().describe('Link text. Defaults to "Watch this moment".'),
+    label: z.string().max(LESSON_LIMITS.videoRefLabel).optional().describe('Link text. Defaults to "Watch this moment".'),
   })
   .strict();
 

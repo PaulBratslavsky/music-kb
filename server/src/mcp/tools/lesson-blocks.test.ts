@@ -853,24 +853,31 @@ describe('the three mutants that survived the first audit', () => {
   // stands. The test below pins the BEHAVIOUR — off-board dots are never
   // relabelled — which stays true and worth having whichever line enforces it.
   it('N3 — a string past the end of the tuning is never relabelled', () => {
-    // neckDotSchema allows string 0-5 because a guitar has six. A BASS has
-    // four, so strings 4 and 5 are schema-legal and physically absent.
+    // A BASS has four strings, so strings 4 and 5 are physically absent.
     // pitchClassAt's upper bound is what turns that into "no claim to check";
     // without it, TUNING_MIDI[4] is undefined, the arithmetic goes NaN, and
     // PITCH_CLASSES[NaN] hands back undefined — which correctDotLabel would
     // then write into the label as a "correction".
-    const body = parsedBody([
-      {
-        __component: 'lesson.diagram',
-        mode: 'explicit',
-        instrument: 'bass',
-        dots: [
-          { string: 3, fret: 3, label: 'G' },
-          { string: 4, fret: 3, label: 'Q' },
-          { string: 5, fret: 3, label: 'C' },
-        ],
-      },
-    ]);
+    //
+    // These dots used to be schema-legal (neckDotSchema allows 0-5 for the
+    // guitar's six strings), which is how this test reached them. The schema
+    // now rejects them on a bass (issue #10) — asserted first. So the
+    // off-board dots are appended AFTER parsing: this pins correctPitchLabels'
+    // OWN defence, for any caller whose input never passed through the schema.
+    const block = {
+      __component: 'lesson.diagram',
+      mode: 'explicit',
+      instrument: 'bass',
+      dots: [
+        { string: 3, fret: 3, label: 'G' },
+        { string: 4, fret: 3, label: 'Q' },
+        { string: 5, fret: 3, label: 'C' },
+      ],
+    };
+    expect(parseBody([block]).success).toBe(false);
+    const body = parsedBody([{ ...block, dots: [block.dots[0]] }]);
+    const onBoard = body[0].dots[0];
+    body[0].dots.push({ ...onBoard, string: 4, label: 'Q' }, { ...onBoard, string: 5, label: 'C' });
     const corrections = correctPitchLabels(body);
     // The two off-the-board dots must be left EXACTLY as authored.
     expect(body[0].dots[1].label).toBe('Q');
