@@ -41,8 +41,10 @@ export function ChordsPanel({
   onChanged: () => void;
 }) {
   // A panel-local selection — independent of the main visualizer page so
-  // navigating here doesn't clobber whatever was set there.
-  const appState = useAppState();
+  // navigating here doesn't clobber whatever was set there. It must NOT sync
+  // to the URL: this page is `#/video/<id>`, and the hook's URL write used to
+  // replace that route with `?mode=…`, so a reload lost the video.
+  const appState = useAppState({ syncUrl: false });
   const [instrument, setInstrument] = useState<Instrument>('guitar');
   const [chords, setChords] = useState<ProgressionChord[]>([]);
   const [name, setName] = useState('');
