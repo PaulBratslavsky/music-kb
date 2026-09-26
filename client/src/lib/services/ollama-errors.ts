@@ -27,18 +27,31 @@ const MODEL_NOT_FOUND_PATTERNS = [
 
 const TIMEOUT_PATTERNS = [/timeout/i, /timed ?out/i, /request aborted/i];
 
+/**
+ * Every canned message `friendlyOllamaError` can return. Its final fallback
+ * passes unrecognised text through as-is and is deliberately NOT listed: only
+ * text this module authored counts as already translated. Exported for
+ * chat-errors.ts, as with ANTHROPIC_ERROR_MESSAGES.
+ */
+export const OLLAMA_ERROR_MESSAGES = {
+  empty: 'AI request failed.',
+  unreachable: 'AI server unreachable. Is Ollama running on port 11434?',
+  modelNotFound: 'Ollama can’t find the configured model. Run `ollama pull <model>` for it, or update OLLAMA_MODEL.',
+  timeout: 'AI request timed out. The model may be loading or the prompt is too long.',
+} as const;
+
 export function friendlyOllamaError(rawError: string): string {
   const trimmed = rawError.trim();
-  if (!trimmed) return 'AI request failed.';
+  if (!trimmed) return OLLAMA_ERROR_MESSAGES.empty;
 
   if (HOST_PATTERNS.some((p) => p.test(trimmed))) {
-    return 'AI server unreachable. Is Ollama running on port 11434?';
+    return OLLAMA_ERROR_MESSAGES.unreachable;
   }
   if (MODEL_NOT_FOUND_PATTERNS.some((p) => p.test(trimmed))) {
-    return 'Ollama can’t find the configured model. Run `ollama pull <model>` for it, or update OLLAMA_MODEL.';
+    return OLLAMA_ERROR_MESSAGES.modelNotFound;
   }
   if (TIMEOUT_PATTERNS.some((p) => p.test(trimmed))) {
-    return 'AI request timed out. The model may be loading or the prompt is too long.';
+    return OLLAMA_ERROR_MESSAGES.timeout;
   }
 
   return trimmed;

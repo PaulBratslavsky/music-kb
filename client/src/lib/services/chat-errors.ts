@@ -8,18 +8,39 @@
 // It is deliberately the SECOND half of a pair. A failed RUN arrives already
 // translated by the tier that answered — stream-errors.ts does that on the
 // server, because the server is the only place that knows which model ran, and
-// the frontier mapper must redact before it echoes anything. What reaches here
-// is the other class: transport failures the server never saw at all.
+// the frontier mapper must redact before it echoes anything. This module's
+// job is the other class: transport failures the server never saw at all.
+//
+// But it cannot rely on only seeing that other class. useChat turns a
+// RUN_ERROR frame into a plain `Error` (the class identity doesn't survive the
+// wire), so server-translated text reaches here too — and running it through
+// the Ollama mapper a second time is actively wrong on the frontier tier (issue
+// #7). So translation is made IDEMPOTENT: text either mapper authored is
+// recognised and passed through, and only foreign text is translated.
 
-import { friendlyOllamaError } from '#/lib/services/ollama-errors';
+import { ANTHROPIC_ERROR_MESSAGES } from '#/lib/services/anthropic-errors';
+import { OLLAMA_ERROR_MESSAGES, friendlyOllamaError } from '#/lib/services/ollama-errors';
+
+/**
+ * Every message either mapper can author. Both are closed sets of canned
+ * strings (the frontier mapper never echoes its input, by design), so exact
+ * membership is a sound test for "already translated". Derived from the
+ * mappers' own constants so it cannot drift from what they return.
+ */
+const ALREADY_TRANSLATED: ReadonlySet<string> = new Set<string>([
+  ...Object.values(ANTHROPIC_ERROR_MESSAGES),
+  ...Object.values(OLLAMA_ERROR_MESSAGES),
+]);
 
 // -----------------------------------------------------------------------------
 // Public Interface
 // -----------------------------------------------------------------------------
 
 /**
- * A run failure the SERVER already translated (stream-errors.ts's
- * `withFriendlyErrors`, using the resolved model's tier-paired mapper).
+ * A failure message the SERVER already authored — for paths where the client
+ * rebuilds an Error from a server response body rather than receiving a
+ * RUN_ERROR frame (e.g. NoteComposer's JSON route), and the text is not
+ * necessarily one of the mappers' canned messages ("Video not found").
  *
  * Exists so consumers can tell the two failure classes apart in one catch
  * block. A RUN_ERROR's text is final — re-running it through
@@ -48,5 +69,6 @@ export class FriendlyStreamError extends Error {
 export function friendlyStreamError(err: unknown, fallback: string): string {
   if (err instanceof FriendlyStreamError) return err.message;
   const raw = err instanceof Error ? err.message : fallback;
+  if (ALREADY_TRANSLATED.has(raw.trim())) return raw.trim();
   return friendlyOllamaError(raw);
 }
