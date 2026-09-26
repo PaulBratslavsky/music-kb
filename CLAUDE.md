@@ -117,7 +117,7 @@ All partial score updates (verdict-only re-rate, derived-value backfill, signal-
 
 ### Timecodes are deterministic
 
-The model is **explicitly instructed not to emit timecodes** in summary output. After generation, each section runs through BM25 against transcript chunks and the top-match's real caption-segment start becomes the section's `timeSec`. Same pattern grounds every `[mm:ss]` chip the model emits in chat — drift is flagged in the Sources accordion. **Do not add a code path that trusts a timecode the model produced.**
+The model is **explicitly instructed not to emit timecodes** in summary output. After generation, each section runs through BM25 against transcript chunks and the top-match's real caption-segment start becomes the section's `timeSec`. Same pattern grounds every `[mm:ss]` chip the model emits in chat — drift is flagged in the Sources accordion. **Do not add a code path that trusts a timecode the model produced.** That includes the MCP lesson write tools, where the model composes `source.timeSec` directly: `server/src/mcp/tools/lesson-grounding.ts` re-derives it from the video's stored index before any write ([ADR 0015](docs/adr/0015-two-lesson-write-paths-one-set-of-guarantees.md)).
 
 ### Strapi client wraps every backend call
 

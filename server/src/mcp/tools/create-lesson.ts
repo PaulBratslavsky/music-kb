@@ -9,6 +9,8 @@ import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import { LESSON_BLOCK_COMPONENTS, correctPitchLabels, lessonBodySchema, lessonParameterSchema } from './lesson-blocks';
 import { resolveFreeLessonSlug, resolveLessonVideoDocumentIds, slugifyLessonTitle } from './lesson-utils';
+import { citedVideoIds, groundLessonTimecodes, loadCitedVideos, unknownVideosError } from './lesson-grounding';
+import { repairHiddenWindows } from './lesson-windows';
 
 const schema = z
   .object({
@@ -71,10 +73,21 @@ export const createLessonTool: ToolDef<z.infer<typeof schema>> = {
     'returned — read it from the result. Defaults `status` to "ai-generated", never "published". ' +
     'A pitch name at a fret position is computed, not trusted from the block: any `dots[].label` (in `lesson.diagram` or ' +
     '`lesson.neck-pattern`) that parses as a pitch name and disagrees with what that string/fret actually sounds is ' +
-    'corrected in place before saving — the dot is kept, only the wrong name changes. See `pitchLabelCorrections` in the result.',
+    'corrected in place before saving — the dot is kept, only the wrong name changes. See `pitchLabelCorrections` in the result. ' +
+    'Timecodes are computed too: every citation\'s `timeSec` (a block\'s `source`, or a lesson.video-ref) is re-derived by ' +
+    'matching the block\'s text against that video\'s transcript — replaced with the real moment, or removed when nothing ' +
+    'matches confidently; see `timecodes`. A cited `videoId` that is not in the library rejects the whole call. ' +
+    'An explicit fret window (`fromFret`/`toFret`) that hides a diagram\'s own dots is widened to fit them; see `windowRepairs`.',
   schema,
   execute: async (args, { strapi }) => {
     const pitchLabelCorrections = correctPitchLabels(args.body);
+    // Never store a timecode the model produced: re-derive each one from the
+    // cited video's transcript, as the app's generator does (issue #10).
+    const timecodes = groundLessonTimecodes(args.body, await loadCitedVideos(strapi, citedVideoIds(args.body)));
+    if (timecodes.unknownVideos.length > 0) return { error: unknownVideosError(timecodes.unknownVideos) };
+    // A fret window that hides its own dots renders a blank board: widen it,
+    // as the app parser does (issue #10).
+    const windowRepairs = repairHiddenWindows(args.body);
     const baseSlug = slugifyLessonTitle(args.slug ?? args.title);
     const slugResolution = await resolveFreeLessonSlug(strapi, baseSlug);
     if (slugResolution.status === 'error') return { error: slugResolution.error };
@@ -110,6 +123,8 @@ export const createLessonTool: ToolDef<z.infer<typeof schema>> = {
         blockCount: args.body.length,
         videoCount: videoDocumentIds.length,
         pitchLabelCorrections,
+        timecodes: { grounded: timecodes.grounded, removed: timecodes.removed },
+        windowRepairs,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
