@@ -13,6 +13,8 @@ import {
 import { buildLibraryTools } from '#/lib/services/library-tools';
 import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
+import { prependSseFrame } from '#/lib/services/sse-prepend';
+import { emptyAnswerResponse } from '#/lib/services/ask-empty-answer';
 import { condenseQuestion, sanitizeHistory } from '#/lib/services/condense-question';
 import type { Citation } from '#/lib/services/citations';
 // Prior turns are flattened to role+text here, as they always were — this
@@ -21,7 +23,7 @@ import type { Citation } from '#/lib/services/citations';
 import { latestUserText, messageText } from '#/lib/services/ui-message';
 
 // Streaming library-QA endpoint. Parallels /api/chat in shape:
-//   - AG-UI style SSE (TEXT_MESSAGE_CONTENT + [DONE])
+//   - AG-UI SSE: the run and message lifecycle, terminated by RUN_FINISHED
 //   - Custom `data: {"type":"CITATIONS",...}` pre-stream event carrying
 //     the retrieved passage metadata so the client can render clickable
 //     citation chips as soon as [N] markers appear in the streamed text.
@@ -128,26 +130,10 @@ export async function askHandler(request: Request): Promise<Response> {
   }
 
   if (passages.length === 0) {
-    // Short-circuit: no passages means nothing to synthesize from.
-    // Send a single response saying so. Still via SSE so the
-    // client code path is uniform.
-    const body = [
-      `data: ${JSON.stringify({ type: 'CITATIONS', citations: [] })}\n\n`,
-      `data: ${JSON.stringify({
-        type: 'TEXT_MESSAGE_CONTENT',
-        messageId: 'ask-empty',
-        delta:
-          "I couldn't find anything in your library that matches this question. Try rephrasing, or add more videos that cover the topic.",
-      })}\n\n`,
-      'data: [DONE]\n\n',
-    ].join('');
-    return new Response(body, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
+    // Nothing to synthesize from. Answered as an ordinary one-message run, so
+    // it gets a fresh message id — see ask-empty-answer.ts for why a fixed id
+    // merged consecutive no-match answers into one bubble (issue #8).
+    return emptyAnswerResponse();
   }
 
   const uniqueVideoCount = new Set(
@@ -223,43 +209,7 @@ export async function askHandler(request: Request): Promise<Response> {
   const baseResponse = toServerSentEventsResponse(
     withFriendlyErrors(model, stream, 'ask'),
   );
-  const baseReader = baseResponse.body!.getReader();
-  const encoder = new TextEncoder();
-
-  const combined = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      controller.enqueue(encoder.encode(citationsFrame));
-      try {
-        while (true) {
-          const { value, done } = await baseReader.read();
-          if (done) break;
-          controller.enqueue(value);
-        }
-        controller.close();
-      } catch (err) {
-        // NOT `finally { close() }`. A closed stream cannot then transition to
-        // errored, so closing on the way out of a rejected read swallows the
-        // failure: the client sees a truncated body with no error frame and no
-        // [DONE], and the message withFriendlyErrors just produced is lost —
-        // the exact silent failure this route's error translation exists to
-        // prevent.
-        controller.error(err);
-      }
-    },
-    async cancel(reason) {
-      // The browser aborted the ask. Without this the upstream model run keeps
-      // generating to completion, holding a connection nobody is reading.
-      await baseReader.cancel(reason);
-    },
-  });
-
-  return new Response(combined, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
-  });
+  return prependSseFrame(citationsFrame, baseResponse);
 }
 
 export const Route = createFileRoute('/api/ask')({
