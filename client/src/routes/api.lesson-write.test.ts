@@ -128,3 +128,74 @@ describe('POST /api/lesson-write', () => {
     expect(frames[0]).toMatchObject({ type: 'error', message: 'boom' });
   });
 });
+
+describe('POST /api/lesson-write — a failed save keeps the lesson (issue #12)', () => {
+  beforeEach(() => {
+    writeLessonMock.mockReset();
+    saveLessonServiceMock.mockReset();
+  });
+
+  const SOURCES = [{ documentId: 'v1', youtubeVideoId: 'dQw4w9WgXcQ', title: 'Triads 101' }];
+
+  it('carries the generated lesson and its sources in the error frame', async () => {
+    // Every model call has already finished by the time the save runs, so a
+    // failed save used to throw away minutes of generation. The frame is the
+    // only thing that still reaches the reader.
+    writeLessonMock.mockResolvedValue({
+      ok: true,
+      lesson: GENERATED_LESSON,
+      sources: SOURCES,
+      tier: 'local',
+      model: 'gemma4-kb:latest',
+    });
+    saveLessonServiceMock.mockResolvedValue({ ok: false, error: 'Strapi rejected the write' });
+
+    const res = await lessonWriteHandler(postRequest({ topic: 't', outline: {}, sources: [], digest: {} }));
+    const [frame] = await collectFrames(res);
+
+    expect(frame).toMatchObject({
+      type: 'error',
+      step: 'saved',
+      message: 'Strapi rejected the write',
+      unsaved: { lesson: GENERATED_LESSON, sources: SOURCES },
+    });
+  });
+
+  it('logs the unsaved lesson server-side, so it is recoverable even if the tab closes', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    writeLessonMock.mockResolvedValue({
+      ok: true,
+      lesson: GENERATED_LESSON,
+      sources: SOURCES,
+      tier: 'local',
+      model: 'gemma4-kb:latest',
+    });
+    saveLessonServiceMock.mockResolvedValue({ ok: false, error: 'Strapi rejected the write' });
+
+    await collectFrames(
+      await lessonWriteHandler(postRequest({ topic: 't', outline: {}, sources: [], digest: {} })),
+    );
+
+    const logged = errorSpy.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+    expect(logged).toContain('Blues turnarounds');
+    expect(logged).toContain('"__component":"lesson.heading"'); // the body itself, not just a summary
+    errorSpy.mockRestore();
+  });
+
+  it('a successful save carries no unsaved payload', async () => {
+    writeLessonMock.mockResolvedValue({
+      ok: true,
+      lesson: GENERATED_LESSON,
+      sources: SOURCES,
+      tier: 'local',
+      model: 'gemma4-kb:latest',
+    });
+    saveLessonServiceMock.mockResolvedValue({ ok: true, slug: 'blues-turnarounds', documentId: 'doc-1' });
+
+    const frames = await collectFrames(
+      await lessonWriteHandler(postRequest({ topic: 't', outline: {}, sources: [], digest: {} })),
+    );
+
+    expect(frames.some((f) => 'unsaved' in (f as object))).toBe(false);
+  });
+});

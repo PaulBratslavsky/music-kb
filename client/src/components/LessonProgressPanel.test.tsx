@@ -11,7 +11,7 @@
 //    can lag behind (or, worse, sit on 'section' for the whole gap before
 //    the first 'illustrate' event lands)
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { deriveWriteStage, ProgressStepList } from './LessonProgressPanel';
 import type { LessonProgressEvent } from '#/lib/services/lesson-generation';
@@ -118,5 +118,57 @@ describe('ProgressStepList — an illustrate failure is not reported as "no diag
   it('shows the illustrate pass\'s repairs', () => {
     render(<ProgressStepList events={illustrate({ diagrams: 1, repaired: 1 })} />);
     expect(screen.getByText(/1 repaired/)).toBeTruthy();
+  });
+});
+
+describe('ProgressStepList — a failed save hands the lesson back (issue #12)', () => {
+  const unsaved = {
+    lesson: { title: 'Blues turnarounds', slug: 'blues-turnarounds', body: [{ __component: 'lesson.prose', id: 1, body: 'x' }] },
+    sources: [{ documentId: 'v1', youtubeVideoId: 'dQw4w9WgXcQ', title: 'Triads 101' }],
+  };
+  const failedSave = (extra: Record<string, unknown> = {}) =>
+    [{ type: 'error', step: 'saved', message: 'Strapi rejected the write', ...extra }] as unknown as LessonProgressEvent[];
+
+  it('offers the unsaved lesson as a download', () => {
+    render(<ProgressStepList events={failedSave({ unsaved })} />);
+    expect(screen.getByRole('button', { name: /download the unsaved lesson/i })).toBeTruthy();
+  });
+
+  it('the download is the lesson and its sources, as JSON', async () => {
+    let blob: Blob | undefined;
+    let filename = '';
+    // jsdom implements neither, so there is nothing to spy on — define them
+    // for this test and put things back afterwards.
+    const had = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    URL.createObjectURL = vi.fn((b: Blob) => {
+      blob = b;
+      return 'blob:test';
+    }) as typeof URL.createObjectURL;
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      filename = this.download;
+    });
+
+    try {
+      render(<ProgressStepList events={failedSave({ unsaved })} />);
+      screen.getByRole('button', { name: /download the unsaved lesson/i }).click();
+
+      expect(filename).toBe('blues-turnarounds.unsaved.json');
+      const text = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.readAsText(blob!);
+      });
+      expect(JSON.parse(text)).toEqual(unsaved);
+    } finally {
+      URL.createObjectURL = had.create;
+      URL.revokeObjectURL = had.revoke;
+      click.mockRestore();
+    }
+  });
+
+  it('an ordinary error offers no download', () => {
+    render(<ProgressStepList events={failedSave()} />);
+    expect(screen.queryByRole('button', { name: /download/i })).toBeNull();
   });
 });
