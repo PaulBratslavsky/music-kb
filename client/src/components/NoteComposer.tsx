@@ -30,7 +30,7 @@ import {
 import { MarkdownEditor } from './MarkdownEditor';
 import { listSkills, type Skill } from '#/lib/skills';
 import { createNote, updateNote, deleteNote } from '#/data/server-functions/notes';
-import { friendlyStreamError } from '#/lib/services/chat-errors';
+import { FriendlyStreamError, friendlyStreamError } from '#/lib/services/chat-errors';
 import type { StrapiNote } from '#/lib/services/notes';
 
 type Props = {
@@ -69,7 +69,11 @@ async function compose(
     | { markdown?: string; error?: string }
     | null;
   if (!res.ok || !data || typeof data.markdown !== 'string') {
-    throw new Error(data?.error || `Request failed: ${res.status}`);
+    // A body the server wrote is final, so it's a FriendlyStreamError and is
+    // shown verbatim. Only a failure with no usable body is left for local
+    // translation.
+    if (data?.error) throw new FriendlyStreamError(data.error);
+    throw new Error(`Request failed: ${res.status}`);
   }
   return data.markdown;
 }

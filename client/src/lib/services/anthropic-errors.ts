@@ -45,18 +45,36 @@ const BAD_REQUEST_PATTERNS = [
   /\b400\b/,
 ];
 
+/**
+ * Every message `friendlyAnthropicError` can return — a closed set, by design:
+ * see the security note inside the function, no branch echoes its input.
+ *
+ * Exported so the browser can recognise a message the server already
+ * translated and leave it alone (chat-errors.ts). Returning these constants
+ * rather than inline literals is what keeps that recognition from drifting
+ * away from what the mapper actually emits.
+ */
+export const ANTHROPIC_ERROR_MESSAGES = {
+  empty: 'Frontier AI request failed.',
+  auth: 'Anthropic rejected the configured API key. Check ANTHROPIC_API_KEY, or leave it unset to use the local model instead.',
+  rateLimit: 'Anthropic rate limit hit. Wait a moment and try again, or leave ANTHROPIC_API_KEY unset to fall back to the local model.',
+  timeout: 'Frontier AI request timed out. Try again, or leave ANTHROPIC_API_KEY unset to use the local model instead.',
+  badRequest: 'Anthropic rejected the request as malformed — usually an option the configured LESSON_MODEL does not accept. This is not a key problem; the exact reason is in the server logs.',
+  unknown: 'Frontier AI request failed. Check server logs for detail, or leave ANTHROPIC_API_KEY unset to use the local model instead.',
+} as const;
+
 export function friendlyAnthropicError(rawError: string): string {
   const trimmed = rawError.trim();
-  if (!trimmed) return 'Frontier AI request failed.';
+  if (!trimmed) return ANTHROPIC_ERROR_MESSAGES.empty;
 
   if (AUTH_PATTERNS.some((p) => p.test(trimmed))) {
-    return 'Anthropic rejected the configured API key. Check ANTHROPIC_API_KEY, or leave it unset to use the local model instead.';
+    return ANTHROPIC_ERROR_MESSAGES.auth;
   }
   if (RATE_LIMIT_PATTERNS.some((p) => p.test(trimmed))) {
-    return 'Anthropic rate limit hit. Wait a moment and try again, or leave ANTHROPIC_API_KEY unset to fall back to the local model.';
+    return ANTHROPIC_ERROR_MESSAGES.rateLimit;
   }
   if (TIMEOUT_PATTERNS.some((p) => p.test(trimmed))) {
-    return 'Frontier AI request timed out. Try again, or leave ANTHROPIC_API_KEY unset to use the local model instead.';
+    return ANTHROPIC_ERROR_MESSAGES.timeout;
   }
 
   // A malformed-request 400 is worth calling out separately: it is NOT an
@@ -72,11 +90,11 @@ export function friendlyAnthropicError(rawError: string): string {
   // error string cannot surface no matter how it got there. Recognising a
   // shape and returning canned text keeps that guarantee; echoing does not.
   if (BAD_REQUEST_PATTERNS.some((p) => p.test(trimmed))) {
-    return 'Anthropic rejected the request as malformed — usually an option the configured LESSON_MODEL does not accept. This is not a key problem; the exact reason is in the server logs.';
+    return ANTHROPIC_ERROR_MESSAGES.badRequest;
   }
 
   // Unknown shape — do NOT echo it; it's an untrusted cloud-provider
   // payload. Server logs (via chat()'s own error-category logging and this
   // module's callers) carry the raw detail for debugging.
-  return 'Frontier AI request failed. Check server logs for detail, or leave ANTHROPIC_API_KEY unset to use the local model instead.';
+  return ANTHROPIC_ERROR_MESSAGES.unknown;
 }
