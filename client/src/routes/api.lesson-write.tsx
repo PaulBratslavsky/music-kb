@@ -53,9 +53,16 @@ export async function lessonWriteHandler(request: Request): Promise<Response> {
 
         const saved = await saveLessonService(result.lesson, result.sources);
         if (!saved.ok) {
-          // A half-generated-but-unsaved lesson must surface loudly, not
-          // vanish — never swallow this.
-          send({ type: 'error', step: 'saved', message: saved.error });
+          // A generated-but-unsaved lesson must surface loudly AND survive.
+          // Every model call has already finished, so this is the only copy
+          // of minutes of work (issue #12). Two ways back: the frame carries
+          // it for the panel to offer as a download, and the full JSON goes
+          // to the server log in case the tab is already gone.
+          const unsaved = { lesson: result.lesson, sources: result.sources };
+          console.error(
+            `[lesson-write] save failed — lesson NOT saved: "${result.lesson.title}" (${saved.error}). Unsaved lesson follows:\n${JSON.stringify(unsaved)}`,
+          );
+          send({ type: 'error', step: 'saved', message: saved.error, unsaved });
           return;
         }
 

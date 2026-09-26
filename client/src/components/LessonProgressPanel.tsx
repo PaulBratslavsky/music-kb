@@ -11,6 +11,24 @@
 
 import type { LessonProgressEvent } from '#/lib/services/lesson-generation';
 
+// A generated lesson whose save failed arrives on the error frame (issue
+// #12). This hands it to the reader as a file: every model call had already
+// finished, so it is the only copy of that work outside the server log.
+function downloadUnsavedLesson(
+  unsaved: NonNullable<Extract<LessonProgressEvent, { type: 'error' }>['unsaved']>,
+) {
+  const blob = new Blob([JSON.stringify(unsaved, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${unsaved.lesson.slug || 'lesson'}.unsaved.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoke after a tick — some browsers race the click/download otherwise.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // The model authors in markdown now, so a block the parser rejected — a bad
 // enum, an unknown directive, a diagram that would draw nothing — would
 // otherwise show up as nothing but a slightly shorter lesson. The count is
@@ -176,6 +194,21 @@ function renderProgressEvent(event: LessonProgressEvent) {
       return (
         <span className="text-red-600 dark:text-red-400">
           Failed at {event.step}: {event.message}
+          {/* Generation finished and only the save failed — the lesson is
+              still in hand, so hand it back rather than let it vanish. */}
+          {event.unsaved ? (
+            <>
+              {' '}
+              <button
+                type="button"
+                onClick={() => downloadUnsavedLesson(event.unsaved!)}
+                className="underline underline-offset-2"
+              >
+                Download the unsaved lesson
+              </button>{' '}
+              (JSON) so none of it is lost.
+            </>
+          ) : null}
         </span>
       );
     default:

@@ -328,7 +328,18 @@ export type LessonProgressEvent =
    * (`saved`, or an `ok: true` return) arrived — which is exactly what
    * `lessons.index.tsx` already does.
    */
-  | { type: 'error'; step: string; message: string };
+  | {
+      type: 'error';
+      step: string;
+      message: string;
+      /**
+       * Present only on a `saved`-step failure: generation SUCCEEDED and the
+       * save did not. By then every model call has finished, so without this
+       * the whole lesson was lost with the request (issue #12). Carried on
+       * the frame so the progress panel can hand it back as a download.
+       */
+      unsaved?: { lesson: GeneratedLesson; sources: SourceVideo[] };
+    };
 
 type ProgressFn = (event: LessonProgressEvent) => void;
 
