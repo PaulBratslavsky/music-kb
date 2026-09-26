@@ -1035,12 +1035,15 @@ from (`sourceVideoId`), then BM25-matches the block's own text against
 that video's real transcript chunks to find *where*, exactly the way
 summary sections get grounded. If no good match exists, the block cites
 the video with no `timeSec` rather than a guessed one — a video-only
-citation is honest; a wrong timecode is worse than none. On the MCP path,
-where a model composes `source` directly, the same rule applies even
-though there's no BM25 pass enforcing it: if you don't know precisely
-where in the video a claim was made, omit `timeSec` and cite only
-`videoId`. Never estimate one because the block "feels like" it's from
-around the middle of the video.
+citation is honest; a wrong timecode is worse than none. The MCP path
+enforces the same rule: `createLesson` and `updateLesson` re-derive every
+`timeSec` from the cited video's transcript before writing, so a
+supplied value is replaced by the real moment, or removed if the block's
+text has no confident match — never stored as sent. You don't have to
+get the timecode right, but you do have to cite the right video, with
+text that actually says what that video says: that text is what gets
+matched. A `videoId` that isn't in the library rejects the whole write.
+The result's `timecodes` lists every value that was set or removed.
 
 **Never write a bare video ID in reader-facing text.** The context you're
 given lists each source as `[videoId] "Title"` so you can copy the id

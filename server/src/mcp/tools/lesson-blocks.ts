@@ -343,7 +343,15 @@ const captionSchema = z
 const sourceSchema = z
   .object({
     videoId: z.string().max(32).optional().describe('youtubeVideoId this block was grounded from.'),
-    timeSec: z.number().int().min(0).optional().describe('Timecode in seconds within that video.'),
+    timeSec: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        'Timecode in seconds within that video. Not trusted as sent: the write tools re-derive it from the transcript, ' +
+          'replacing it with the matched moment or removing it when the block\'s text has no confident match.',
+      ),
   })
   .strict()
   .optional()
@@ -594,6 +602,17 @@ const diagramBlock = z
   })
   .strict()
   .superRefine((block, ctx) => {
+    // Same rule neck-pattern already enforces: MiniNeck honours an explicit
+    // window only when it has BOTH ends, and ignores a half-set one — so a
+    // lone fromFret or toFret is a stored number that lies about the diagram.
+    if ((block.fromFret === undefined) !== (block.toFret === undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [block.fromFret === undefined ? 'fromFret' : 'toFret'],
+        message:
+          'fromFret and toFret must be set together — MiniNeck only honours an explicit window when it has both, and otherwise auto-fits around the dots, ignoring the one you set.',
+      });
+    }
     if (block.mode === 'explicit') {
       if ((block.dots ?? []).length === 0) {
         ctx.addIssue({

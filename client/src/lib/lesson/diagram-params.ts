@@ -44,6 +44,7 @@
 //      author typed. Same reason as the pitch-label correction on the MCP
 //      path: a name at a position is arithmetic.
 
+import { NECK_MAX_FRET, NECK_STRING_COUNT, type NeckInstrument } from './neck-window';
 import {
   arpeggioPositions,
   arpeggioShapeName,
@@ -561,14 +562,15 @@ export function diagramShapeName(block: DiagramBlock): string | null {
 // for MiniNeck to import `resolveNeckWindow` from here — it cannot happen
 // in this commit because that file is being edited elsewhere.)
 
-/** MiniNeck's `MAX_FRET`. Higher than a real board so a 14th-fret shape isn't clipped. */
-export const NECK_MAX_FRET = { guitar: 22, bass: 20 } as const;
-/** MiniNeck's `GUITAR_STRINGS` / `BASS_STRINGS` lengths. */
-export const NECK_STRING_COUNT = { guitar: 6, bass: 4 } as const;
+// NECK_MAX_FRET, NECK_STRING_COUNT, NeckInstrument and widenNeckWindow live
+// in neck-window.ts, a module with no imports, so the server suite can compare
+// the MCP tools' copy of widenNeckWindow with this one by behaviour. They are
+// re-exported here unchanged, so every importer of this module is unaffected.
+export { NECK_MAX_FRET, NECK_STRING_COUNT, widenNeckWindow } from './neck-window';
+export type { NeckInstrument } from './neck-window';
+
 /** MiniNeck's `minSpan` default — no caller passes another value. */
 export const NECK_MIN_SPAN = 5;
-
-export type NeckInstrument = keyof typeof NECK_MAX_FRET;
 
 /** The renderer's own narrowing: anything that isn't 'bass' draws a guitar. */
 export function asNeckInstrument(value: unknown): NeckInstrument {
@@ -638,30 +640,6 @@ export function visibleNeckDots<T extends { string: number; fret: number }>(
   return dots.filter((d) => isOnNeck(d, instrument) && d.fret >= lo && d.fret <= hi);
 }
 
-/**
- * The window that shows every one of `dots` — the author's own window
- * WIDENED to fit rather than replaced, so a deliberately wide framing
- * survives the repair. Padded one fret either side and pinned to the nut
- * by an open string, the same two rules MiniNeck's auto-fit uses, because
- * a dot sitting exactly on `lo` is drawn in the open-string gutter to the
- * left of the nut instead of on the board.
- */
-export function widenNeckWindow(
-  dots: readonly { fret: number }[],
-  instrument: NeckInstrument,
-  fromFret: number,
-  toFret: number,
-): { fromFret: number; toFret: number } {
-  const maxFret = NECK_MAX_FRET[instrument];
-  const frets = dots.map((d) => d.fret).filter((f) => f >= 0 && f <= maxFret);
-  if (frets.length === 0) return { fromFret, toFret };
-  const needLo = frets.includes(0) ? 0 : Math.max(0, Math.min(...frets) - 1);
-  const needHi = Math.min(maxFret, Math.max(...frets) + 1);
-  return {
-    fromFret: Math.max(0, Math.min(fromFret, needLo)),
-    toFret: Math.min(maxFret, Math.max(toFret, needHi)),
-  };
-}
 
 export type KeyMarkInput = {
   pc: PitchClass;

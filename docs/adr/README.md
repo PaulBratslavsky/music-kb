@@ -29,3 +29,4 @@ ADRs are append-only history. If a decision is replaced, write a new ADR that su
 | [0012](./0012-usechat-owns-chat-state-parser-kept-for-library-ask.md) | useChat owns chat state; the AG-UI parser is kept for library-ask | Accepted |
 | [0013](./0013-one-chat-component-across-all-three-surfaces.md) | One <Chat> component across all three surfaces | Accepted |
 | [0014](./0014-chat-transcripts-in-strapi-not-localstorage.md) | Chat transcripts live in Strapi, not localStorage | Accepted |
+| [0015](./0015-two-lesson-write-paths-one-set-of-guarantees.md) | Two lesson write paths, one set of guarantees | Accepted |

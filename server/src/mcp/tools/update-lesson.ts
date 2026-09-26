@@ -9,6 +9,8 @@ import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import { LESSON_BLOCK_COMPONENTS, correctPitchLabels, lessonBodySchema, lessonParameterSchema } from './lesson-blocks';
 import { resolveFreeLessonSlug, resolveLessonVideoDocumentIds, slugifyLessonTitle } from './lesson-utils';
+import { citedVideoIds, groundLessonTimecodes, loadCitedVideos, unknownVideosError } from './lesson-grounding';
+import { repairHiddenWindows } from './lesson-windows';
 
 const schema = z
   .object({
@@ -65,8 +67,9 @@ export const updateLessonTool: ToolDef<z.infer<typeof schema>> = {
   description:
     'Update an existing lesson by documentId. Every provided field replaces the stored value; omitted fields are ' +
     'left unchanged. `body`, if provided, replaces the whole block array (see createLesson for the block vocabulary ' +
-    'and validation, including the pitch-label correction pass reported back as `pitchLabelCorrections` — the same ' +
-    'rules apply here). `videos`, if provided, replaces the whole relation.',
+    'and validation, including the pitch-label correction pass reported back as `pitchLabelCorrections`, timecode ' +
+    'grounding as `timecodes`, and fret-window repair as `windowRepairs` — the same rules apply here). `videos`, if ' +
+    'provided, replaces the whole relation.',
   schema,
   execute: async (args, { strapi }) => {
     const existing = (await strapi.documents('api::lesson.lesson').findOne({
@@ -88,6 +91,13 @@ export const updateLessonTool: ToolDef<z.infer<typeof schema>> = {
     if (args.status !== undefined) data.status = args.status;
     if (args.parameter !== undefined) data.parameter = args.parameter;
     const pitchLabelCorrections = args.body !== undefined ? correctPitchLabels(args.body) : [];
+    // Never store a timecode the model produced — see createLesson (issue #10).
+    const timecodes =
+      args.body !== undefined
+        ? groundLessonTimecodes(args.body, await loadCitedVideos(strapi, citedVideoIds(args.body)))
+        : { grounded: [], removed: [], unknownVideos: [] };
+    if (timecodes.unknownVideos.length > 0) return { error: unknownVideosError(timecodes.unknownVideos) };
+    const windowRepairs = args.body !== undefined ? repairHiddenWindows(args.body) : [];
     if (args.body !== undefined) data.body = args.body;
 
     let resolvedSlug = existing.slug;
@@ -120,6 +130,8 @@ export const updateLessonTool: ToolDef<z.infer<typeof schema>> = {
         slug: updated.slug ?? resolvedSlug,
         updatedFields: Object.keys(data),
         pitchLabelCorrections,
+        timecodes: { grounded: timecodes.grounded, removed: timecodes.removed },
+        windowRepairs,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
