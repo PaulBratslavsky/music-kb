@@ -12,7 +12,7 @@ import { resolveFreeLessonSlug, resolveLessonVideoDocumentIds, slugifyLessonTitl
 
 const schema = z
   .object({
-    documentId: z.string().min(1).describe('Strapi documentId of the lesson to update (from create_lesson, list_lessons, or get_lesson).'),
+    documentId: z.string().min(1).describe('Strapi documentId of the lesson to update (from createLesson, listLessons, or getLesson).'),
     title: z.string().min(1).max(160).optional(),
     slug: z
       .string()
@@ -64,7 +64,7 @@ export const updateLessonTool: ToolDef<z.infer<typeof schema>> = {
   name: 'updateLesson',
   description:
     'Update an existing lesson by documentId. Every provided field replaces the stored value; omitted fields are ' +
-    'left unchanged. `body`, if provided, replaces the whole block array (see create_lesson for the block vocabulary ' +
+    'left unchanged. `body`, if provided, replaces the whole block array (see createLesson for the block vocabulary ' +
     'and validation, including the pitch-label correction pass reported back as `pitchLabelCorrections` — the same ' +
     'rules apply here). `videos`, if provided, replaces the whole relation.',
   schema,

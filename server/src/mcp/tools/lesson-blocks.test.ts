@@ -13,14 +13,17 @@
 // server/tsconfig.json excludes `**/*.test.*`, and vitest strips types without
 // checking them, so THIS FILE IS TYPECHECKED BY NOTHING. Every import below
 // fails loudly at runtime if an export is renamed, which is the trade.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   LESSON_BLOCK_COMPONENTS,
+  LESSON_JSON_ATTRIBUTES,
   correctPitchLabels,
   lessonBlockSchema,
   lessonBodySchema,
   lessonParameterSchema,
+  toWritableLessonBody,
+  toWritableLessonParameter,
 } from './lesson-blocks';
 
 /**
@@ -934,45 +937,104 @@ describe('the three mutants that survived the first audit', () => {
   });
 });
 
-describe('KNOWN GAPS — these pin CURRENT behaviour, not desired behaviour', () => {
-  it('needs a get_lesson body scrubbed of ids and nulls before update_lesson accepts it', () => {
-    // What Strapi HANDS BACK is not what it will TAKE BACK: it echoes the
-    // component `id`s that belong to the entity and spells an empty component
-    // array as `null`. Feeding a get_lesson body straight to update_lesson
-    // therefore fails, and none of the messages says "strip the ids and drop
-    // the nulls" — the same trap CLAUDE.md documents for REST dynamic zones
-    // and that server/scripts/repair-diagram-windows.mjs works around.
-    //
-    // The second half is the load-bearing assertion: it pins that the
-    // documented workaround KEEPS working, so it fails either if the schema
-    // drifts or if a preprocess step lands that makes the scrub unnecessary.
-    const fromStrapi = [
-      { id: 11, __component: 'lesson.prose', body: 'hello' },
-      {
-        id: 12,
-        __component: 'lesson.diagram',
-        mode: 'theory',
-        intent: 'chord',
-        root: 'C',
-        quality: 'major',
-        stringSet: 'e–B–G',
-        dots: null,
-        caption: null,
-        source: null,
-      },
-    ];
+describe("getLesson's body round-trips into updateLesson", () => {
+  // What Strapi HANDS BACK is not what it will TAKE BACK: every component
+  // instance carries an `id` (blocks AND nested components like `source` and
+  // each `dots` entry), empty fields come back `null`, and `__component` is
+  // serialised last. This used to live under KNOWN GAPS below, pinning that a
+  // getLesson body had to be scrubbed by hand before updateLesson would take
+  // it. getLesson now returns the write shape (issue #9).
+  const fromStrapi = [
+    { id: 11, body: 'hello', source: null, __component: 'lesson.prose' },
+    {
+      id: 12,
+      mode: 'theory',
+      intent: 'chord',
+      root: 'C',
+      quality: 'major',
+      stringSet: 'e–B–G',
+      dots: null,
+      caption: null,
+      source: { id: 40, videoId: 'dQw4w9WgXcQ', timeSec: 12 },
+      __component: 'lesson.diagram',
+    },
+  ];
 
+  it('the raw Strapi shape is still rejected — which is why the adapter exists', () => {
     const asIs = parseBody(fromStrapi);
     expect(asIs.success).toBe(false);
     expect(messages(asIs)).toContain('Unrecognized key: "id"');
     expect(messages(asIs)).toContain('expected array, received null');
-
-    const scrubbed = fromStrapi.map(({ id, ...block }) =>
-      Object.fromEntries(Object.entries(block).filter(([, v]) => v !== null)),
-    );
-    expect(parseBody(scrubbed).success, messages(parseBody(scrubbed))).toBe(true);
   });
 
+  it('the write shape is accepted as-is', () => {
+    const writable = toWritableLessonBody(fromStrapi);
+    expect(parseBody(writable).success, messages(parseBody(writable))).toBe(true);
+  });
+
+  it('strips ids from nested components too, not just blocks', () => {
+    const [, diagram] = toWritableLessonBody(fromStrapi) as Array<Record<string, any>>;
+    expect(diagram.source).toEqual({ videoId: 'dQw4w9WgXcQ', timeSec: 12 });
+  });
+
+  it('puts __component first, as a REST dynamic-zone write requires', () => {
+    for (const block of toWritableLessonBody(fromStrapi) as Array<Record<string, unknown>>) {
+      expect(Object.keys(block)[0]).toBe('__component');
+    }
+  });
+
+  it('never rewrites a json attribute — that is the author\'s data', () => {
+    const table = {
+      id: 5,
+      headers: ['Degree', 'Chord'],
+      rows: [['I', 'C'], ['V', 'G']],
+      caption: null,
+      __component: 'lesson.table',
+    };
+    const [out] = toWritableLessonBody([table]) as Array<Record<string, unknown>>;
+    expect(out.rows).toBe(table.rows); // same reference: passed through, not rebuilt
+    expect(out.headers).toBe(table.headers);
+    expect(out).not.toHaveProperty('id');
+  });
+
+  it('treats a missing body as empty', () => {
+    expect(toWritableLessonBody(null)).toEqual([]);
+    expect(toWritableLessonBody(undefined)).toEqual([]);
+  });
+
+  it('round-trips the parameter too', () => {
+    const fromStrapiParam = { id: 3, name: 'key', label: null, default: 'C' };
+    const writable = toWritableLessonParameter(fromStrapiParam);
+    expect(writable).toEqual({ name: 'key', default: 'C' });
+    expect(lessonParameterSchema.safeParse(writable).success).toBe(true);
+    expect(toWritableLessonParameter(null)).toBeUndefined();
+  });
+
+  it('LESSON_JSON_ATTRIBUTES lists exactly the json-typed attributes Strapi declares', () => {
+    // The scrub trusts this list to know what NOT to recurse into. A json
+    // field added to a component without updating it would be rewritten.
+    const dir = new URL('../../components/lesson/', import.meta.url);
+    const declared: Record<string, string[]> = {};
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith('.json')) continue;
+      const attrs = JSON.parse(readFileSync(new URL(file, dir), 'utf8')).attributes as Record<
+        string,
+        { type: string }
+      >;
+      const json = Object.entries(attrs)
+        .filter(([, a]) => a.type === 'json')
+        .map(([k]) => k)
+        .sort();
+      if (json.length) declared[`lesson.${file.replace(/\.json$/, '')}`] = json;
+    }
+    const listed = Object.fromEntries(
+      Object.entries(LESSON_JSON_ATTRIBUTES).map(([k, v]) => [k, [...v].sort()]),
+    );
+    expect(listed).toEqual(declared);
+  });
+});
+
+describe('KNOWN GAPS — these pin CURRENT behaviour, not desired behaviour', () => {
   it('leaves correctPitchLabels no defence of its own beyond the instrument enum', () => {
     // TUNING_MIDI has a guitar key and a bass key, and pitchClassAt reads
     // `TUNING_MIDI[instrument].length` with no guard at all. So a third

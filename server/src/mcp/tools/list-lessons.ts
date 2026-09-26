@@ -28,8 +28,8 @@ export const listLessonsTool: ToolDef<z.infer<typeof schema>> = {
   // tweak can't silently collide with it.
   name: 'listLessons',
   description:
-    'List lessons in the knowledge base: documentId, slug, title, status, level, instrument, order. Use get_lesson ' +
-    'for the full block body of one lesson, or update_lesson (with the documentId from here) to edit one.',
+    'List lessons in the knowledge base: documentId, slug, title, status, level, instrument, order. Use getLesson ' +
+    'for the full block body of one lesson, or updateLesson (with the documentId from here) to edit one.',
   schema,
   execute: async ({ page, pageSize, status, level, instrument }, { strapi }) => {
     const filters: Record<string, unknown> = {};
