@@ -253,7 +253,7 @@ export type LessonProgressEvent =
       // the illustrate pass needs its own progress events. `diagrams: 0` is
       // a normal, successful outcome (nothing in that section earned a
       // diagram), not a failure — never conflate it with a dropped/errored
-      // section.
+      // section. A call that actually FAILED sets `failed` instead.
       type: 'illustrate';
       index: number;
       total: number;
@@ -280,6 +280,13 @@ export type LessonProgressEvent =
        * A run with a high repair count is a run whose prompt needs work.
        */
       repaired?: number;
+      /**
+       * Present only when the illustrate call failed on both attempts; the
+       * (redacted) reason. The section keeps its text but gets no diagrams,
+       * which must not read as "nothing here needed one" — that is a claim
+       * about the content, and a failure is a claim about the run.
+       */
+      failed?: string;
     }
   | {
       /**
@@ -2879,7 +2886,7 @@ export async function writeLesson(
         emit(onProgress, {
           type: 'notice',
           step: 'citation',
-          message: `Section "${section.heading}": ${sectionUnsourced} block${sectionUnsourced === 1 ? '' : 's'} named a source in the text but carried no citation, so ${sectionUnsourced === 1 ? 'it was' : 'they were'} dropped.`,
+          message: `Section "${section.heading}": ${sectionUnsourced} block${sectionUnsourced === 1 ? '' : 's'} named a source in the text but carried no citation. ${sectionUnsourced === 1 ? 'It was' : 'They were'} kept — check the attribution before relying on ${sectionUnsourced === 1 ? 'it' : 'them'}.`,
         });
       }
     } else {
@@ -2923,6 +2930,13 @@ export async function writeLesson(
       const section = outline.sections[index];
       let illustrations: Array<{ anchorRequested: number | null; block: LessonBlock }> = [];
       let dropped = 0;
+      // Diagrams are drawn only in this pass, so this is where the parser's
+      // repairs (warning-severity issues: the block survives, fixed) happen.
+      let repaired = 0;
+      // Set when both attempts fail. Without it a failed call returned the
+      // same empty result as a section that legitimately needs no diagram,
+      // and the reader was told "nothing needed a diagram" (issue #11).
+      let failed: string | undefined;
 
       for (let attempt = 1; attempt <= 2; attempt++) {
         const isLastAttempt = attempt === 2;
@@ -2958,6 +2972,7 @@ export async function writeLesson(
             parsed.slice(0, ILLUSTRATIONS_PER_SECTION_BACKSTOP),
             ground,
           );
+          repaired = issues.filter((i) => i.severity === 'warning').length;
           // Same silent-truncation fix as the write pass above.
           dropped =
             issues.filter((i) => i.severity === 'error').length +
@@ -2983,6 +2998,7 @@ export async function writeLesson(
             logPhase(topic, `illustrate "${section.heading}" ✗ failed after retry — section keeps its text only`, {
               error: message,
             });
+            failed = message;
             break;
           }
           logPhase(topic, `illustrate "${section.heading}" ✗ failed (attempt ${attempt}) — retrying once`, {
@@ -2998,7 +3014,7 @@ export async function writeLesson(
         }
       }
 
-      return { illustrations, dropped };
+      return { illustrations, dropped, repaired, failed };
     }),
   );
 
@@ -3008,7 +3024,7 @@ export async function writeLesson(
   // shared budget rather than a race between concurrent sections.
   let lessonDiagramBudget = ILLUSTRATIONS_PER_LESSON_BACKSTOP;
   const illustratedSections: SectionResult[] = sectionResults.map((sr, index) => {
-    const { illustrations, dropped } = illustrationOutcomes[index];
+    const { illustrations, dropped, repaired, failed } = illustrationOutcomes[index];
     const kept: typeof illustrations = [];
     let overBudget = 0;
     for (const item of illustrations) {
@@ -3025,8 +3041,8 @@ export async function writeLesson(
     }
     const blocks = kept.length > 0 ? mergeIllustrations(sr.blocks, kept) : sr.blocks;
     const droppedTotal = dropped + overBudget;
-    if (sr.blocks.length > 0) {
-      logPhase(topic, `illustrate "${sr.heading}" ✓`, { diagrams: kept.length, dropped: droppedTotal });
+    if (sr.blocks.length > 0 && failed === undefined) {
+      logPhase(topic, `illustrate "${sr.heading}" ✓`, { diagrams: kept.length, dropped: droppedTotal, repaired });
     }
     emit(onProgress, {
       type: 'illustrate',
@@ -3035,6 +3051,8 @@ export async function writeLesson(
       heading: sr.heading,
       diagrams: kept.length,
       dropped: droppedTotal,
+      repaired,
+      ...(failed !== undefined ? { failed } : {}),
     });
     return { heading: sr.heading, blocks };
   });

@@ -130,9 +130,19 @@ function renderProgressEvent(event: LessonProgressEvent) {
       return (
         <span>
           Illustrating {event.index + 1}/{event.total} &ldquo;{event.heading}&rdquo; —{' '}
-          {event.diagrams === 0
-            ? 'nothing needed a diagram.'
-            : `${event.diagrams} diagram${event.diagrams === 1 ? '' : 's'} added.`}
+          {/* A failure and "nothing here needs a diagram" both leave zero
+              diagrams, but one is a claim about the run and the other about
+              the content. Amber, not red: the section keeps its text and the
+              lesson still saves. */}
+          {event.failed ? (
+            <span className="text-amber-700 dark:text-amber-400">
+              diagrams failed — this section keeps its text only ({event.failed}).
+            </span>
+          ) : event.diagrams === 0 ? (
+            'nothing needed a diagram.'
+          ) : (
+            `${event.diagrams} diagram${event.diagrams === 1 ? '' : 's'} added.`
+          )}
           <RejectedBlocks count={event.dropped} repaired={event.repaired} />
         </span>
       );
