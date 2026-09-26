@@ -1049,3 +1049,65 @@ export function correctPitchLabels(body: z.infer<typeof lessonBodySchema>): Pitc
   });
   return corrections;
 }
+
+// -----------------------------------------------------------------------------
+// Read shape → write shape
+// -----------------------------------------------------------------------------
+//
+// What Strapi HANDS BACK for a lesson is not what it will TAKE BACK. A GET
+// carries an `id` on every component instance — each block, and each nested
+// `source`, `dots` entry and so on — and spells an empty or unset field as
+// `null`. `lessonBodySchema` is `.strict()` and rejects both. So a getLesson
+// result could not be handed straight to updateLesson: "fetch it, tweak it,
+// save it" failed, with messages that never said "strip the ids" (issue #9;
+// the same trap CLAUDE.md documents for REST dynamic zones).
+//
+// getLesson now returns the write shape, so its output IS valid updateLesson
+// input and no caller has to know the trap exists.
+
+/**
+ * Json-typed attributes, per component. Their contents are the author's data,
+ * not Strapi component instances, so the scrub passes them through untouched
+ * rather than rewriting them. Pinned against `server/src/components/lesson/`
+ * by lesson-blocks.test.ts — a new json field can't be scrubbed silently.
+ */
+export const LESSON_JSON_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {
+  'lesson.degree-chips': ['degrees'],
+  'lesson.neck-pattern': ['patterns'],
+  'lesson.table': ['headers', 'rows'],
+};
+
+/**
+ * One component instance (or array of them) in Strapi's read shape → the
+ * write shape: `id`s removed, `null`s dropped (absent is how Strapi spells
+ * empty on the way in), `__component` first, recursing into nested
+ * components but not into json attributes.
+ */
+function toWritableComponent(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(toWritableComponent);
+  if (!value || typeof value !== 'object') return value;
+
+  const obj = value as Record<string, unknown>;
+  const jsonKeys =
+    typeof obj.__component === 'string' ? (LESSON_JSON_ATTRIBUTES[obj.__component] ?? []) : [];
+
+  const out: Record<string, unknown> = {};
+  // First: CLAUDE.md's `__component` gotcha — a dynamic zone written with it
+  // anywhere else is rejected over REST.
+  if (obj.__component !== undefined) out.__component = obj.__component;
+  for (const [key, v] of Object.entries(obj)) {
+    if (key === '__component' || key === 'id' || v === null) continue;
+    out[key] = jsonKeys.includes(key) ? v : toWritableComponent(v);
+  }
+  return out;
+}
+
+/** A lesson `body` as Strapi returns it → a body `updateLesson` accepts. */
+export function toWritableLessonBody(body: readonly unknown[] | null | undefined): unknown[] {
+  return (body ?? []).map(toWritableComponent);
+}
+
+/** A lesson `parameter` as Strapi returns it → the write shape, or undefined when unset. */
+export function toWritableLessonParameter(parameter: unknown): unknown {
+  return parameter == null ? undefined : toWritableComponent(parameter);
+}
