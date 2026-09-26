@@ -332,6 +332,23 @@ const MAX_DIAGRAM_DOTS = NECK_STRING_COUNT.guitar * (NECK_MAX_FRET.guitar + 1);
 const MAX_KEYBOARD_MARKS = PITCH_CLASSES.length;
 const VIDEO_REF_LABEL_MAX = 120;
 const PARAM_PICKER_LABEL_MAX = 40;
+
+/**
+ * The runaway limits above, by name. The MCP write tools keep a hand-copied
+ * table of the same numbers (server/src/mcp/tools/lesson-blocks.ts — the
+ * server can't import this file), and lesson-limits-parity.test.ts holds the
+ * two equal. The server REJECTS past each one where this parser truncates or
+ * drops, so a block is never accepted on one path and not the other.
+ */
+export const LESSON_LIMITS = {
+  tableHeaders: TABLE_HEADERS_MAX,
+  tableRows: TABLE_ROWS_MAX,
+  degreeChips: DEGREE_CHIPS_MAX,
+  diagramDots: MAX_DIAGRAM_DOTS,
+  keyboardMarks: MAX_KEYBOARD_MARKS,
+  videoRefLabel: VIDEO_REF_LABEL_MAX,
+  paramPickerLabel: PARAM_PICKER_LABEL_MAX,
+} as const;
 const PATTERN_LABEL_MAX = 40;
 const PATTERN_SUB_MAX = 160;
 
