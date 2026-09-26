@@ -7,9 +7,9 @@
 // four boards above it, so the panel drives that same `useAppState` — "add
 // chord" takes whatever the page is showing, and clicking a chord in the
 // strip sends it back to every board and into the `?mode=chord&root=…` URL.
-// That also sidesteps a real constraint: web's useAppState has no syncUrl
-// flag, so a second instance on this page would fight the first one over
-// the query string.
+// A second URL-syncing instance on this page would also fight the first one
+// over the query string; an embedded instance elsewhere passes
+// `useAppState({ syncUrl: false })`, as the player's ChordsPanel does.
 //
 // Progressions saved here are standalone (videoId: null) — they belong to
 // no song and are listed only by this panel.

@@ -6,7 +6,7 @@
 // an unrecognized `?mode=` must fall back to the default rather than
 // throwing — that's the whole point of `isViewMode` gating the parse.
 import { describe, expect, it } from 'vitest';
-import { stateFromUrl, urlFromState } from './useAppState';
+import { stateFromUrl, urlFromState, urlSyncTarget } from './useAppState';
 
 describe('arpeggio mode round-trips through the URL', () => {
   it('serializes root + quality like chord mode (no inv/v — no single voicing)', () => {
@@ -49,5 +49,38 @@ describe('an unknown ?mode= value falls back to the default instead of throwing'
       const state = stateFromUrl(`?mode=${mode}`);
       expect(() => urlFromState(state)).not.toThrow();
     }
+  });
+});
+
+// The URL write must never drop the hash route.
+//
+// web is hash-routed: the player lives at `#/video/<id>`. The selection is
+// synced as a query string, and `history.replaceState(null, '', '?mode=…')`
+// resolves a bare query against the current URL — which replaces the query
+// AND discards the fragment. So an instance of this hook mounted on the
+// player page used to rewrite `/#/video/abc` to `/?mode=chord…`, and a
+// reload landed on the Builder instead of the video.
+describe('urlSyncTarget keeps the hash route', () => {
+  const chord = stateFromUrl('?mode=chord&root=C&quality=maj&inv=0&v=0');
+
+  it('carries the current hash onto the URL it writes', () => {
+    const target = urlSyncTarget(chord, { search: '', hash: '#/video/abc' });
+    expect(target).toBe('?mode=chord&root=C&quality=maj&inv=0&v=0#/video/abc');
+  });
+
+  it('writes nothing when the query already matches', () => {
+    const search = urlFromState(chord);
+    expect(urlSyncTarget(chord, { search, hash: '#/video/abc' })).toBeNull();
+  });
+
+  it('writes a plain query when there is no hash', () => {
+    expect(urlSyncTarget(chord, { search: '', hash: '' })).toBe(urlFromState(chord));
+  });
+
+  it('resolves to a URL that still routes to the video', () => {
+    // The exact failure: resolve what we write against a player-page URL.
+    const target = urlSyncTarget(chord, { search: '', hash: '#/video/abc' })!;
+    const resolved = new URL(target, 'https://app.example/#/video/abc');
+    expect(resolved.hash).toBe('#/video/abc');
   });
 });

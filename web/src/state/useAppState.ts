@@ -174,10 +174,41 @@ function pcAtPosition(pos: GuessPosition): PitchClass {
   return pitchClassFromMidi(PUSH_BASE_MIDI + pos.row * 5 + pos.col);
 }
 
-export function useAppState() {
-  const [state, setState] = useState<AppState>(() =>
-    stateFromUrl(typeof window !== 'undefined' ? window.location.search : ''),
-  );
+/**
+ * The href to hand `history.replaceState` so the URL reflects `state`, or
+ * null when the query already matches.
+ *
+ * The hash is carried across on purpose. web is hash-routed (the player is
+ * `#/video/<id>`), and a bare `?query` passed to `replaceState` resolves
+ * against the current URL by replacing the query AND discarding the
+ * fragment — which is how the player page used to lose its route.
+ */
+export function urlSyncTarget(
+  state: AppState,
+  location: { search: string; hash: string },
+): string | null {
+  const next = urlFromState(state);
+  if (location.search === next) return null;
+  return next + location.hash;
+}
+
+export interface UseAppStateOptions {
+  /** When true (default), reads initial state from the query string and
+   *  writes back on every change. Set false for an instance embedded in a page
+   *  that isn't the visualizer — the player page's Chords panel — so its
+   *  selection stays in component memory and never touches the URL. Mirrors
+   *  the client's hook of the same name. */
+  syncUrl?: boolean;
+  /** Initial state when `syncUrl` is false. Ignored otherwise. */
+  initialState?: AppState;
+}
+
+export function useAppState(options: UseAppStateOptions = {}) {
+  const { syncUrl = true, initialState } = options;
+  const [state, setState] = useState<AppState>(() => {
+    if (!syncUrl) return initialState ?? DEFAULT_STATE;
+    return stateFromUrl(typeof window !== 'undefined' ? window.location.search : '');
+  });
   const [focusedPitchClass, setFocusedPitchClassRaw] = useState<PitchClass | null>(null);
   const [labelMode, setLabelMode] = useState<'name' | 'degree'>('name');
   const [showNaturals, setShowNaturals] = useState(false);
@@ -207,20 +238,22 @@ export function useAppState() {
     });
   }, []);
 
-  // Push to URL whenever state changes
+  // Push to URL whenever state changes — only when this hook owns the URL.
   useEffect(() => {
-    const next = urlFromState(state);
-    if (window.location.search !== next) {
-      window.history.replaceState(null, '', next);
-    }
-  }, [state]);
+    if (!syncUrl) return;
+    const target = urlSyncTarget(state, window.location);
+    if (target !== null) window.history.replaceState(null, '', target);
+  }, [state, syncUrl]);
 
-  // Listen for back/forward
+  // Listen for back/forward — only when this hook owns the URL. An embedded
+  // instance ignores it, or navigating would reset its selection to whatever
+  // (usually empty) query the host page carries.
   useEffect(() => {
+    if (!syncUrl) return;
     const onPop = () => setState(stateFromUrl(window.location.search));
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  }, [syncUrl]);
 
   const setMode = useCallback((mode: ViewMode) => {
     setState((s) => ({ ...s, mode }));
