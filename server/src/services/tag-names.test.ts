@@ -41,6 +41,7 @@ describe('slugifyTagName', () => {
     ["rock 'n' roll", 'rock-n-roll'],
     ["don't", 'dont'],
     ['don’t', 'don-t'], // curly: a different name, so a different slug
+    ['rock ‘n’ roll', 'rock-n-roll'], // left + right single quotes: punctuation, so dashes
     ['--edgy--', 'edgy'],
     ['   ', 'tag'],
     ['!!!', 'tag'],
@@ -70,6 +71,7 @@ describe('the seed script keeps the same rules', () => {
     'R&B',
     "rock 'n' roll",
     'don’t',
+    'rock ‘n’ roll',
     '--edgy--',
     '   ',
     'a'.repeat(80),

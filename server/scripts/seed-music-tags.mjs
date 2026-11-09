@@ -39,9 +39,12 @@ const TAGS = [
   'advanced',
 ];
 
-// Copies of normalizeTagName / slugifyTagName in src/services/tag-names.ts —
-// this file is plain node and cannot import TypeScript. Exported so
-// src/services/tag-names.test.ts can hold them to the real rules.
+// Copies of normalizeTagName / slugifyTagName in src/services/tag-names.ts.
+// Importing the .ts file directly would need Node's type stripping, which only
+// exists from Node 22.18 — and this package supports node >=20 (package.json
+// "engines"). Declaring "type": "module" to quiet Node's warning would break
+// Strapi's CommonJS tsc build (ADR 0010). So it stays a copy, exported so
+// src/services/tag-names.test.ts can hold it to the real rules.
 export const norm = (s) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
 export const slugify = (name) =>
