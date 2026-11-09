@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import { buildTokenAndFilter, tokenizeQuery } from './query-helpers';
+import { normalizeTagName } from '../../services/tag-names';
 
 const FIELDS = [
   'videoTitle',
@@ -58,7 +59,7 @@ export const searchVideosTool: ToolDef<z.infer<typeof schema>> = {
   schema,
   execute: async ({ query, limit, tag }, { strapi }) => {
     const tokens = tokenizeQuery(query);
-    const tagFilter = tag ? { tags: { name: { $eq: tag.trim().toLowerCase() } } } : {};
+    const tagFilter = tag ? { tags: { name: { $eq: normalizeTagName(tag) } } } : {};
 
     // Strict-only: every token must match. We deliberately do NOT fall back
     // to any-token (OR) matching — it turns out that generic tokens like

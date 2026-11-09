@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import type { ToolDef } from '../registry';
-import { slugifyTagName } from './tag-utils';
+import { normalizeTagName, slugifyTagName } from '../../services/tag-names';
 
 const listSchema = z.object({
   limit: z
@@ -71,7 +71,7 @@ export const tagVideoTool: ToolDef<z.infer<typeof tagVideoSchema>> = {
     const added: string[] = [];
 
     for (const raw of tags) {
-      const name = raw.trim().toLowerCase();
+      const name = normalizeTagName(raw);
       if (!name) continue;
       let tag = (await strapi.documents('api::tag.tag').findFirst({
         filters: { name: { $eq: name } },
@@ -122,7 +122,7 @@ export const untagVideoTool: ToolDef<z.infer<typeof untagSchema>> = {
     const video = await resolveVideo(strapi, videoId);
     if (!video) return { error: `No video found for "${videoId}".` };
 
-    const drop = new Set(tags.map((t) => t.trim().toLowerCase()));
+    const drop = new Set(tags.map(normalizeTagName));
     const remaining = (video.tags ?? [])
       .filter((t) => !drop.has(t.name))
       .map((t) => t.documentId);

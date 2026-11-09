@@ -1,24 +1,10 @@
 import type { Core } from '@strapi/strapi';
 import { errors } from '@strapi/utils';
 import { registerOfficialMcpTools } from './mcp';
+// One rule for tag names and slugs on every create path — see services/tag-names.ts.
+import { normalizeTagName, slugifyTagName } from './services/tag-names';
 
 type WithData = { data?: Record<string, unknown> };
-
-// Normalize a user-supplied tag name so free-form input dedupes into one row.
-function normalizeTagName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-// Derive the required `slug` uid from a normalized name. Strapi's content
-// API does NOT auto-generate uid fields (only the admin UI does), so a
-// REST create that sends just `name` would 400 with "slug must be defined".
-function slugifyTagName(name: string): string {
-  return name
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/[\s_]+/g, '-')
-    .replace(/-+/g, '-');
-}
 
 export default {
   async register({ strapi }: { strapi: Core.Strapi }) {

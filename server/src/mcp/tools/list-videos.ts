@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import type { ToolDef } from '../registry';
+import { normalizeTagName } from '../../services/tag-names';
 
 const schema = z.object({
   page: z.number().int().min(1).default(1),
@@ -32,7 +33,7 @@ export const listVideosTool: ToolDef<z.infer<typeof schema>> = {
     const filters: Record<string, unknown> = {};
     if (status !== 'any') filters.summaryStatus = { $eq: status };
     if (verdict !== 'any') filters.watchVerdict = { $eq: verdict };
-    if (tag) filters.tags = { name: { $eq: tag.trim().toLowerCase() } };
+    if (tag) filters.tags = { name: { $eq: normalizeTagName(tag) } };
 
     const start = (page - 1) * pageSize;
     const rows = (await strapi.documents('api::video.video').findMany({

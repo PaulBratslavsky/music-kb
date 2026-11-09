@@ -9,6 +9,7 @@
 
 import { z } from 'zod';
 import type { ToolDef } from '../registry';
+import { normalizeTagName } from '../../services/tag-names';
 
 const schema = z.object({
   tags: z
@@ -45,7 +46,7 @@ export const aggregateByTagTool: ToolDef<z.infer<typeof schema>> = {
     'Gather summary data for every video matching a set of tags. Returns an array of video records with their summaries (and optionally sections + takeaways). Use this for "what do my `rag` videos say about chunking?" or "compare every `ai-agents` video" — it avoids N round-trips of `getVideo`. For transcript content, pair with `crossSearchTranscripts`.',
   schema,
   execute: async ({ tags, match, limit, fields }, { strapi }) => {
-    const normalized = tags.map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const normalized = tags.map(normalizeTagName).filter(Boolean);
     const tagFilter =
       match === 'all'
         ? { $and: normalized.map((n) => ({ tags: { name: { $eq: n } } })) }

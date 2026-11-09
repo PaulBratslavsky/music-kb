@@ -7,6 +7,8 @@
 //
 // Usage: node server/scripts/seed-music-tags.mjs
 
+import { pathToFileURL } from 'node:url';
+
 const STRAPI = process.env.STRAPI_URL || 'http://localhost:1350';
 
 const TAGS = [
@@ -37,11 +39,15 @@ const TAGS = [
   'advanced',
 ];
 
-const norm = (s) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+// Copies of normalizeTagName / slugifyTagName in src/services/tag-names.ts.
+// Importing the .ts file directly would need Node's type stripping, which only
+// exists from Node 22.18 — and this package supports node >=20 (package.json
+// "engines"). Declaring "type": "module" to quiet Node's warning would break
+// Strapi's CommonJS tsc build (ADR 0010). So it stays a copy, exported so
+// src/services/tag-names.test.ts can hold it to the real rules.
+export const norm = (s) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
-// Mirrors slugifyTagName in server/src/mcp/tools/tag-utils.ts so REST-seeded
-// tags line up with UI- and MCP-created ones.
-const slugify = (name) =>
+export const slugify = (name) =>
   name
     .toLowerCase()
     .trim()
@@ -97,7 +103,11 @@ async function main() {
   console.log(`\n✓ Music tag seed: ${created} created, ${skipped} already present.`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Seed only when run directly (`node server/scripts/seed-music-tags.mjs`),
+// never when imported — the test above imports this file for its helpers.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import type { ToolDef } from '../registry';
 import { fetchYouTubeTranscript, fetchYouTubeMeta } from '../../services/youtube-transcript';
-import { slugifyTagName } from './tag-utils';
+import { normalizeTagName, slugifyTagName } from '../../services/tag-names';
 
 const schema = z.object({
   url: z
@@ -114,7 +114,7 @@ export const addVideoTool: ToolDef<z.infer<typeof schema>> = {
     // normalizes names lower-case on create).
     const tagDocumentIds: string[] = [];
     for (const raw of tags ?? []) {
-      const name = raw.trim().toLowerCase();
+      const name = normalizeTagName(raw);
       if (!name) continue;
       let existing = (await strapi.documents('api::tag.tag').findFirst({
         filters: { name: { $eq: name } },
