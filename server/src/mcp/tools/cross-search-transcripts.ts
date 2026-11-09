@@ -16,6 +16,7 @@ import {
   isStoredIndex,
   searchBM25,
 } from '../../services/bm25-search';
+import { normalizeTagName } from '../../services/tag-names';
 
 const schema = z.object({
   query: z.string().min(2).max(300),
@@ -48,7 +49,7 @@ export const crossSearchTranscriptsTool: ToolDef<z.infer<typeof schema>> = {
   execute: async ({ query, tags, perVideo, maxVideos }, { strapi }) => {
     const filters: Record<string, unknown> = { summaryStatus: { $eq: 'generated' } };
     if (tags && tags.length > 0) {
-      filters.tags = { name: { $in: tags.map((t) => t.trim().toLowerCase()) } };
+      filters.tags = { name: { $in: tags.map(normalizeTagName) } };
     }
 
     const videos = (await strapi.documents('api::video.video').findMany({
