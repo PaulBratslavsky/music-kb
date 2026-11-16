@@ -1,27 +1,27 @@
 import { createFileRoute } from '@tanstack/react-router';
 import {
   chat,
-  chatParamsFromRequestBody,
+  chatParamsFromRequest,
   toServerSentEventsResponse,
 } from '@tanstack/ai';
 import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { getSkill } from '#/lib/skills';
 import { prepareChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
+import { resolveRequestModel } from '#/lib/services/chat-model-request';
+import { withFriendlyErrors } from '#/lib/services/stream-errors';
+import { dropOrphanToolCalls, latestUserText } from '#/lib/services/ui-message';
 
 /** The tools this route hands the model. Single source of truth for both
  *  the system prompt's TOOLS AVAILABLE block and the chat() call. */
 const CHAT_TOOLS = [webSearchTool];
-import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
-import { withFriendlyErrors } from '#/lib/services/stream-errors';
-import { dropOrphanToolCalls, latestUserText } from '#/lib/services/ui-message';
 
-// Streaming chat endpoint (TanStack AI migration).
+// Streaming chat endpoint for one video.
 //
 // The endpoint produces Server-Sent Events in AG-UI format:
 //   data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"...","delta":"..."}\n\n
 //   ...
-//   data: [DONE]\n\n
+//   data: {"type":"RUN_FINISHED",...}\n\n
 //
 // Retrieval (BM25 top-k + query rewriting + contextual retrieval) is shared
 // with the non-streaming `askAboutVideoService` via `prepareChatPrompt`.
@@ -53,24 +53,16 @@ export const Route = createFileRoute('/api/chat')({
     handlers: {
       POST: async ({ request }) => {
         // The client is useChat, so the body is an AG-UI RunAgentInput.
-        let params: Awaited<ReturnType<typeof chatParamsFromRequestBody>>;
-        try {
-          params = await chatParamsFromRequestBody(await request.json());
-        } catch (err) {
-          const detail = err instanceof Error ? err.message : 'invalid body';
-          return new Response(`Invalid AG-UI request body: ${detail}`, { status: 400 });
-        }
+        // chatParamsFromRequest validates it and throws a 400 Response on a
+        // bad body; TanStack Start returns that Response as-is.
+        const params = await chatParamsFromRequest(request);
 
-        // Per-conversation options ride in forwardedProps. Still untrusted.
-        const forwarded = params.forwardedProps as {
-          videoId?: unknown;
-          skillSlug?: unknown;
-          /**
-           * Model choice token from the picker: 'default' | 'local:<id>' |
-           * 'frontier'. Never a bare model id — see chat-model-request.ts.
-           */
-          modelChoice?: unknown;
-        };
+        // Per-conversation options ride in forwardedProps, which the SDK
+        // types as Record<string, unknown>: still untrusted, so each value is
+        // checked below. `modelChoice` is the picker's token ('default' |
+        // 'local:<id>' | 'frontier'), never a bare model id — see
+        // chat-model-request.ts.
+        const forwarded = params.forwardedProps;
         const videoId = typeof forwarded.videoId === 'string' ? forwarded.videoId : '';
         const skillSlugRaw =
           typeof forwarded.skillSlug === 'string' ? forwarded.skillSlug : undefined;
@@ -141,10 +133,15 @@ export const Route = createFileRoute('/api/chat')({
         );
         const stream = chat({
           adapter: model.adapter,
-          // Tier-correct system delivery. See withSystem() — Anthropic drops a
-          // `role: 'system'` message silently, which would lose the retrieved
-          // transcript context and the skill persona without failing.
-          ...withSystem(model, system, history),
+          messages: history,
+          // The client's thread id (VideoChat passes the video id), so
+          // middleware, logs and devtools can tie this run to its conversation.
+          threadId: params.threadId,
+          runId: params.runId,
+          // The retrieved transcript passages and the skill persona. Both the
+          // Ollama and the Anthropic adapter put `systemPrompts` before the
+          // messages, so one option works on both tiers.
+          systemPrompts: [system],
           // Agent loop: model can call `kb_web_search(query)` when the
           // retrieved transcript passages don't answer the question.
           // Execution happens server-side; tool events stream as

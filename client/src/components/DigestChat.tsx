@@ -30,12 +30,20 @@ export function DigestChat({
     () => ({ videoIds: videos.map((v) => v.youtubeVideoId) }),
     [videos],
   );
+  // One conversation per set of videos. Sorted so the same selection in a
+  // different order is the same conversation, the rule `makeVideoSetKey` in
+  // digests.ts uses for a saved digest.
+  const threadId = useMemo(
+    () => `digest-chat:${videos.map((v) => v.youtubeVideoId).sort().join(',')}`,
+    [videos],
+  );
 
   return (
     <Chat
       surface="digest-chat"
       endpoint="/api/digest-chat"
       scope={scope}
+      threadId={threadId}
       className={className}
       chrome={{
         ariaLabel: 'Cross-video chat',

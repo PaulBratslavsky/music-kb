@@ -2,10 +2,10 @@
 # yarn lockfile v1
 
 
-"@ag-ui/core@0.1.1-canary.beta.0":
-  version "0.1.1-canary.beta.0"
-  resolved "https://registry.yarnpkg.com/@ag-ui/core/-/core-0.1.1-canary.beta.0.tgz#b79accbfaac3bb0ceb1cce3962d9b288b6e5d670"
-  integrity sha512-zcP3RH5p3HJTZ0kyQxNOL1blnVFTDpaShitR7UMS/thwFdl48V6CAG+WQBcYEu/dfa8mKonRez88N0Ok+nEI+w==
+"@ag-ui/core@1.0.0":
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/@ag-ui/core/-/core-1.0.0.tgz#b2840ab883713e01ef7f0803f0cab06c2256a0ec"
+  integrity sha512-yCRhsQvb4+lmGMrDsi4TOJxqKpm/kb3H64wwL+Z90jNVrkhy17RErfzsNgybfbjNKLM0nenEDYDVJsZHJJSigQ==
 
 "@ai-sdk/gateway@2.0.109":
   version "2.0.109"
@@ -369,6 +369,11 @@
   integrity sha512-NaOHPi9JMn8Kesh+GRkjNKAYkl4q8qMFAlqw7w2yrE+cBQZSbV9GkBGKvgzs3CdzEc5Yl1cn3JwDxxbBN5gjog==
   dependencies:
     "@ucast/mongo2js" "^1.3.0"
+
+"@cfworker/json-schema@^4.1.1":
+  version "4.1.6"
+  resolved "https://registry.yarnpkg.com/@cfworker/json-schema/-/json-schema-4.1.6.tgz#4ae859f7536206c8716b3c44f8e644f00edf97c7"
+  integrity sha512-YzVGTHXf4bzlyAL5KAvHYCdNbbt6zM5cYkAgxqxQPDQM6aZ4ShIIN5yJ+6q7YeonnevxT8k/LmD2tJi/jOiKkg==
 
 "@codemirror/autocomplete@^6.0.0":
   version "6.20.3"
@@ -3024,35 +3029,37 @@
   dependencies:
     "@swc/counter" "^0.1.3"
 
-"@tanstack/ai-event-client@^0.11.2":
-  version "0.11.3"
-  resolved "https://registry.yarnpkg.com/@tanstack/ai-event-client/-/ai-event-client-0.11.3.tgz#0e3927b54171d13b061bba8ac4a0283eaedd0a4d"
-  integrity sha512-K5Nw05TG2NPJNunV7LI/5m7S97XHHdxN7vwTYcbKbmA5txlToaiF4wCfYBT406m7BOeGlLHZJpr3m1M6Vaai4g==
+"@tanstack/ai-event-client@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-event-client/-/ai-event-client-1.0.1.tgz#c4341bde29f4192a33426590b54e94f87a8eb7fc"
+  integrity sha512-IURnn4oRKJbtbAuC3GcXRcuKHi8DrPmwuACqaTq6ApSGlyJyHhq0NTksKEmzql2Z12+njFjsKSXG9c7UbSHTxg==
   dependencies:
     "@tanstack/devtools-event-client" "^0.4.1"
 
-"@tanstack/ai-ollama@0.10.3":
-  version "0.10.3"
-  resolved "https://registry.yarnpkg.com/@tanstack/ai-ollama/-/ai-ollama-0.10.3.tgz#c31c00b6b5d14fbbc8072e6e4a85ccfe0010f755"
-  integrity sha512-NQCW0TfmXpgcW617PU8bfxMqws5N+SXdl3tlCLQiAvf2nwYrgg0SczcC5SUN2YbrblWBKc6oSiS18VoWvjSw4A==
+"@tanstack/ai-ollama@1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-ollama/-/ai-ollama-1.1.1.tgz#30fe805c4033a19879312fe22cf58639063e6d18"
+  integrity sha512-mxWIZp/1p2Q4+ctbjQVAq1fkExpLpOTT1TRsQcWJM1HObc/4W12SV2b3oQfmL8BoMq61LWrj+s6Sv0JVCwxBsw==
   dependencies:
-    "@tanstack/ai-utils" "^0.4.0"
+    "@tanstack/ai-utils" "^1.1.0"
     ollama "^0.6.3"
 
-"@tanstack/ai-utils@^0.4.0":
-  version "0.4.2"
-  resolved "https://registry.yarnpkg.com/@tanstack/ai-utils/-/ai-utils-0.4.2.tgz#3897be4b193e2b6d1b53da4aad483f9ff8b7428b"
-  integrity sha512-ucSgSK9kLloInqr/7s0VZlp1IFtbpgPnskISvnLXti/hc8koqXc4Zv9pfTTc8V80WzIKYWMf+ZgSIDeFM50eCw==
+"@tanstack/ai-utils@^1.1.0":
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-utils/-/ai-utils-1.1.0.tgz#657c769032a945b0b339ddf812468140dded9cbc"
+  integrity sha512-li47v/794azVLourgteS/+jjH/ZF+cIp/3RMVA1VybtKAFiMy3ZGxREU10OzfUghMzYLdfpK2l6ahvlWxNVHug==
 
-"@tanstack/ai@0.52.0":
-  version "0.52.0"
-  resolved "https://registry.yarnpkg.com/@tanstack/ai/-/ai-0.52.0.tgz#3d05f487afe9424f4bbedc43eacc889cbcce1e10"
-  integrity sha512-a2a+A+QguzZ3b8D7dqaA94A+CT42WUgxGYfscLrKJ+e2gHuEI8VNFGLq17KFuJI60A481bGpoGZ17fKpJF7q1A==
+"@tanstack/ai@1.4.0":
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai/-/ai-1.4.0.tgz#907b15f3e15d3f314f831b64db1db101c90535b9"
+  integrity sha512-3f0D9gFCk8LUe9qAPCsRkjlXU2bqbIKKMGGo9P6Q6O0vR+5/0N/J3x1J2QWYY8L3LNvJliZBDnutudEIRzNU8w==
   dependencies:
-    "@ag-ui/core" "0.1.1-canary.beta.0"
+    "@ag-ui/core" "1.0.0"
+    "@cfworker/json-schema" "^4.1.1"
     "@standard-schema/spec" "^1.1.0"
-    "@tanstack/ai-event-client" "^0.11.2"
-    "@tanstack/ai-utils" "^0.4.0"
+    "@tanstack/ai-event-client" "^1.0.1"
+    "@tanstack/ai-utils" "^1.1.0"
+    fast-json-patch "^3.1.1"
     partial-json "^0.1.7"
 
 "@tanstack/devtools-event-client@^0.4.1":
@@ -5448,6 +5455,11 @@ fast-deep-equal@3.1.3, fast-deep-equal@^3.1.1, fast-deep-equal@^3.1.3:
   version "3.1.3"
   resolved "https://registry.yarnpkg.com/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz#3a7d56b559d6cbc3eb512325244e619a65c6c525"
   integrity sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==
+
+fast-json-patch@^3.1.1:
+  version "3.1.1"
+  resolved "https://registry.yarnpkg.com/fast-json-patch/-/fast-json-patch-3.1.1.tgz#85064ea1b1ebf97a3f7ad01e23f9337e72c66947"
+  integrity sha512-vf6IHUX2SBcA+5/+4883dsIjpBTqmfBjmYiWK1savxQmFk4JfBMLa7ynTYOs1Rolp/T1betJxHiGD3g1Mn8lUQ==
 
 fast-json-stable-stringify@^2.0.0:
   version "2.1.0"

@@ -167,14 +167,15 @@ async function generateSinglePass(
       .filter(Boolean)
       .join('\n');
 
-    const out = (await withRetry(
+    const { text: out } = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
+          systemPrompts: [ARTICLE_SYSTEM],
           messages: [
-            { role: 'system', content: ARTICLE_SYSTEM },
             { role: 'user', content: userPrompt },
-          ] as never,
+          ],
+          threadId: `reader:${transcript.videoId}`,
           stream: false,
           modelOptions: model.modelOptions(0.3),
         }),
@@ -188,7 +189,7 @@ async function generateSinglePass(
           );
         },
       },
-    )) as string;
+    );
     logPhase(transcript.videoId, '✓ single-pass done', {
       took: ms(started),
       outChars: out.length,
@@ -229,14 +230,15 @@ async function generateMapReduce(
       /\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/g,
       '',
     );
-    const out = (await withRetry(
+    const { text: out } = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
+          systemPrompts: [MAP_SYSTEM],
           messages: [
-            { role: 'system', content: MAP_SYSTEM },
             { role: 'user', content: `Transcript window:\n${cleanChunkText}` },
-          ] as never,
+          ],
+          threadId: `reader:${transcript.videoId}`,
           stream: false,
           // NOTE: unlike learning.ts's map step, reader's map step HAS
           // always passed sampling. Do not "harmonise" the two — the
@@ -253,7 +255,7 @@ async function generateMapReduce(
           );
         },
       },
-    )) as string;
+    );
     windowOutputs[i] = out;
     logPhase(transcript.videoId, `✓ map chunk ${i + 1}/${chunks.length}`, {
       took: ms(start),
@@ -291,14 +293,15 @@ async function generateMapReduce(
       .filter(Boolean)
       .join('\n');
 
-    const out = (await withRetry(
+    const { text: out } = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
+          systemPrompts: [REDUCE_SYSTEM],
           messages: [
-            { role: 'system', content: REDUCE_SYSTEM },
             { role: 'user', content: reduceUser },
-          ] as never,
+          ],
+          threadId: `reader:${transcript.videoId}`,
           stream: false,
           modelOptions: model.modelOptions(0.3),
         }),
@@ -312,7 +315,7 @@ async function generateMapReduce(
           );
         },
       },
-    )) as string;
+    );
     logPhase(transcript.videoId, '✓ map-reduce done', {
       took: ms(reduceStart),
       totalTook: ms(runStart),

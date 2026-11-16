@@ -31,6 +31,9 @@ import {
 } from './chat-retrieval';
 import type { StrapiVideo } from './videos';
 
+/** What chat({ stream: false }) resolves to in @tanstack/ai 1.x: a ChatResult, not a string. */
+const chatResult = (text: string) => ({ text, chunks: [] });
+
 const mockedChat = vi.mocked(chat);
 const mockedCreateOllamaChat = vi.mocked(createOllamaChat);
 
@@ -88,20 +91,20 @@ describe('rewriteQuery', () => {
   // flip), the second is the deliberate absence of sampling — adding a
   // temperature here would be a generation-quality change, not a refactor.
   it('binds the local OLLAMA_CHAT_MODEL adapter, resolved per call', async () => {
-    mockedChat.mockResolvedValueOnce('one\ntwo');
+    mockedChat.mockResolvedValueOnce(chatResult('one\ntwo'));
     await rewriteQuery('vid', 'what is the MCP server');
     expect(mockedCreateOllamaChat).toHaveBeenCalledWith(OLLAMA_CHAT_MODEL, OLLAMA_HOST);
   });
 
   it('passes NO modelOptions — runs at Ollama\'s default temperature', async () => {
-    mockedChat.mockResolvedValueOnce('one\ntwo');
+    mockedChat.mockResolvedValueOnce(chatResult('one\ntwo'));
     await rewriteQuery('vid', 'what is the MCP server');
     expect(mockedChat.mock.calls[0][0]).not.toHaveProperty('modelOptions');
   });
 
   it('returns original + parsed rewrites on success', async () => {
     mockedChat.mockResolvedValueOnce(
-      'how does the MCP server work\nMCP server functionality\nwhat does MCP do',
+      chatResult('how does the MCP server work\nMCP server functionality\nwhat does MCP do'),
     );
     const result = await rewriteQuery('vid', 'what is the MCP server');
     expect(result[0]).toBe('what is the MCP server');
@@ -114,7 +117,7 @@ describe('rewriteQuery', () => {
 
   it('strips bullet/quote noise from the model output', async () => {
     mockedChat.mockResolvedValueOnce(
-      '1. "how does the MCP server work"\n- MCP server functionality\n• what does MCP do',
+      chatResult('1. "how does the MCP server work"\n- MCP server functionality\n• what does MCP do'),
     );
     const result = await rewriteQuery('vid', 'what is the MCP server');
     expect(result.slice(1)).toEqual([
@@ -149,7 +152,7 @@ describe('getChatEvidence', () => {
 
   it('uses multi-query fusion when rewrites are returned', async () => {
     mockedChat.mockResolvedValueOnce(
-      'workflow automation tools\nautomation drag drop nodes\neditorial flow nodes',
+      chatResult('workflow automation tools\nautomation drag drop nodes\neditorial flow nodes'),
     );
     const index = makeIndex();
     const result = await getChatEvidence(index, 'tell me about workflows');

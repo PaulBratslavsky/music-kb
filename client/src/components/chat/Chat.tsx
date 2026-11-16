@@ -15,8 +15,7 @@
 // builders stay server-side and this component never learns they exist.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { fetchServerSentEvents, useChat } from '@tanstack/ai-react';
-import { createCapturingFetcher, type CaptureConfig } from './capture-frames';
+import { fetchServerSentEvents, useChat, type UseChatOptions } from '@tanstack/ai-react';
 import type { UIMessage } from '@tanstack/ai';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -34,37 +33,27 @@ import type { SwitchableSurface } from '#/lib/services/model-policy';
  * skill switch) can do so without owning the hook.
  */
 export type ChatContext = {
-  messages: UIMessage[];
+  messages: ReadonlyArray<UIMessage>;
   isStreaming: boolean;
   setMessages: (messages: UIMessage[]) => void;
   /** Reset to empty, or to whatever `onClear` seeds instead. */
   clear: () => void;
 };
 
-/**
- * Persistence and `threadId` travel together, mirroring the SDK's own pairing:
- * a stored transcript needs a key to store it under. Expressed as a union so
- * passing one without the other is a type error here rather than a runtime
- * surprise inside useChat.
- */
-type Durability =
-  | {
-      /**
-       * Durable transcript. A storage adapter caches it in the browser; its
-       * getItem/setItem may be async, so an adapter backed by a server
-       * function makes the same conversation cross-device without touching
-       * this component.
-       */
-      persistence: NonNullable<Parameters<typeof useChat>[0]['persistence']>;
-      threadId: string;
-    }
-  | {
-      persistence?: never;
-      /** Scopes correlation. Omit for an ephemeral conversation. */
-      threadId?: string;
-    };
-
-export type ChatProps = Durability & {
+export type ChatProps = {
+  /**
+   * The id of this conversation. TanStack AI 1.x requires it on every
+   * `useChat`, and the client does not make one: a stable id per conversation
+   * (a video id, a database key), never a new random id per render, because a
+   * new id starts a new conversation.
+   */
+  threadId: string;
+  /**
+   * Durable transcript. Optional: without it the conversation lives in memory
+   * only. Every method may be async, so an adapter backed by a server function
+   * makes the same conversation cross-device without touching this component.
+   */
+  persistence?: UseChatOptions['persistence'];
   /** Selects the ModelPicker's policy key. Never a model id. */
   surface: SwitchableSurface;
   /** The route this surface posts to. */
@@ -122,11 +111,10 @@ export type ChatProps = Durability & {
   bodyClassName?: string;
 
   /**
-   * Pull custom SSE frames out of the stream and bind them to the message
-   * they belong to — how /api/ask's pre-message CITATIONS frame reaches the
-   * UI without a server change. See capture-frames.ts.
+   * Receives the app's own AG-UI CUSTOM events from the stream, e.g. the
+   * citations /api/ask emits for each answer. Passed straight to `useChat`.
    */
-  captureFrames?: CaptureConfig<unknown>;
+  onCustomEvent?: UseChatOptions['onCustomEvent'];
 
   className?: string;
 };
@@ -149,7 +137,7 @@ export function Chat({
   renderBelowBody,
   onFinish,
   banner,
-  captureFrames,
+  onCustomEvent,
   className,
   bodyClassName,
 }: Readonly<ChatProps>) {
@@ -162,46 +150,23 @@ export function Chat({
     [scope, modelChoice],
   );
 
-  const base = { forwardedProps, ...(onFinish ? { onFinish } : {}) };
-
-  // Narrowed once, so the call below reads as four explicit literals rather
-  // than four spreads TypeScript cannot check.
-  const transport = captureFrames
-    ? ({ kind: 'fetcher', fetcher: createCapturingFetcher(endpoint, captureFrames) } as const)
-    : ({ kind: 'connection', connection: fetchServerSentEvents(endpoint) } as const);
-
-  // `persistence` and `threadId` are paired by ChatProps; this makes the pair
-  // visible to the compiler at the call site too.
-  const durable = persistence && threadId ? { persistence, threadId } : null;
-
   const {
     messages,
     sendMessage,
     isLoading: isStreaming,
     error,
     setMessages,
-  } = useChat(
-    // Branching at the OBJECT LITERAL rather than spreading a pre-built bag.
-    //
-    // useChat's options are two discriminated unions — fetcher XOR connection,
-    // and persistence+threadId XOR neither — and a union does not survive
-    // being spread: TypeScript widens `...(x ? {a} : {})` to an optional
-    // property and can no longer tell which branch was meant. Assembling one
-    // object and asserting it past that check is how a genuine mismatch would
-    // get in. Written out, every combination is checked.
-    //
-    // The default transport is the connection adapter, which assembles the
-    // AG-UI RunAgentInput body itself — hand-writing that JSON is how the old
-    // clients and routes drifted apart. A surface emitting custom frames swaps
-    // in a fetcher that reads them out on the way through.
-    transport.kind === 'fetcher'
-      ? durable
-        ? { ...base, fetcher: transport.fetcher, persistence: durable.persistence, threadId: durable.threadId }
-        : { ...base, fetcher: transport.fetcher, ...(threadId ? { threadId } : {}) }
-      : durable
-        ? { ...base, connection: transport.connection, persistence: durable.persistence, threadId: durable.threadId }
-        : { ...base, connection: transport.connection, ...(threadId ? { threadId } : {}) },
-  );
+  } = useChat({
+    // The AG-UI SSE transport (TanStack AI docs: Transports). It builds the
+    // RunAgentInput body, so this component never hand-writes the wire JSON.
+    connection: fetchServerSentEvents(endpoint),
+    threadId,
+    // Chat-level props, so `reload()` replays them too.
+    forwardedProps,
+    persistence,
+    onFinish,
+    onCustomEvent,
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });

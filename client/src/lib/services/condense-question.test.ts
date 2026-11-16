@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+/** What chat({ stream: false }) resolves to in @tanstack/ai 1.x: a ChatResult, not a string. */
+const chatResult = (text: string) => ({ text, chunks: [] });
+
 // The condenser sits IN FRONT of retrieval, which sits in front of the answer.
 // Its contract is therefore mostly about failure: every bad path must return
 // the original question so a broken condenser is a no-op, not an outage.
@@ -30,7 +33,7 @@ describe('condenseQuestion', () => {
   });
 
   it('rewrites an anaphoric follow-up using history', async () => {
-    chatMock.mockResolvedValue('modal mixture video content');
+    chatMock.mockResolvedValue(chatResult('modal mixture video content'));
     const r = await condenseQuestion('tell me more about the second one', HISTORY);
     expect(r.condensed).toBe(true);
     expect(r.query).toBe('modal mixture video content');
@@ -43,7 +46,7 @@ describe('condenseQuestion', () => {
   });
 
   it('falls back when the model returns an empty string', async () => {
-    chatMock.mockResolvedValue('   ');
+    chatMock.mockResolvedValue(chatResult('   '));
     expect((await condenseQuestion('tell me more', HISTORY)).query).toBe('tell me more');
   });
 
@@ -55,12 +58,12 @@ describe('condenseQuestion', () => {
   });
 
   it('strips list markers and quotes a small model tends to add', async () => {
-    chatMock.mockResolvedValue('- "modal mixture examples"');
+    chatMock.mockResolvedValue(chatResult('- "modal mixture examples"'));
     expect((await condenseQuestion('more?', HISTORY)).query).toBe('modal mixture examples');
   });
 
   it('reports condensed:false when the rewrite equals the original', async () => {
-    chatMock.mockResolvedValue('what is a tritone sub?');
+    chatMock.mockResolvedValue(chatResult('what is a tritone sub?'));
     const r = await condenseQuestion('what is a tritone sub?', HISTORY);
     expect(r.condensed).toBe(false);
   });
@@ -71,7 +74,7 @@ describe('condenseQuestion', () => {
   // EVERY request. It was dead in production while every test here passed,
   // because the tests mocked chat() and never looked at how it was called.
   it('caps the rewrite length, or it times out in production', async () => {
-    chatMock.mockResolvedValue('a query');
+    chatMock.mockResolvedValue(chatResult('a query'));
     await condenseQuestion('tell me more', HISTORY);
 
     const opts = chatMock.mock.calls[0][0].modelOptions;
@@ -80,7 +83,7 @@ describe('condenseQuestion', () => {
   });
 
   it('rewrites deterministically — temperature 0', async () => {
-    chatMock.mockResolvedValue('a query');
+    chatMock.mockResolvedValue(chatResult('a query'));
     await condenseQuestion('tell me more', HISTORY);
     expect(chatMock.mock.calls[0][0].modelOptions.options.temperature).toBe(0);
   });

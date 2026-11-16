@@ -20,6 +20,8 @@ const stream = chat({
   adapter: createOllamaChat(MODEL, 'http://localhost:11434'),
   messages: [{ role: 'user', content: 'What year was Berklee College of Music founded? Use web_search.' }],
   tools: [tool],
+  // Required since @tanstack/ai 1.0.
+  threadId: 'verify-tools',
 });
 const seen = {};
 for await (const ev of stream) {

@@ -95,6 +95,9 @@ import {
   type WriteLessonInput,
 } from './lesson-generation';
 
+/** What chat({ stream: false }) resolves to in @tanstack/ai 1.x: a ChatResult, not a string. */
+const chatResult = (text: string) => ({ text, chunks: [] });
+
 const mockedChat = vi.mocked(chat);
 
 function bm25ForChunks(count: number): ReturnType<typeof buildBM25Index> {
@@ -271,7 +274,7 @@ describe('both entry points produce blocks through the same shared writeLesson()
 
   it('assembles an identically-shaped body whether writeLesson is fed a multi-source digest plan or a single-video NO_DIGEST plan', async () => {
     // Library-shaped input: two sources, a real (non-empty) digest.
-    mockedChat.mockResolvedValueOnce(sectionMarkdown('yt-A'));
+    mockedChat.mockResolvedValueOnce(chatResult(sectionMarkdown('yt-A')));
     const libraryInput: WriteLessonInput = {
       topic: 'blues turnarounds',
       outline: libraryOutline(),
@@ -299,7 +302,7 @@ describe('both entry points produce blocks through the same shared writeLesson()
     // Single-video-shaped input: exactly what planSingleVideoLesson hands
     // back, wrapped as `[source]` + NO_DIGEST — the shape
     // /api/lesson-plan-video actually produces.
-    mockedChat.mockResolvedValueOnce(sectionMarkdown('yt-1'));
+    mockedChat.mockResolvedValueOnce(chatResult(sectionMarkdown('yt-1')));
     fetchVideoByVideoIdMock.mockResolvedValue(makeSingleVideo());
     const singleVideoInput: WriteLessonInput = {
       topic: 'The blues turnaround, start to finish',

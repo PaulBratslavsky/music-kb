@@ -6,7 +6,7 @@ import {
 } from '#/lib/services/videos';
 import { cleanTranscript } from '#/lib/services/transcript';
 import { getSkill } from '#/lib/skills';
-import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
+import { resolveRequestModel } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
 
 function formatTimecode(sec: number): string {
@@ -205,9 +205,11 @@ export async function notesComposeHandler(request: Request): Promise<Response> {
 
   const stream = chat({
     adapter: model.adapter,
-    ...withSystem(model, skill.composerPrompt, [
-      { role: 'user', content: userPrompt },
-    ]),
+    messages: [{ role: 'user', content: userPrompt }],
+    // This route is a plain JSON POST, not an AG-UI chat, so there is no
+    // client thread id. One compose belongs to one video's notes.
+    threadId: `notes-compose:${body.videoId}`,
+    systemPrompts: [skill.composerPrompt],
     modelOptions: model.modelOptions(0.3),
     // Stop in the composer aborts the HTTP request; without this the model
     // carries on generating server-side, so the button looks like it worked
@@ -226,7 +228,9 @@ export async function notesComposeHandler(request: Request): Promise<Response> {
   // rejects on a failed run, and withFriendlyErrors has already
   // translated the message with the model that actually answered.
   try {
-    const markdown = await streamToText(
+    // streamToText resolves to a ChatResult ({ text, chunks }) in 1.x, not a
+    // string. Without the destructure the route would send `{ markdown: {…} }`.
+    const { text: markdown } = await streamToText(
       withFriendlyErrors(model, stream, `notes/compose ${body.videoId}`),
     );
     return Response.json({ markdown });

@@ -1,15 +1,19 @@
 // A `ChatClientPersistence` backed by server functions instead of the browser.
 //
 // WHY THIS IS POSSIBLE AT ALL. Every method on the SDK's persistence port may
-// return a promise — verified against the installed SDK, not the docs:
+// return a promise — verified against the installed SDK (@tanstack/ai-client
+// 1.1.0):
 //
-//   // node_modules/@tanstack/ai-client/dist/esm/types.d.ts:482-486
+//   // node_modules/@tanstack/ai-client/dist/esm/types.d.ts:585-589
 //   export interface ChatClientPersistence<TTools> {
-//     getItem: (id) => ChatPersistedState | UIMessage[] | null | undefined
-//                    | Promise<…>;
+//     getItem: (id) => ChatPersistedState | null | undefined | Promise<…>;
 //     setItem: (id, state: ChatPersistedState) => void | Promise<void>;
 //     removeItem: (id) => void | Promise<void>;
 //   }
+//
+// 1.0 removed the bare `UIMessage[]` that 0.x also accepted from `getItem`
+// (TanStack AI docs: Upgrade to 1.0, "Saved data", step 4). This adapter
+// already returns `{ messages, resume? }`, so rows saved under 0.x load as-is.
 //
 // So swapping `localStoragePersistence()` for this is the entire change needed
 // to make a conversation follow the user. <Chat> is untouched.

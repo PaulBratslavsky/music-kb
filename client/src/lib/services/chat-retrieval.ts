@@ -67,20 +67,21 @@ export async function rewriteQuery(
   ].join('\n');
   try {
     const model = resolveModel('query-rewrite');
-    const text = (await withRetry(
+    const { text } = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
           // NO modelOptions, deliberately — this leg has always run at
           // Ollama's default temperature. Pinned by chat-retrieval.test.ts.
+          systemPrompts: [rewriteSystem],
           messages: [
-            { role: 'system', content: rewriteSystem },
             { role: 'user', content: `Original question: ${trimmed}\n\nAlternative phrasings:` },
-          ] as never,
+          ],
+          threadId: `query-rewrite:${videoId}`,
           stream: false,
         }),
       { attempts: 2 },
-    )) as string;
+    );
     const rewrites = text
       .split('\n')
       .map((l) => l.replace(/^[-•\d.)\s"'`]+/, '').replace(/["'`]+$/, '').trim())

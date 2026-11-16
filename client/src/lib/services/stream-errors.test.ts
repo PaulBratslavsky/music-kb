@@ -210,7 +210,7 @@ describe('withFriendlyErrors', () => {
   });
 });
 
-describe('withFriendlyErrors → toServerSentEventsResponse (@tanstack/ai 0.52.0)', () => {
+describe('withFriendlyErrors → toServerSentEventsResponse (@tanstack/ai 1.x)', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -245,6 +245,8 @@ describe('withFriendlyErrors → toServerSentEventsResponse (@tanstack/ai 0.52.0
       adapter,
       model: 'probe',
       messages: [{ role: 'user', content: 'hi' }],
+      // Required since @tanstack/ai 1.0: chat() throws without it.
+      threadId: 'stream-errors-test',
     } as never);
     const res = toServerSentEventsResponse(
       withFriendlyErrors(frontier, stream as AsyncIterable<StreamChunk>, 'probe'),

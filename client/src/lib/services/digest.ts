@@ -375,14 +375,15 @@ export async function synthesizeDigest(
 
   try {
     const model = override ?? resolveModel('digest-synthesis');
-    const object = (await withRetry(
+    const object = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
+          systemPrompts: [DIGEST_SYSTEM],
           messages: [
-            { role: 'system', content: DIGEST_SYSTEM },
             { role: 'user', content: userPrompt },
-          ] as never,
+          ],
+          threadId: `digest:${tag}`,
           outputSchema: DigestSchema,
           // Frontier models reject `temperature` outright ("`temperature` is
           // deprecated for this model"), so the shape is tier-specific — but
@@ -404,7 +405,7 @@ export async function synthesizeDigest(
           });
         },
       },
-    )) as Digest;
+    );
 
     const safe = sanitizeDigest(object);
     const badTitles = safe.sharedThemes
@@ -527,14 +528,15 @@ export async function synthesizeDigestArticle(
     // and it is unreachable from lesson generation, which is where it
     // should stay.
     const model = resolveModel('digest-article');
-    const out = (await withRetry(
+    const { text: out } = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
+          systemPrompts: [ARTICLE_SYSTEM],
           messages: [
-            { role: 'system', content: ARTICLE_SYSTEM },
             { role: 'user', content: userPrompt },
-          ] as never,
+          ],
+          threadId: `digest:${tag}`,
           stream: false,
           modelOptions: model.modelOptions(0.3),
         }),
@@ -546,7 +548,7 @@ export async function synthesizeDigestArticle(
           });
         },
       },
-    )) as string;
+    );
     // Strip possible ```markdown fence the model sometimes wraps output in.
     const article = (() => {
       const t = out.trim();

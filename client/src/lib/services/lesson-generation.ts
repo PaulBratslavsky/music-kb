@@ -2367,10 +2367,11 @@ export async function planLesson(
       () =>
         chat({
           adapter: lessonModel.adapter,
+          systemPrompts: [COVERAGE_SYSTEM],
           messages: [
-            { role: 'system', content: COVERAGE_SYSTEM },
             { role: 'user', content: buildCoveragePrompt(topic, candidatesText) },
-          ] as never,
+          ],
+          threadId: `lesson:${topic}`,
           outputSchema: CoverageVerdictSchema,
           modelOptions: lessonModel.modelOptions(0.1),
         }),
@@ -2477,13 +2478,14 @@ export async function planLesson(
     try {
       const raw = await chat({
         adapter: lessonModel.adapter,
+        systemPrompts: [getOutlineSystemWithGuide()],
         messages: [
-          { role: 'system', content: getOutlineSystemWithGuide() },
           {
             role: 'user',
             content: buildOutlinePrompt(topic, contextText, digestContextText),
           },
-        ] as never,
+        ],
+        threadId: `lesson:${topic}`,
         outputSchema: LessonOutlineSchema,
         modelOptions: lessonModel.modelOptions(0.3),
       });
@@ -2756,10 +2758,12 @@ export async function writeLesson(
     for (let attempt = 1; attempt <= 2; attempt++) {
       const isLastAttempt = attempt === 2;
       try {
-        const raw = await chat({
+        // `stream: false` resolves to a ChatResult ({ text, chunks }) in
+        // @tanstack/ai 1.x, not a string.
+        const { text: markdown } = await chat({
           adapter: lessonModel.adapter,
+          systemPrompts: [getSectionSystemWithGuide()],
           messages: [
-            { role: 'system', content: getSectionSystemWithGuide() },
             {
               role: 'user',
               content: buildSectionPrompt(
@@ -2770,7 +2774,8 @@ export async function writeLesson(
                 continuityText,
               ),
             },
-          ] as never,
+          ],
+          threadId: `lesson:${topic}`,
           // No structured output here — this pass answers in markdown.
           // Every Anthropic structured-output restriction on this branch
           // was found at this call site, and none of them applies to a
@@ -2779,7 +2784,6 @@ export async function writeLesson(
           modelOptions: lessonModel.modelOptions(0.4),
         });
 
-        const markdown = typeof raw === 'string' ? raw : '';
         const { blocks: parsed, issues } = parseLessonMarkdown(markdown, {
           allowed: WRITE_DIRECTIVES,
           bareText: 'prose',
@@ -2952,15 +2956,17 @@ export async function writeLesson(
       for (let attempt = 1; attempt <= 2; attempt++) {
         const isLastAttempt = attempt === 2;
         try {
-          const raw = await chat({
+          // A ChatResult in @tanstack/ai 1.x; the markdown is its `text`.
+          const { text: markdown } = await chat({
             adapter: lessonModel.adapter,
+            systemPrompts: [getIllustrationSystemWithGuide()],
             messages: [
-              { role: 'system', content: getIllustrationSystemWithGuide() },
               {
                 role: 'user',
                 content: buildIllustrationPrompt(outline, section, blocksSummary, contextText),
               },
-            ] as never,
+            ],
+            threadId: `lesson:${topic}`,
             // Markdown, same as the write pass — which is what makes the
             // whole visual vocabulary reachable here: chord boxes, pattern
             // pickers, explicit dots with all four style flags, inversions
@@ -2969,7 +2975,6 @@ export async function writeLesson(
             stream: false,
             modelOptions: lessonModel.modelOptions(0.3),
           });
-          const markdown = typeof raw === 'string' ? raw : '';
           const { blocks: parsed, issues } = parseLessonMarkdown(markdown, {
             allowed: ILLUSTRATE_DIRECTIVES,
             // The illustrate pass must not write. Bare markdown here is a
@@ -3372,10 +3377,11 @@ export async function planSingleVideoLesson(
     try {
       const raw = await chat({
         adapter: lessonModel.adapter,
+        systemPrompts: [getOutlineSystemWithGuide()],
         messages: [
-          { role: 'system', content: getOutlineSystemWithGuide() },
           { role: 'user', content: buildOutlinePrompt(topic, contextText, overviewText) },
-        ] as never,
+        ],
+        threadId: `lesson:${topic}`,
         outputSchema: LessonOutlineSchema,
         modelOptions: lessonModel.modelOptions(0.3),
       });

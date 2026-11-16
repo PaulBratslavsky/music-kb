@@ -157,16 +157,18 @@ export async function condenseQuestion(
 
   try {
     const model = resolveModel('query-rewrite');
-    const text = (await Promise.race([
+    const { text } = await Promise.race([
       chat({
         adapter: model.adapter,
+        systemPrompts: [SYSTEM],
         messages: [
-          { role: 'system', content: SYSTEM },
           {
             role: 'user',
             content: `Conversation so far:\n${transcript(history)}\n\nFollow-up question: ${original}\n\nStandalone query:`,
           },
-        ] as never,
+        ],
+        // One-shot rewrite, not a conversation; the id names the job.
+        threadId: 'condense-question',
         stream: false,
         // Temperature 0: this is a deterministic transformation, not a
         // creative one. num_predict is what keeps it inside TIMEOUT_MS.
@@ -175,9 +177,9 @@ export async function condenseQuestion(
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('condense timeout')), TIMEOUT_MS);
       }),
-    ])) as string;
+    ]);
 
-    const rewritten = String(text ?? '')
+    const rewritten = text
       .split('\n')
       .map((l) => l.replace(/^[-•\d.)\s"'`]+/, '').replace(/["'`]+$/, '').trim())
       .find((l) => l.length > 0);

@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 import {
   chat,
-  chatParamsFromRequestBody,
+  chatParamsFromRequest,
   toServerSentEventsResponse,
+  type ChatMiddleware,
 } from '@tanstack/ai';
 import {
   ASK_LIBRARY_SYSTEM,
@@ -11,26 +12,31 @@ import {
   type RetrievedPassage,
 } from '#/lib/services/ask-library';
 import { buildLibraryTools } from '#/lib/services/library-tools';
-import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
+import { resolveRequestModel } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
-import { prependSseFrame } from '#/lib/services/sse-prepend';
 import { emptyAnswerResponse } from '#/lib/services/ask-empty-answer';
 import { condenseQuestion, sanitizeHistory } from '#/lib/services/condense-question';
-import type { Citation } from '#/lib/services/citations';
+import {
+  CITATIONS_EVENT,
+  type Citation,
+  type CitationsEventValue,
+} from '#/lib/services/citations';
 // Prior turns are flattened to role+text here, as they always were — this
 // surface seeds its own final user turn from retrieved passages, so no tool
 // calls survive into the model messages and no orphan guard is needed.
 import { latestUserText, messageText } from '#/lib/services/ui-message';
 
-// Streaming library-QA endpoint. Parallels /api/chat in shape:
-//   - AG-UI SSE: the run and message lifecycle, terminated by RUN_FINISHED
-//   - Custom `data: {"type":"CITATIONS",...}` pre-stream event carrying
-//     the retrieved passage metadata so the client can render clickable
-//     citation chips as soon as [N] markers appear in the streamed text.
+// Streaming library-QA endpoint. Same AG-UI SSE stream as /api/chat, plus one
+// CUSTOM event per assistant message:
 //
-// The client reads the CITATIONS frame first, then accumulates text
-// deltas. Chips resolve to { video, startSec, text } by passage index.
-
+//   data: {"type":"CUSTOM","name":"library-ask:citations",
+//          "value":{"messageId":"msg-…","citations":[…],"model":"…"}}
+//
+// The route retrieves passages before the model writes, so the citations are
+// known before the answer starts. A chat middleware emits them right after the
+// TEXT_MESSAGE_START of each assistant message, with that message's id, and
+// LibraryChat reads them with `onCustomEvent`.
+// Chips resolve to { video, startSec, text } by passage index.
 
 function toCitation(p: RetrievedPassage, i: number): Citation {
   return {
@@ -58,15 +64,11 @@ export async function askHandler(request: Request): Promise<Response> {
   // this surface use the shared <Chat> component. The multi-turn history that
   // used to arrive in a bespoke `history` field, and be re-validated by a
   // hand-written sanitiser, is now just the message array the SDK validates.
-  let params: Awaited<ReturnType<typeof chatParamsFromRequestBody>>;
-  try {
-    params = await chatParamsFromRequestBody(await request.json());
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : 'invalid body';
-    return new Response(`Invalid AG-UI request body: ${detail}`, { status: 400 });
-  }
+  // chatParamsFromRequest throws a 400 Response on a bad body; TanStack Start
+  // returns that Response as-is.
+  const params = await chatParamsFromRequest(request);
 
-  const forwarded = params.forwardedProps as { modelChoice?: unknown };
+  const forwarded = params.forwardedProps;
   const modelChoice =
     typeof forwarded.modelChoice === 'string' ? forwarded.modelChoice : undefined;
 
@@ -133,7 +135,7 @@ export async function askHandler(request: Request): Promise<Response> {
     // Nothing to synthesize from. Answered as an ordinary one-message run, so
     // it gets a fresh message id — see ask-empty-answer.ts for why a fixed id
     // merged consecutive no-match answers into one bubble (issue #8).
-    return emptyAnswerResponse();
+    return emptyAnswerResponse(params);
   }
 
   const uniqueVideoCount = new Set(
@@ -152,7 +154,7 @@ export async function askHandler(request: Request): Promise<Response> {
     perVideoCount.set(p.video.documentId, seen + 1);
   }
   // Resolved once, above the log line, so the `[ask/<model>]` tag, the
-  // CITATIONS frame's `model:` field (which the eval harness records)
+  // citations event's `model:` field (which the eval harness records)
   // and the adapter are all one read of the policy. There used to be
   // three independent reads of OLLAMA_SYNTHESIS_MODEL here.
   const { model, notice } = await resolveRequestModel(
@@ -181,35 +183,48 @@ export async function askHandler(request: Request): Promise<Response> {
   // model never calls load_passages, the answer is grounded in
   // the single best source.
   const tools = buildLibraryTools({ pool: passages });
+  const citations = passages.map(toCitation);
+
+  // Sends the citations to the client as an AG-UI CUSTOM event (TanStack AI
+  // docs: Custom Events, "Emit from chat middleware"). The event names the
+  // assistant message the citations ground, so the client can store them under
+  // that message's id.
+  //
+  // The id comes from the TEXT_MESSAGE_START chunk, because that chunk's
+  // `messageId` is the id the client gives the message. The `messageId` that
+  // `onIteration` receives is NOT that id with the Ollama adapter: measured
+  // live, the adapter opens its text message under an id of its own. A turn
+  // where the model calls `load_passages` and then answers writes its text in
+  // a later message, and that message gets its own event.
+  const sendCitations: ChatMiddleware = {
+    name: 'send-citations',
+    onChunk: (ctx, chunk) => {
+      if (chunk.type !== 'TEXT_MESSAGE_START') return;
+      const value: CitationsEventValue = {
+        messageId: chunk.messageId,
+        citations,
+        model: model.model,
+      };
+      ctx.emitCustomEvent(CITATIONS_EVENT, value);
+    },
+  };
+
   const stream = chat({
     adapter: model.adapter,
     // History first, then the seeded turn. The model answers the
     // ORIGINAL question (userPrompt), not the condensed query — the
     // rewrite exists to find passages, not to replace what was asked.
-    ...withSystem(model, ASK_LIBRARY_SYSTEM, [
-      ...history,
-      { role: 'user', content: userPrompt },
-    ]),
+    messages: [...history, { role: 'user', content: userPrompt }],
+    threadId: params.threadId,
+    runId: params.runId,
+    systemPrompts: [ASK_LIBRARY_SYSTEM],
     tools,
     modelOptions: model.modelOptions(0.4),
+    middleware: [sendCitations],
   });
 
-  // Build a combined stream: one CITATIONS frame up front, then
-  // the normal chat SSE stream. Both follow the AG-UI-ish shape
-  // the client already knows from /api/chat. The `model` field is
-  // informational — the client UI ignores it, but the eval
-  // harness captures it so reports record which model answered.
-  const citationsFrame = `data: ${JSON.stringify({
-    type: 'CITATIONS',
-    citations: passages.map(toCitation),
-    model: model.model,
-  })}\n\n`;
-
   // See api.chat.tsx — tier-correct error translation, server-side.
-  const baseResponse = toServerSentEventsResponse(
-    withFriendlyErrors(model, stream, 'ask'),
-  );
-  return prependSseFrame(citationsFrame, baseResponse);
+  return toServerSentEventsResponse(withFriendlyErrors(model, stream, 'ask'));
 }
 
 export const Route = createFileRoute('/api/ask')({

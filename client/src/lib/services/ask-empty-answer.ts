@@ -11,16 +11,17 @@
 // real answer, so the two paths cannot disagree about the wire format again.
 
 import { EventType, toServerSentEventsResponse, type StreamChunk } from '@tanstack/ai';
-import { prependSseFrame } from '#/lib/services/sse-prepend';
 
 export const EMPTY_ANSWER_TEXT =
   "I couldn't find anything in your library that matches this question. Try rephrasing, or add more videos that cover the topic.";
 
-async function* emptyAnswerRun(): AsyncGenerator<StreamChunk> {
-  // Fresh ids per reply are the whole fix: a reused messageId is what made
-  // the processor merge two answers into one.
-  const threadId = crypto.randomUUID();
-  const runId = crypto.randomUUID();
+/** The AG-UI ids of the request this reply answers. */
+export type RunIds = { threadId: string; runId: string };
+
+async function* emptyAnswerRun({ threadId, runId }: RunIds): AsyncGenerator<StreamChunk> {
+  // A fresh message id per reply is the whole fix: a reused messageId is what
+  // made the processor merge two answers into one. The thread and run ids are
+  // the request's own, so the client sees this run end as the run it started.
   const messageId = crypto.randomUUID();
   const timestamp = Date.now();
   yield { type: EventType.RUN_STARTED, threadId, runId, timestamp };
@@ -30,8 +31,10 @@ async function* emptyAnswerRun(): AsyncGenerator<StreamChunk> {
   yield { type: EventType.RUN_FINISHED, threadId, runId, finishReason: 'stop', timestamp };
 }
 
-/** The complete SSE response for a question nothing in the library matches. */
-export function emptyAnswerResponse(): Response {
-  const citationsFrame = `data: ${JSON.stringify({ type: 'CITATIONS', citations: [] })}\n\n`;
-  return prependSseFrame(citationsFrame, toServerSentEventsResponse(emptyAnswerRun()));
+/**
+ * The complete SSE response for a question nothing in the library matches.
+ * It sends no citations event, because nothing was retrieved.
+ */
+export function emptyAnswerResponse(ids: RunIds): Response {
+  return toServerSentEventsResponse(emptyAnswerRun(ids));
 }

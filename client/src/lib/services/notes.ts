@@ -283,19 +283,20 @@ export async function summarizeConversationToNote(input: {
 
   try {
     const model = resolveModel('note-summarize');
-    const raw = (await withRetry(
+    const { text: raw } = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
+          systemPrompts: [systemPrompt],
           messages: [
-            { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
-          ] as never,
+          ],
+          threadId: `note-summarize:${input.video.youtubeVideoId}`,
           stream: false,
           modelOptions: model.modelOptions(0.3),
         }),
       { attempts: 2 },
-    )) as string;
+    );
 
     const markdown = stripFences(raw);
     return { success: true, data: splitTitleAndBody(markdown) };

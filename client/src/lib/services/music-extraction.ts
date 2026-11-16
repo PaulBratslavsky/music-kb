@@ -333,14 +333,15 @@ export async function extractMusicForVideo(
     // and throws on a malformed OLLAMA_BASE_URL, and this runs
     // fire-and-forget after summary generation.
     const model = resolveModel('music-extraction');
-    object = (await withRetry(
+    object = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
+          systemPrompts: [EXTRACTION_SYSTEM],
           messages: [
-            { role: 'system', content: EXTRACTION_SYSTEM },
             { role: 'user', content: userPrompt },
-          ] as never,
+          ],
+          threadId: `music-extraction:${videoId}`,
           outputSchema: MusicExtractionOutputSchema,
           modelOptions: model.modelOptions(0.2),
         }),
@@ -352,7 +353,7 @@ export async function extractMusicForVideo(
           });
         },
       },
-    )) as MusicExtractionOutput;
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'music extraction failed';
     logPhase(videoId, 'extract ✗ failed', { error: message });

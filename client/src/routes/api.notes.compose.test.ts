@@ -30,7 +30,6 @@ vi.mock('#/lib/services/chat-model-request', () => ({
     model: { adapter: {}, modelOptions: () => ({}), tier: 'local' },
     notice: null,
   }),
-  withSystem: (_m: unknown, system: string, messages: unknown[]) => ({ system, messages }),
 }));
 vi.mock('#/lib/services/stream-errors', () => ({
   withFriendlyErrors: (_m: unknown, s: unknown) => s,
@@ -51,7 +50,8 @@ beforeEach(() => {
   chatMock.mockReset();
   streamToTextMock.mockReset();
   chatMock.mockReturnValue({});
-  streamToTextMock.mockResolvedValue('# Title\n\nBody.');
+  // streamToText resolves to a ChatResult in @tanstack/ai 1.x, not a string.
+  streamToTextMock.mockResolvedValue({ text: '# Title\n\nBody.', chunks: [] });
 });
 
 describe('POST /api/notes/compose', () => {
@@ -61,6 +61,14 @@ describe('POST /api/notes/compose', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toContain('application/json');
     await expect(res.json()).resolves.toEqual({ markdown: '# Title\n\nBody.' });
+  });
+
+  it('sends the skill prompt as systemPrompts and passes a threadId', async () => {
+    await notesComposeHandler(post(VALID));
+    const options = chatMock.mock.calls[0][0];
+    expect(options.systemPrompts).toHaveLength(1);
+    expect(options.threadId).toBe('notes-compose:yt1');
+    expect(options.messages.every((m: { role: string }) => m.role !== 'system')).toBe(true);
   });
 
   it('collapses the stream exactly once', async () => {

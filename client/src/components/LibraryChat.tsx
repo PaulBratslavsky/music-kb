@@ -5,7 +5,11 @@ import { Button } from '#/components/ui/button';
 import { Chat } from '#/components/chat/Chat';
 import { serverPersistence } from '#/components/chat/server-persistence';
 import { messageText } from '#/lib/services/ui-message';
-import type { Citation } from '#/lib/services/citations';
+import {
+  CITATIONS_EVENT,
+  isCitationsEventValue,
+  type Citation,
+} from '#/lib/services/citations';
 
 // Library-wide ask. Global FAB when closed; right-side drawer when open.
 //
@@ -13,10 +17,10 @@ import type { Citation } from '#/lib/services/citations';
 // is the same <Chat> the other two surfaces use.
 //
 // Citations are the reason this surface looked un-unifiable. /api/ask
-// retrieves before it generates, so it emits its citations AHEAD of the answer
-// they ground, as a raw CITATIONS frame. <Chat>'s `captureFrames` reads them
-// out of the stream and binds them to the message that follows, so they arrive
-// here keyed by message id with no server change. See capture-frames.ts.
+// retrieves before it generates, so it knows the citations before the answer
+// starts. It sends them as an AG-UI CUSTOM event that names the assistant
+// message they ground. <Chat> passes `onCustomEvent` to `useChat`, and the
+// handler below stores the citations by message id. See citations.ts.
 
 const SURFACE = 'library-ask';
 
@@ -51,7 +55,7 @@ function conversationThreadId(): string {
 
 export function LibraryChat() {
   const [isOpen, setIsOpen] = useState(false);
-  // Citations by message id, populated by the frame interceptor below and
+  // Citations by message id, populated by the citations event below and
   // rehydrated from the server so a reload — on any device — keeps them.
   const [citationsById, setCitationsById] = useState<Map<string, Citation[]>>(() => new Map());
   // Set when the backend refuses a read or a write. This surface fails CLOSED
@@ -133,18 +137,11 @@ export function LibraryChat() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const captureFrames = useMemo(
-    () => ({
-      match: (frame: Record<string, unknown>) =>
-        frame.type === 'CITATIONS' && Array.isArray(frame.citations)
-          ? (frame.citations as Citation[])
-          : null,
-      onCapture: (messageId: string, citations: unknown) => {
-        setCitationsById((prev) => new Map(prev).set(messageId, citations as Citation[]));
-      },
-    }),
-    [],
-  );
+  // Reads the citations event that /api/ask emits for each assistant message.
+  const onCustomEvent = useCallback((name: string, value: unknown) => {
+    if (name !== CITATIONS_EVENT || !isCitationsEventValue(value)) return;
+    setCitationsById((prev) => new Map(prev).set(value.messageId, value.citations));
+  }, []);
 
   const renderBelowBody = useCallback(
     (message: UIMessage, isStreaming: boolean) => (
@@ -184,7 +181,7 @@ export function LibraryChat() {
               // the SDK allows every persistence method to be async.
               threadId={threadId}
               persistence={persistence}
-              captureFrames={captureFrames}
+              onCustomEvent={onCustomEvent}
               // Force the debounced write out the moment a run completes.
               //
               // Found by an e2e reload, not by reasoning. The debounce means

@@ -506,18 +506,17 @@ async function generateSummarySinglePass(
     // reliability as our previous @ai-sdk/openai + /v1 path, one fewer
     // hop (native Ollama client vs OpenAI-compat shim).
     //
-    // systemPrompts: 0.6.6 silently dropped the `systemPrompts` option, so
-    // we prepend a system-role message instead. 0.9 supports `systemPrompts`
-    // properly, but the prepend still works and is left alone here to keep
-    // the upgrade at parity — switching is a separate, behavioural change.
-    const object = (await withRetry(
+    // The system prompt goes in TanStack AI's `systemPrompts` option, which
+    // the adapter puts before the messages. With `outputSchema`, chat()
+    // returns Promise<z.infer<typeof SummarySchema>>, so `object` is typed
+    // as GeneratedSummary with no cast.
+    const object = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
-          messages: [
-            { role: 'system', content: SUMMARY_SYSTEM },
-            { role: 'user', content: userPrompt },
-          ] as never,
+          systemPrompts: [SUMMARY_SYSTEM],
+          messages: [{ role: 'user', content: userPrompt }],
+          threadId: `summary:${transcript.videoId}`,
           outputSchema: SummarySchema,
           // Low temp for summarization: cuts confabulated specifics in
           // action steps / section bodies. Ollama default is 1.0, which
@@ -533,14 +532,14 @@ async function generateSummarySinglePass(
           });
         },
       },
-    )) as GeneratedSummary;
+    );
     logPhase(transcript.videoId, 'ai ✓ single-pass summary', {
       took: ms(started),
       sections: object.sections?.length ?? 0,
       takeaways: object.keyTakeaways?.length ?? 0,
       actionSteps: object.actionSteps?.length ?? 0,
     });
-    return { success: true, data: object as GeneratedSummary };
+    return { success: true, data: object };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'AI generation failed';
     logPhase(transcript.videoId, 'ai ✗ single-pass failed', {
@@ -631,7 +630,7 @@ async function generateSummaryMapReduce(
     );
     const mapUser = ['Transcript window:', cleanChunkText].join('\n');
 
-    const text = (await withRetry(
+    const { text } = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
@@ -640,10 +639,11 @@ async function generateSummaryMapReduce(
           // "should" have is a generation-quality change wearing a
           // refactor's clothes — if it is wanted, it is its own PR with
           // its own before/after.
+          systemPrompts: [mapSystem],
           messages: [
-            { role: 'system', content: mapSystem },
             { role: 'user', content: mapUser },
-          ] as never,
+          ],
+          threadId: `summary:${transcript.videoId}`,
           stream: false,
         }),
       {
@@ -656,7 +656,7 @@ async function generateSummaryMapReduce(
           );
         },
       },
-    )) as string;
+    );
     partialNotes[i] = `## Window ${i + 1} — starts at ~${formatTimecode(chunk.timeSec)}\n${text.trim()}`;
     completedCount += 1;
     inFlightCount -= 1;
@@ -719,14 +719,13 @@ async function generateSummaryMapReduce(
       .filter(Boolean)
       .join('\n');
 
-    const object = (await withRetry(
+    const object = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
-          messages: [
-            { role: 'system', content: SUMMARY_SYSTEM },
-            { role: 'user', content: reduceUser },
-          ] as never,
+          systemPrompts: [SUMMARY_SYSTEM],
+          messages: [{ role: 'user', content: reduceUser }],
+          threadId: `summary:${transcript.videoId}`,
           outputSchema: SummarySchema,
           // Same low-temp rationale as the single-pass call: structured
           // output + grounding-over-creativity.
@@ -740,7 +739,7 @@ async function generateSummaryMapReduce(
           });
         },
       },
-    )) as GeneratedSummary;
+    );
 
     logPhase(transcript.videoId, 'ai ✓ reduce synthesized', {
       took: ms(reduceStart),
@@ -1471,21 +1470,22 @@ export async function askAboutVideoService(
     const retrieved = await getChatEvidenceForVideo(video, query);
     const system = buildChatSystemPrompt(video, retrieved);
     const model = resolveModel('video-chat');
-    const text = (await withRetry(
+    const { text } = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
           // NO modelOptions, deliberately — unchanged from before the
           // per-surface refactor. The streaming twin in api.chat.tsx does
           // set one; this non-streaming path never has.
+          systemPrompts: [system],
           messages: [
-            { role: 'system', content: system },
             ...messages,
-          ] as never,
+          ],
+          threadId: `video-chat:${video.youtubeVideoId}`,
           stream: false,
         }),
       { attempts: 3 },
-    )) as string;
+    );
     return { success: true, data: text };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Chat generation failed';
@@ -1682,14 +1682,15 @@ export async function regenerateVerdictForVideo(
 
   try {
     const model = resolveModel('summary');
-    const object = (await withRetry(
+    const object = await withRetry(
       () =>
         chat({
           adapter: model.adapter,
+          systemPrompts: [VERDICT_SYSTEM],
           messages: [
-            { role: 'system', content: VERDICT_SYSTEM },
             { role: 'user', content: userPrompt },
-          ] as never,
+          ],
+          threadId: `verdict:${videoId}`,
           outputSchema: VerdictOnlySchema,
           modelOptions: model.modelOptions(0.3),
         }),
@@ -1701,7 +1702,7 @@ export async function regenerateVerdictForVideo(
           });
         },
       },
-    )) as VerdictOnly;
+    );
 
     // Clamp lengths defensively (model sometimes overshoots Strapi field limits).
     const verdictSummary = object.verdictSummary.length > LIMITS.verdictSummary

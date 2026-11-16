@@ -163,21 +163,25 @@ describe('resolveLessonModel — tier selection', () => {
   });
 });
 
-// Record of which model ids @tanstack/ai-anthropic 0.16.6's ANTHROPIC_MODELS
+// Record of which model ids @tanstack/ai-anthropic 1.1.1's ANTHROPIC_MODELS
 // union actually accepts — this is what LESSON_MODEL can legally be set to.
 // Asserted as a fixed list (not just "is non-empty") so a version bump that
-// silently changes the accepted set fails this test loudly.
+// silently changes the accepted set fails this test loudly. The 1.x list
+// dropped 'claude-opus-5-fast' and 'claude-opus-4-1' and added the 5.5 and
+// fable-5-1 ids; the default, 'claude-sonnet-5', is still on it.
 describe('ANTHROPIC_MODELS — legal LESSON_MODEL values', () => {
-  it('is the fixed 12-model list from @tanstack/ai-anthropic@0.16.6', () => {
+  it('is the fixed 14-model list from @tanstack/ai-anthropic@1.1.1', () => {
     expect([...ANTHROPIC_MODELS]).toEqual([
+      'claude-haiku-5-5',
+      'claude-sonnet-5-5',
+      'claude-opus-5-5',
+      'claude-fable-5-1',
       'claude-opus-5',
-      'claude-opus-5-fast',
       'claude-opus-4-6',
       'claude-opus-4-5',
       'claude-sonnet-4-6',
       'claude-sonnet-4-5',
       'claude-haiku-4-5',
-      'claude-opus-4-1',
       'claude-opus-4-7',
       'claude-opus-4-8',
       'claude-fable-5',

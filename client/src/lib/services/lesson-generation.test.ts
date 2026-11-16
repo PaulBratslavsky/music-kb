@@ -167,6 +167,9 @@ import {
 } from './lesson-generation';
 import { z } from 'zod';
 
+/** What chat({ stream: false }) resolves to in @tanstack/ai 1.x: a ChatResult, not a string. */
+const chatResult = (text: string) => ({ text, chunks: [] });
+
 const mockedChat = vi.mocked(chat);
 
 // Unit vector whose cosine against QUERY_VEC=[1,0] is exactly `c` — same
@@ -261,6 +264,11 @@ function writeInput(overrides: Partial<WriteLessonInput> = {}): WriteLessonInput
 
 beforeEach(() => {
   mockedChat.mockReset();
+  // A chat() call a test does not script answers with empty text, the way the
+  // real chat({ stream: false }) answers a model that wrote nothing. Before
+  // @tanstack/ai 1.x the unscripted call resolved to `undefined`, which the
+  // code read as "no markdown".
+  mockedChat.mockResolvedValue(chatResult(''));
   resolveLessonModelMock.mockReset();
   resolveLessonModelMock.mockReturnValue(LOCAL_MODEL);
   embedTextMock.mockReset();
@@ -770,10 +778,10 @@ describe('writeLesson — happy path', () => {
   it('assembles blocks from the per-section calls, injecting headings deterministically', async () => {
     mockedChat
       .mockResolvedValueOnce(
-        '::prose{src=yt-A}\nA turnaround signals the loop back to the top of the form.\n::',
+        chatResult('::prose{src=yt-A}\nA turnaround signals the loop back to the top of the form.\n::'),
       )
       .mockResolvedValueOnce(
-        [
+        chatResult([
           '::step{title="Play the V chord"}',
           'Start on the V.',
           '::',
@@ -781,7 +789,7 @@ describe('writeLesson — happy path', () => {
           '::degree-chips{}',
           'V IV I',
           '::',
-        ].join('\n'),
+        ].join('\n')),
       );
 
     const result = await writeLesson(writeInput());
@@ -814,7 +822,7 @@ describe('writeLesson — happy path', () => {
   });
 
   it('emits `section` and `grounding` progress events, then no `saved` event (persistence is the route\'s job)', async () => {
-    mockedChat.mockResolvedValueOnce('::prose{src=yt-A}\nContent grounded in video A.\n::');
+    mockedChat.mockResolvedValueOnce(chatResult('::prose{src=yt-A}\nContent grounded in video A.\n::'));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(
@@ -831,7 +839,7 @@ describe('writeLesson — happy path', () => {
 describe('writeLesson — model tier', () => {
   function oneSectionMock() {
     mockedChat.mockResolvedValueOnce(
-      '::prose{src=yt-A}\nblues turnarounds and shapes content for video A\n::',
+      chatResult('::prose{src=yt-A}\nblues turnarounds and shapes content for video A\n::'),
     );
   }
   const oneSectionOutline = { ...OUTLINE, sections: [OUTLINE.sections[0]] };
@@ -888,7 +896,7 @@ describe('writeLesson — citation grounding', () => {
 
   it('grounds a valid src to a real BM25 timecode from that video only', async () => {
     mockedChat.mockResolvedValueOnce(
-      '::prose{src=yt-A}\nblues turnarounds and shapes content for video A\n::',
+      chatResult('::prose{src=yt-A}\nblues turnarounds and shapes content for video A\n::'),
     );
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }));
@@ -903,7 +911,7 @@ describe('writeLesson — citation grounding', () => {
 
   it('drops a citation naming a video outside the source set', async () => {
     mockedChat.mockResolvedValueOnce(
-      '::prose{src=yt-not-in-the-set}\nContent citing an unrelated video.\n::',
+      chatResult('::prose{src=yt-not-in-the-set}\nContent citing an unrelated video.\n::'),
     );
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }));
@@ -919,7 +927,7 @@ describe('writeLesson — citation grounding', () => {
   // name. Grounding decides `timeSec`, always.
   it('never trusts a model-authored timeSec — the attribute is rejected and grounding decides', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::prose{src=yt-A timeSec=999999}',
         'A block that tried to author its own timecode.',
         '::',
@@ -927,7 +935,7 @@ describe('writeLesson — citation grounding', () => {
         '::prose{src=yt-A}',
         'blues turnarounds and shapes content for video A',
         '::',
-      ].join('\n'),
+      ].join('\n')),
     );
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }));
@@ -944,7 +952,7 @@ describe('writeLesson — citation grounding', () => {
 
   it('yields videoId only, no timeSec, when grounding is weak', async () => {
     mockedChat.mockResolvedValueOnce(
-      '::prose{src=yt-A}\ncompletely unrelated words xylophone quokka zeppelin\n::',
+      chatResult('::prose{src=yt-A}\ncompletely unrelated words xylophone quokka zeppelin\n::'),
     );
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }));
@@ -959,7 +967,7 @@ describe('writeLesson — citation grounding', () => {
 
   it('reports grounding stats via the `grounding` progress event', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::prose{src=yt-A}',
         'blues turnarounds and shapes content for video A',
         '::',
@@ -967,7 +975,7 @@ describe('writeLesson — citation grounding', () => {
         '::prose{src=yt-A}',
         'completely unrelated words xylophone quokka zeppelin',
         '::',
-      ].join('\n'),
+      ].join('\n')),
     );
     const { events, onProgress } = collector();
 
@@ -982,10 +990,10 @@ describe('writeLesson — assembly fixes', () => {
   it('renumbers steps sequentially across sections instead of restarting per section', async () => {
     mockedChat
       .mockResolvedValueOnce(
-        '::step{title="First step"}\n::\n\n::step{title="Second step"}\n::',
+        chatResult('::step{title="First step"}\n::\n\n::step{title="Second step"}\n::'),
       )
       .mockResolvedValueOnce(
-        '::step{title="Third step"}\n::\n\n::step{title="Fourth step"}\n::',
+        chatResult('::step{title="Third step"}\n::\n\n::step{title="Fourth step"}\n::'),
       );
 
     const result = await writeLesson(writeInput());
@@ -997,7 +1005,7 @@ describe('writeLesson — assembly fixes', () => {
   });
 
   it('strips a trailing colon and whitespace from step titles', async () => {
-    mockedChat.mockResolvedValueOnce('::step{title="Identify the Root:  "}\n::');
+    mockedChat.mockResolvedValueOnce(chatResult('::step{title="Identify the Root:  "}\n::'));
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -1012,7 +1020,7 @@ describe('writeLesson — assembly fixes', () => {
   // dropped in silence the way buildSectionBlocks used to.
   it('rejects a model-emitted heading inside a section, keeping only the injected one', async () => {
     mockedChat.mockResolvedValueOnce(
-      '::heading{level=h2}\nA DIFFERENT drifted heading\n::\n\nSection content.',
+      chatResult('::heading{level=h2}\nA DIFFERENT drifted heading\n::\n\nSection content.'),
     );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
@@ -1029,14 +1037,14 @@ describe('writeLesson — assembly fixes', () => {
 describe('writeLesson — block validation', () => {
   it('drops a malformed block but keeps the rest of the section', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::prose{}', // empty body — a prose block that renders as nothing
         '::',
         '',
         '::callout{tone=tip}',
         'Turnarounds often use a chromatic walk-down.',
         '::',
-      ].join('\n'),
+      ].join('\n')),
     );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
@@ -1048,13 +1056,13 @@ describe('writeLesson — block validation', () => {
 
   it('drops a directive this pass may not emit (e.g. ::diagram)', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::diagram{root=E quality=major stringSet=e–B–G}',
         'A diagram the write pass may not draw.',
         '::',
         '',
         'Turnarounds reset the harmonic loop.',
-      ].join('\n'),
+      ].join('\n')),
     );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
@@ -1067,7 +1075,7 @@ describe('writeLesson — block validation', () => {
   it('truncates an over-long table caption to 255 chars instead of failing', async () => {
     const longCaption = 'x'.repeat(300);
     mockedChat.mockResolvedValueOnce(
-      [`::table{caption="${longCaption}"}`, '| Bar | Chord |', '|---|---|', '| 11 | V7 |', '::'].join('\n'),
+      chatResult([`::table{caption="${longCaption}"}`, '| Bar | Chord |', '|---|---|', '| 11 | V7 |', '::'].join('\n')),
     );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
@@ -1082,7 +1090,7 @@ describe('writeLesson — block validation', () => {
 
   it('stores every table cell as a string — a markdown table has no other type', async () => {
     mockedChat.mockResolvedValueOnce(
-      ['::table{}', '| Bar | 1 |', '|---|---|', '| 11 | V7 |', '::'].join('\n'),
+      chatResult(['::table{}', '| Bar | 1 |', '|---|---|', '| 11 | V7 |', '::'].join('\n')),
     );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
@@ -1098,7 +1106,7 @@ describe('writeLesson — block validation', () => {
   // enforced at parse time now, with the row's own line number.
   it('drops a table whose row does not match the header count, keeping the rest', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::table{}',
         '| Bar | Chord |',
         '|---|---|',
@@ -1106,7 +1114,7 @@ describe('writeLesson — block validation', () => {
         '::',
         '',
         'The turnaround still gets explained.',
-      ].join('\n'),
+      ].join('\n')),
     );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
@@ -1121,7 +1129,7 @@ describe('writeLesson — block validation', () => {
   // show up as nothing but a slightly shorter lesson.
   it('reports how many blocks the parser rejected, via the `section` progress event', async () => {
     mockedChat.mockResolvedValueOnce(
-      ['::callout{tone=urgent}', 'Not a legal tone.', '::', '', 'But this paragraph is fine.'].join('\n'),
+      chatResult(['::callout{tone=urgent}', 'Not a legal tone.', '::', '', 'But this paragraph is fine.'].join('\n')),
     );
     const { events, onProgress } = collector();
 
@@ -1149,7 +1157,7 @@ describe('writeLesson — contradictions', () => {
         },
       ],
     };
-    mockedChat.mockResolvedValueOnce('Baseline content.');
+    mockedChat.mockResolvedValueOnce(chatResult('Baseline content.'));
 
     const result = await writeLesson(
       writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] }, digest: digestWithContradiction }),
@@ -1170,7 +1178,7 @@ describe('writeLesson — contradictions', () => {
   });
 
   it('adds no contradiction blocks when the digest has none', async () => {
-    mockedChat.mockResolvedValueOnce('Baseline content.');
+    mockedChat.mockResolvedValueOnce(chatResult('Baseline content.'));
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
 
@@ -1186,7 +1194,7 @@ describe('writeLesson — section retry', () => {
   it('retries a failed section call once, then succeeds using the retry result', async () => {
     mockedChat
       .mockRejectedValueOnce(new Error('model call failed'))
-      .mockResolvedValueOnce('Descend from V to IV to I.');
+      .mockResolvedValueOnce(chatResult('Descend from V to IV to I.'));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }), onProgress);
@@ -1216,8 +1224,8 @@ describe('writeLesson — section retry', () => {
 
   it('retries a section that returns zero usable blocks once, then succeeds', async () => {
     mockedChat
-      .mockResolvedValueOnce('::prose{}\n::') // empty body — nothing usable
-      .mockResolvedValueOnce('Now with a real block.');
+      .mockResolvedValueOnce(chatResult('::prose{}\n::')) // empty body — nothing usable
+      .mockResolvedValueOnce(chatResult('Now with a real block.'));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }), onProgress);
@@ -1232,7 +1240,7 @@ describe('writeLesson — section retry', () => {
   });
 
   it('does NOT retry a thin (but non-empty) section — a single block is accept-and-log', async () => {
-    mockedChat.mockResolvedValueOnce('Just one block.');
+    mockedChat.mockResolvedValueOnce(chatResult('Just one block.'));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(writeInput({ outline: oneSectionOutline }), onProgress);
@@ -1261,7 +1269,7 @@ describe('writeLesson — section retry', () => {
     mockedChat
       .mockRejectedValueOnce(new Error('model call failed'))
       .mockRejectedValueOnce(new Error('model call failed'))
-      .mockResolvedValueOnce('Descend from V to IV to I.');
+      .mockResolvedValueOnce(chatResult('Descend from V to IV to I.'));
 
     const result = await writeLesson(writeInput());
 
@@ -1345,7 +1353,7 @@ function usePassageVideos() {
 describe('writeLesson — sections are written from transcript passages, not digest themes', () => {
   beforeEach(() => {
     usePassageVideos();
-    mockedChat.mockResolvedValue('Passage-derived prose.');
+    mockedChat.mockResolvedValue(chatResult('Passage-derived prose.'));
   });
 
   const oneSection = () => writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } });
@@ -1472,14 +1480,14 @@ describe('writeLesson — param-picker', () => {
 
   it('emits a param-picker and persists the lesson parameter that makes it render', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::param-picker{label="Try it in"}',
         '::',
         '',
         '::prose{src=yt-A}',
         'Move the shape to any root.',
         '::',
-      ].join('\n'),
+      ].join('\n')),
     );
 
     const result = await writeLesson(withParameter());
@@ -1496,7 +1504,7 @@ describe('writeLesson — param-picker', () => {
 
   it('drops a param-picker on a lesson that declares no parameter — it would render as nothing', async () => {
     mockedChat.mockResolvedValueOnce(
-      ['::param-picker{label="Key"}', '::', '', '::prose{src=yt-A}', 'Still real content.', '::'].join('\n'),
+      chatResult(['::param-picker{label="Key"}', '::', '', '::prose{src=yt-A}', 'Still real content.', '::'].join('\n')),
     );
 
     const result = await writeLesson(writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }));
@@ -1510,8 +1518,8 @@ describe('writeLesson — param-picker', () => {
 
   it('keeps only the FIRST param-picker when independently-generated sections each emit one', async () => {
     mockedChat
-      .mockResolvedValueOnce('::param-picker{label="First"}\n::')
-      .mockResolvedValueOnce('::param-picker{label="Second"}\n::');
+      .mockResolvedValueOnce(chatResult('::param-picker{label="First"}\n::'))
+      .mockResolvedValueOnce(chatResult('::param-picker{label="Second"}\n::'));
 
     const result = await writeLesson(withParameter(OUTLINE.sections));
 
@@ -1530,11 +1538,11 @@ describe('writeLesson — param-picker', () => {
     const illustration = diagramMd();
     const section = '::prose{src=yt-A}\nThe shape moves.\n::';
 
-    mockedChat.mockResolvedValueOnce(section).mockResolvedValueOnce(illustration);
+    mockedChat.mockResolvedValueOnce(chatResult(section)).mockResolvedValueOnce(chatResult(illustration));
     const withParam = await writeLesson(withParameter());
 
     mockedChat.mockReset();
-    mockedChat.mockResolvedValueOnce(section).mockResolvedValueOnce(illustration);
+    mockedChat.mockResolvedValueOnce(chatResult(section)).mockResolvedValueOnce(chatResult(illustration));
     const withoutParam = await writeLesson(
       writeInput({ outline: { ...OUTLINE, sections: [OUTLINE.sections[0]] } }),
     );
@@ -1558,10 +1566,10 @@ describe('writeLesson — param-picker', () => {
   // `honoursLessonParameter`.
   it('ignores useParam on a diagram rooted somewhere other than the lesson key, keeping the fixed root', async () => {
     mockedChat
-      .mockResolvedValueOnce('::prose{src=yt-A}\nThe seventh degree is diminished.\n::')
+      .mockResolvedValueOnce(chatResult('::prose{src=yt-A}\nThe seventh degree is diminished.\n::'))
       .mockResolvedValueOnce(
         // Lesson key is A (KEY_PARAMETER.default); this is the vii°.
-        diagramMd('root=G quality=diminished', 'The vii° chord.'),
+        chatResult(diagramMd('root=G quality=diminished', 'The vii° chord.')),
       );
 
     const result = await writeLesson(withParameter());
@@ -1584,13 +1592,13 @@ describe('writeLesson — video-ref', () => {
 
   it('emits a video-ref whose timeSec is BM25-grounded from the moment description, never taken from the model', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         // The `timeSec` attribute is refused with a warning, not honoured.
         '::video-ref{videoId=yt-A label="Watch the turnaround demonstrated" timeSec=999}',
         // Never rendered — the body is the grounding query.
         'A turnaround signals the loop back to the top of the twelve bar blues form.',
         '::',
-      ].join('\n'),
+      ].join('\n')),
     );
 
     const result = await writeLesson(oneSection());
@@ -1609,7 +1617,7 @@ describe('writeLesson — video-ref', () => {
 
   it('drops a video-ref naming a video outside the lesson\'s source set rather than shipping a dead link', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::video-ref{videoId=yt-NOPE label="Watch this"}',
         'anything',
         '::',
@@ -1617,7 +1625,7 @@ describe('writeLesson — video-ref', () => {
         '::prose{src=yt-A}',
         'Real content survives.',
         '::',
-      ].join('\n'),
+      ].join('\n')),
     );
 
     const result = await writeLesson(oneSection());
@@ -1630,11 +1638,11 @@ describe('writeLesson — video-ref', () => {
 
   it('falls back to the default link text rather than rendering an unlabelled link', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::video-ref{videoId=yt-A}',
         'A turnaround signals the loop back to the top of the twelve bar blues form.',
         '::',
-      ].join('\n'),
+      ].join('\n')),
     );
 
     const result = await writeLesson(oneSection());
@@ -1985,10 +1993,12 @@ describe('outputSchema regression guard — Anthropic 16-union-parameter cap', (
 // =============================================================================
 
 function systemPromptOf(callIndex: number): string {
-  const args = mockedChat.mock.calls[callIndex]?.[0] as
-    | { messages: Array<{ role: string; content: string }> }
+  // The system prompt goes in chat()'s `systemPrompts` option, not in
+  // `messages` (TanStack AI docs: chat() options).
+  const args = mockedChat.mock.calls[callIndex]?.[0] as unknown as
+    | { systemPrompts?: string[] }
     | undefined;
-  return args?.messages.find((m) => m.role === 'system')?.content ?? '';
+  return args?.systemPrompts?.[0] ?? '';
 }
 
 // -----------------------------------------------------------------------------
@@ -2043,8 +2053,8 @@ describe('writeLesson — useParam vs. the caption', () => {
   // and the diagram redraws while the caption still says A, C# and E.
   it('switches useParam off when the caption names the notes, keeping diagram and caption in agreement', async () => {
     mockedChat
-      .mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::')
-      .mockResolvedValueOnce(onKeyDiagram('A, C# and E — the three notes under your hand.'));
+      .mockResolvedValueOnce(chatResult('::prose{src=yt-A}\nThe shape moves.\n::'))
+      .mockResolvedValueOnce(chatResult(onKeyDiagram('A, C# and E — the three notes under your hand.')));
 
     const result = await writeLesson(withKeyOfA());
 
@@ -2060,8 +2070,8 @@ describe('writeLesson — useParam vs. the caption', () => {
 
   it('leaves useParam on when the caption is written in movable terms', async () => {
     mockedChat
-      .mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::')
-      .mockResolvedValueOnce(onKeyDiagram('Scale degrees 1, 3 and 5, from whichever root you pick.'));
+      .mockResolvedValueOnce(chatResult('::prose{src=yt-A}\nThe shape moves.\n::'))
+      .mockResolvedValueOnce(chatResult(onKeyDiagram('Scale degrees 1, 3 and 5, from whichever root you pick.')));
 
     const result = await writeLesson(withKeyOfA());
 
@@ -2071,7 +2081,7 @@ describe('writeLesson — useParam vs. the caption', () => {
   });
 
   it('tells the illustrate pass that a useParam caption may not name a note', async () => {
-    mockedChat.mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::');
+    mockedChat.mockResolvedValueOnce(chatResult('::prose{src=yt-A}\nThe shape moves.\n::'));
     await writeLesson(withKeyOfA());
 
     // The user prompt carries the lesson's own key; the system prompt
@@ -2085,7 +2095,7 @@ describe('writeLesson — useParam vs. the caption', () => {
   // that changes nothing — the same silence in another form.
   it('reports a key picker that nothing follows', async () => {
     mockedChat.mockResolvedValueOnce(
-      ['::param-picker{label="Try it in"}', '::', '', '::prose{src=yt-A}', 'No diagram follows.', '::'].join('\n'),
+      chatResult(['::param-picker{label="Try it in"}', '::', '', '::prose{src=yt-A}', 'No diagram follows.', '::'].join('\n')),
     );
     const { events, onProgress } = collector();
 
@@ -2112,13 +2122,13 @@ describe('writeLesson — prompt scaffolding never ships', () => {
   // the numbering.
   it('strips a block index out of an illustration caption', async () => {
     mockedChat
-      .mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::')
+      .mockResolvedValueOnce(chatResult('::prose{src=yt-A}\nThe shape moves.\n::'))
       .mockResolvedValueOnce(
-        [
+        chatResult([
           '::diagram{mode=theory instrument=guitar stringSet=e–B–G root=C quality=major}',
           'Block [2] shows the shape your hand actually holds.',
           '::',
-        ].join('\n'),
+        ].join('\n')),
       );
 
     const result = await writeLesson(oneSection());
@@ -2133,7 +2143,7 @@ describe('writeLesson — prompt scaffolding never ships', () => {
   });
 
   it('strips scaffolding out of prose the write pass produced', async () => {
-    mockedChat.mockResolvedValueOnce('As shown in block 1, the shape moves.');
+    mockedChat.mockResolvedValueOnce(chatResult('As shown in block 1, the shape moves.'));
 
     const result = await writeLesson(oneSection());
 
@@ -2145,7 +2155,7 @@ describe('writeLesson — prompt scaffolding never ships', () => {
   });
 
   it('strips a leaked placement attribute and placeholder id', async () => {
-    mockedChat.mockResolvedValueOnce('Place this after=2 and cite VIDEO_ID for the rest.');
+    mockedChat.mockResolvedValueOnce(chatResult('Place this after=2 and cite VIDEO_ID for the rest.'));
 
     const result = await writeLesson(oneSection());
 
@@ -2157,7 +2167,7 @@ describe('writeLesson — prompt scaffolding never ships', () => {
   });
 
   it('no longer offers the illustrate pass a quotable name for the numbering', async () => {
-    mockedChat.mockResolvedValueOnce('::prose{src=yt-A}\nThe shape moves.\n::');
+    mockedChat.mockResolvedValueOnce(chatResult('::prose{src=yt-A}\nThe shape moves.\n::'));
     await writeLesson(oneSection());
 
     const system = systemPromptOf(1);
@@ -2179,7 +2189,7 @@ describe('writeLesson — unlinked sourcing claims', () => {
 
   it('reports an uncited verbatim quotation as a NOTICE, not an error — the run succeeded', async () => {
     mockedChat.mockResolvedValueOnce(
-      'The rule is simple: "count frets, not notes, every single time".',
+      chatResult('The rule is simple: "count frets, not notes, every single time".'),
     );
     const { events, onProgress } = collector();
 
@@ -2199,7 +2209,7 @@ describe('writeLesson — unlinked sourcing claims', () => {
   });
 
   it('reports an uncited attribution to a source video', async () => {
-    mockedChat.mockResolvedValueOnce('One video recommends starting from the fifth instead.');
+    mockedChat.mockResolvedValueOnce(chatResult('One video recommends starting from the fifth instead.'));
     const { events, onProgress } = collector();
 
     await writeLesson(oneSection(), onProgress);
@@ -2209,11 +2219,11 @@ describe('writeLesson — unlinked sourcing claims', () => {
 
   it('does not flag the same claim once it carries a citation', async () => {
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::prose{src=yt-A}',
         'One video recommends starting from the fifth instead.',
         '::',
-      ].join('\n'),
+      ].join('\n')),
     );
     const { events, onProgress } = collector();
 
@@ -2224,7 +2234,7 @@ describe('writeLesson — unlinked sourcing claims', () => {
   });
 
   it('does not flag ordinary uncited prose that claims no source', async () => {
-    mockedChat.mockResolvedValueOnce('A turnaround signals the loop back to the top of the form.');
+    mockedChat.mockResolvedValueOnce(chatResult('A turnaround signals the loop back to the top of the form.'));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(oneSection(), onProgress);
@@ -2255,7 +2265,7 @@ describe('writeLesson — unlinked sourcing claims', () => {
   // rest is PASSAGE_B near-verbatim, so it grounds strongly to yt-B.
   it('auto-grounds a block BEFORE checking it for an unlinked sourcing claim', async () => {
     mockedChat.mockResolvedValueOnce(
-      'As one video explains, the turnaround walks down from the five chord to the four chord and lands on fret eight.',
+      chatResult('As one video explains, the turnaround walks down from the five chord to the four chord and lands on fret eight.'),
     );
     const { events, onProgress } = collector();
 
@@ -2275,7 +2285,7 @@ describe('writeLesson — unlinked sourcing claims', () => {
   });
 
   it('asks the write pass for a citation on any block that names a source', async () => {
-    mockedChat.mockResolvedValueOnce('Plain prose.');
+    mockedChat.mockResolvedValueOnce(chatResult('Plain prose.'));
     await writeLesson(oneSection());
 
     expect(systemPromptOf(0)).toMatch(/names a source in its own words/i);
@@ -2293,7 +2303,7 @@ describe('writeLesson — library-rarity gate wiring', () => {
   // chooseProseSource, rather than the parameter existing but nothing
   // upstream ever populating it.
   it('declines an auto-citation once the library shows its "distinctive" terms are common elsewhere', async () => {
-    mockedChat.mockResolvedValueOnce('A turnaround signals the loop back to the top of the form.');
+    mockedChat.mockResolvedValueOnce(chatResult('A turnaround signals the loop back to the top of the form.'));
 
     // Without library context (default beforeEach: []), this exact prose
     // auto-grounds to yt-A, on six within-video-distinctive terms:
@@ -2332,7 +2342,7 @@ describe('writeLesson — library-rarity gate wiring', () => {
   });
 
   it('still auto-grounds when a fetch failure leaves the library empty — best-effort, not blocking', async () => {
-    mockedChat.mockResolvedValueOnce('A turnaround signals the loop back to the top of the form.');
+    mockedChat.mockResolvedValueOnce(chatResult('A turnaround signals the loop back to the top of the form.'));
     listAllVideoTranscriptIndexesMock.mockRejectedValue(new Error('Strapi unreachable'));
 
     const result = await writeLesson(oneSection());
@@ -2357,7 +2367,7 @@ describe('writeLesson — backstop truncation is reported, not silent', () => {
   // SECTION_BLOCKS_BACKSTOP is 40 (module-private).
   it('counts the write pass\'s truncated blocks toward `dropped`', async () => {
     const paragraphs = Array.from({ length: 45 }, (_, i) => `Turnaround paragraph number ${i + 1}.`);
-    mockedChat.mockResolvedValueOnce(paragraphs.join('\n\n'));
+    mockedChat.mockResolvedValueOnce(chatResult(paragraphs.join('\n\n')));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(oneSection(), onProgress);
@@ -2379,8 +2389,8 @@ describe('writeLesson — backstop truncation is reported, not silent', () => {
       ].join('\n'),
     );
     mockedChat
-      .mockResolvedValueOnce('::prose{src=yt-A}\nFive shapes, one neck.\n::')
-      .mockResolvedValueOnce(diagrams.join('\n\n'));
+      .mockResolvedValueOnce(chatResult('::prose{src=yt-A}\nFive shapes, one neck.\n::'))
+      .mockResolvedValueOnce(chatResult(diagrams.join('\n\n')));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(oneSection(), onProgress);
@@ -2395,13 +2405,13 @@ describe('writeLesson — backstop truncation is reported, not silent', () => {
     // A video-ref naming a video outside the source set is dropped by
     // grounding, not by the parser — it used to be logged and nothing else.
     mockedChat.mockResolvedValueOnce(
-      [
+      chatResult([
         '::video-ref{videoId=yt-NOPE label="Watch this"}',
         'The moment where the shape is shown.',
         '::',
         '',
         'But this paragraph is fine.',
-      ].join('\n'),
+      ].join('\n')),
     );
     const { events, onProgress } = collector();
 
@@ -2422,10 +2432,10 @@ describe('writeLesson — a dropped section says so', () => {
   it('emits an error event naming the section that produced nothing', async () => {
     mockedChat
       // Section 1: two attempts, both parse to nothing usable.
-      .mockResolvedValueOnce('::prose{}\n::')
-      .mockResolvedValueOnce('::prose{}\n::')
+      .mockResolvedValueOnce(chatResult('::prose{}\n::'))
+      .mockResolvedValueOnce(chatResult('::prose{}\n::'))
       // Section 2 writes normally.
-      .mockResolvedValueOnce('Descend from V to IV to I.');
+      .mockResolvedValueOnce(chatResult('Descend from V to IV to I.'));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(writeInput(), onProgress);
@@ -2451,7 +2461,7 @@ describe('writeLesson — a dropped section says so', () => {
   });
 
   it('emits one error per dropped section when several fail', async () => {
-    mockedChat.mockResolvedValue('::prose{}\n::');
+    mockedChat.mockResolvedValue(chatResult('::prose{}\n::'));
     const { events, onProgress } = collector();
 
     const result = await writeLesson(writeInput(), onProgress);
@@ -2532,7 +2542,7 @@ describe('writeLesson — illustrate outcomes are reported truthfully', () => {
     // Both attempts fail — a frontier 429 is the realistic case, since every
     // section illustrates concurrently.
     mockedChat
-      .mockResolvedValueOnce(WRITE)
+      .mockResolvedValueOnce(chatResult(WRITE))
       .mockRejectedValueOnce(new Error('rate_limit_error: too many requests'))
       .mockRejectedValueOnce(new Error('rate_limit_error: too many requests'));
     const { events, onProgress } = collector();
@@ -2546,7 +2556,7 @@ describe('writeLesson — illustrate outcomes are reported truthfully', () => {
   });
 
   it('a pass that genuinely adds nothing is NOT marked failed', async () => {
-    mockedChat.mockResolvedValueOnce(WRITE).mockResolvedValueOnce('');
+    mockedChat.mockResolvedValueOnce(chatResult(WRITE)).mockResolvedValueOnce(chatResult(''));
     const { events, onProgress } = collector();
 
     await writeLesson(oneSection(), onProgress);
@@ -2562,9 +2572,9 @@ describe('writeLesson — illustrate outcomes are reported truthfully', () => {
     // where repairs happen — the write pass has no drawing directives.
     const long = 'x'.repeat(300);
     mockedChat
-      .mockResolvedValueOnce(WRITE)
+      .mockResolvedValueOnce(chatResult(WRITE))
       .mockResolvedValueOnce(
-        `::diagram{mode=theory instrument=guitar stringSet=e–B–G root=C quality=major caption="${long}"}\n::`,
+        chatResult(`::diagram{mode=theory instrument=guitar stringSet=e–B–G root=C quality=major caption="${long}"}\n::`),
       );
     const { events, onProgress } = collector();
 
@@ -2577,7 +2587,7 @@ describe('writeLesson — illustrate outcomes are reported truthfully', () => {
     // groundParsedBlocks counts an unsourced block and then keeps it. The
     // notice used to say it was dropped.
     mockedChat.mockResolvedValueOnce(
-      'The rule is simple: "count frets, not notes, every single time".',
+      chatResult('The rule is simple: "count frets, not notes, every single time".'),
     );
     const { events, onProgress } = collector();
 

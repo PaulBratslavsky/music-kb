@@ -13,6 +13,8 @@ const stream = chat({
   adapter: createOllamaChat('llama3.2:3b', 'http://localhost:11434'),
   messages: [{ role: 'user', content: 'What year was Berklee founded? Use web_search.' }],
   tools: [tool],
+  // Required since @tanstack/ai 1.0.
+  threadId: 'verify-sse',
 });
 const res = toServerSentEventsResponse(stream);
 const text = await res.text();

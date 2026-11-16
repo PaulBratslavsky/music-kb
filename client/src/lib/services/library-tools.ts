@@ -8,7 +8,7 @@
 //
 // `buildLibraryTools(opts)` closes over the per-request pool so
 // load_passages returns passages with their correct [N] citation
-// indices (the same ones emitted in the upfront CITATIONS frame).
+// indices (the same ones sent in the `library-ask:citations` event).
 //
 // The other tools (`search_library`, `get_video_details`,
 // `list_videos_by_topic`) are escape hatches for off-candidate work —

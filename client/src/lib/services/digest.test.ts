@@ -28,6 +28,9 @@ import { OLLAMA_MODEL } from '#/lib/env';
 import { synthesizeDigest, synthesizeDigestArticle } from './digest';
 import type { StrapiVideo } from './videos';
 
+/** What chat({ stream: false }) resolves to in @tanstack/ai 1.x: a ChatResult, not a string. */
+const chatResult = (text: string) => ({ text, chunks: [] });
+
 const mockedChat = vi.mocked(chat);
 
 function video(id: string): StrapiVideo {
@@ -153,7 +156,7 @@ describe('synthesizeDigest — model plumbing', () => {
 
 describe('synthesizeDigestArticle — its own surface key', () => {
   it('resolves digest-article locally and takes no model parameter', async () => {
-    mockedChat.mockResolvedValueOnce('# An article\n\nBody.');
+    mockedChat.mockResolvedValueOnce(chatResult('# An article\n\nBody.'));
 
     const result = await synthesizeDigestArticle(VIDEOS);
 

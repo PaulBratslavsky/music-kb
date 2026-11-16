@@ -34,8 +34,6 @@ vi.mock('#/lib/services/chat-model-request', () => ({
     model: { adapter: {}, modelOptions: () => ({}), tier: 'local' },
     notice: null,
   }),
-  // Pass messages straight through so the test can read what the route built.
-  withSystem: (_m: unknown, system: string, messages: unknown[]) => ({ system, messages }),
 }));
 vi.mock('#/lib/services/stream-errors', () => ({ withFriendlyErrors: (_m: unknown, s: unknown) => s }));
 vi.mock('#/lib/services/condense-question', async (orig) => {
@@ -44,6 +42,7 @@ vi.mock('#/lib/services/condense-question', async (orig) => {
 });
 
 const { askHandler } = await import('./api.ask');
+const { CITATIONS_EVENT } = await import('#/lib/services/citations');
 
 // /api/ask speaks AG-UI RunAgentInput, like the other two chat routes — which
 // is what lets it share the <Chat> component. History is the message array,
@@ -171,47 +170,35 @@ describe('POST /api/ask — multi-turn', () => {
     expect((messages[3] as { content: string }).content).toBe('turn 19');
   });
 
-  it('surfaces a mid-stream failure instead of truncating the response', async () => {
-    // REGRESSION. The composed stream used `finally { close() }`, so a
-    // rejected read closed the stream before the error could propagate — and a
-    // closed stream cannot then transition to errored. The client received a
-    // truncated body with no error frame and no [DONE], and the message
-    // withFriendlyErrors had just produced was lost.
-    toSSEMock.mockImplementation(() => {
-      const stream = new ReadableStream<Uint8Array>({
-        start(c) {
-          c.enqueue(new TextEncoder().encode('data: {"type":"TEXT_MESSAGE_START"}\n\n'));
-          c.error(new Error('Ollama is not running.'));
-        },
-      });
-      return new Response(stream);
-    });
+  it('passes the request ids to chat() and the system prompt as systemPrompts', async () => {
+    await askHandler(thread('q'));
 
-    const res = await askHandler(thread('q'));
-
-    // Reading the body to completion is what a client does. A truncated
-    // stream resolves; an errored one rejects.
-    await expect(res.text()).rejects.toThrow(/Ollama is not running/);
+    const options = chatMock.mock.calls[0][0];
+    expect(options.threadId).toBe('library');
+    expect(options.runId).toBe('run-1');
+    expect(options.systemPrompts).toEqual(['SYSTEM']);
+    expect(options.messages.every((m: { role: string }) => m.role !== 'system')).toBe(true);
   });
 
-  it('cancels the upstream run when the client aborts', async () => {
-    // Without a cancel handler the model keeps generating to completion,
-    // holding a connection nobody is reading.
-    const cancelled = vi.fn();
-    toSSEMock.mockImplementation(() => {
-      const stream = new ReadableStream<Uint8Array>({
-        start(c) {
-          c.enqueue(new TextEncoder().encode('data: {"type":"TEXT_MESSAGE_START"}\n\n'));
-        },
-        cancel: cancelled,
-      });
-      return new Response(stream);
-    });
+  it('emits the citations as a CUSTOM event named for the message they ground', async () => {
+    // The citations used to be a raw frame written in front of the SDK
+    // stream. They are now an AG-UI CUSTOM event from chat middleware, so the
+    // client reads them with useChat's onCustomEvent.
+    await askHandler(thread('q'));
 
-    const res = await askHandler(thread('q'));
-    await res.body!.cancel('client went away');
+    const [middleware] = chatMock.mock.calls[0][0].middleware;
+    const emitCustomEvent = vi.fn();
+    // Only the start of an assistant message triggers it, with that message's id.
+    middleware.onChunk({ emitCustomEvent }, { type: 'TEXT_MESSAGE_CONTENT', messageId: 'msg-1', delta: 'x' });
+    expect(emitCustomEvent).not.toHaveBeenCalled();
+    middleware.onChunk({ emitCustomEvent }, { type: 'TEXT_MESSAGE_START', messageId: 'msg-1', role: 'assistant' });
 
-    expect(cancelled).toHaveBeenCalled();
+    expect(emitCustomEvent).toHaveBeenCalledTimes(1);
+    const [name, value] = emitCustomEvent.mock.calls[0];
+    expect(name).toBe(CITATIONS_EVENT);
+    expect(value.messageId).toBe('msg-1');
+    expect(value.citations).toHaveLength(1);
+    expect(value.citations[0].index).toBe(0);
   });
 
   it('a condenser failure still produces an answer', async () => {

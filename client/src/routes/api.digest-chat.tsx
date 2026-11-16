@@ -1,13 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router';
 import {
   chat,
-  chatParamsFromRequestBody,
+  chatParamsFromRequest,
   toServerSentEventsResponse,
 } from '@tanstack/ai';
 import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { prepareDigestChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
-import { resolveRequestModel, withSystem } from '#/lib/services/chat-model-request';
+import { resolveRequestModel } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
 import { dropOrphanToolCalls, latestUserText } from '#/lib/services/ui-message';
 
@@ -25,34 +25,27 @@ import { dropOrphanToolCalls, latestUserText } from '#/lib/services/ui-message';
 // The client's wire shape is now AG-UI RunAgentInput (see the handler), so
 // this route no longer declares its own message or tool-call types. They lived
 // here to describe what DigestChat hand-assembled and posted; useChat sends
-// the standard shape and chatParamsFromRequestBody validates it.
+// the standard shape and chatParamsFromRequest validates it.
 
 export const Route = createFileRoute('/api/digest-chat')({
   server: {
     handlers: {
       POST: async ({ request }) => {
         // The client is @tanstack/ai-react's useChat, so the body is an AG-UI
-        // RunAgentInput. chatParamsFromRequestBody validates it and returns
+        // RunAgentInput. chatParamsFromRequest validates it and returns
         // `messages` ready for chat() — which is what replaced this route's
         // hand-rolled expandHistoryForModel: reconstructing assistant
         // tool-call turns and their tool results is exactly the fan-out the
-        // SDK already does, and did more correctly.
-        let params: Awaited<ReturnType<typeof chatParamsFromRequestBody>>;
-        try {
-          params = await chatParamsFromRequestBody(await request.json());
-        } catch (err) {
-          const detail = err instanceof Error ? err.message : 'invalid body';
-          return new Response(`Invalid AG-UI request body: ${detail}`, { status: 400 });
-        }
+        // SDK already does, and did more correctly. On a bad body it throws a
+        // 400 Response, which TanStack Start returns as-is.
+        const params = await chatParamsFromRequest(request);
 
         // Per-conversation options ride in forwardedProps, not the message
         // array. They are still untrusted client input and validated here.
-        const forwarded = params.forwardedProps as {
-          videoIds?: unknown;
-          modelChoice?: unknown;
-        };
-        const videoIds = Array.isArray(forwarded.videoIds)
-          ? forwarded.videoIds.filter((v): v is string => typeof v === 'string' && v.length > 0)
+        const forwarded = params.forwardedProps;
+        const rawVideoIds: unknown = forwarded.videoIds;
+        const videoIds = Array.isArray(rawVideoIds)
+          ? rawVideoIds.filter((v): v is string => typeof v === 'string' && v.length > 0)
           : [];
         if (videoIds.length < 2 || videoIds.length > 5) {
           return new Response('videoIds must contain 2–5 items', { status: 400 });
@@ -106,7 +99,10 @@ export const Route = createFileRoute('/api/digest-chat')({
           // behaviour, not an oversight — adding sampling here is a
           // generation-quality change, not a refactor.
           adapter: model.adapter,
-          ...withSystem(model, system, history),
+          messages: history,
+          threadId: params.threadId,
+          runId: params.runId,
+          systemPrompts: [system],
           tools: [webSearchTool],
         });
 

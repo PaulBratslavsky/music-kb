@@ -4,11 +4,11 @@ import { askInChat, chatErrorGuard } from './chat-helpers';
 // End-to-end smoke for the library drawer after it moved onto <Chat>.
 //
 // This is the surface where the migration could most easily break something
-// quietly. Citations here arrive AHEAD of the answer they ground, as a raw
-// CITATIONS frame, and are re-bound to their message by a transport-level
-// interceptor (capture-frames.ts). If that binding fails, nothing throws: the
-// answer renders, the sources disclosure simply never appears. So this asserts
-// the citations, not just the prose.
+// quietly. Citations here arrive as an AG-UI CUSTOM event that names the
+// assistant message they ground, and LibraryChat stores them by that id in
+// useChat's onCustomEvent. If that binding fails, nothing throws: the answer
+// renders, the sources disclosure simply never appears. So this asserts the
+// citations, not just the prose.
 //
 // Assumes the stack is already running (repo-root `yarn dev`/`yarn start`).
 
