@@ -319,12 +319,18 @@ const MIRRORS: Record<string, MirrorSpec> = {
     server: extractBody(serverSource, SERVER_EMBEDDINGS_PATH, 'embedText'),
     clientSubs: [
       {
-        why: 'the client aborts at 60s; the server has no timeout. A real gap, tracked separately — it changes whether a call HANGS, never what text gets embedded.',
-        from: /signal: AbortSignal\.timeout\(60_000\),/g,
+        why: 'the client wraps the embed() call in a 60s timeout; the server has no timeout. A real gap, tracked separately — it changes whether a call HANGS, never what text gets embedded.',
+        from: /withTimeout\(\s*(embed\(\{[\s\S]*?\}\)),\s*60_000,\s*\)/g,
+        to: '$1',
+      },
+    ],
+    serverSubs: [
+      {
+        why: 'the server loads @tanstack/ai and @tanstack/ai-ollama with a runtime import() (they are ES modules only and the server compiles to CommonJS); the client imports them statically. Loading only — the embed() call after it is the same on both sides.',
+        from: /const \{ embed, createOllamaEmbedding \} = await loadTanStackEmbed\(\);/g,
         to: '',
       },
     ],
-    serverSubs: [],
   },
   buildPassageContext: {
     what: 'buildPassageContext — the per-chunk context anchor (dead on the server today; see "cannot catch" #6)',
@@ -550,7 +556,14 @@ describe('both sides build the same text from the same row', () => {
 // =============================================================================
 
 const EMBEDDED_CONTENT_FINGERPRINTS: Record<number, string> = {
-  3: 'ca579232182e0a89ad2b8127a6757bf4cb8efb04c11b85a95b5010663503f4c6',
+  // Updated in place (was ca579232…f4c6) when embedText moved from a raw fetch
+  // to Ollama's /api/embeddings to TanStack AI's embed() with the Ollama
+  // embedding adapter (/api/embed). The embedded TEXT is byte-identical. The
+  // adapter returns unit-length vectors; checked on nomic-embed-text, the
+  // cosine between old and new vectors for the same text is 1.000000, and
+  // every consumer compares with cosineSimilarity, so existing v3 vectors stay
+  // valid and need no version bump.
+  3: '6f9b2e9ecf1cba9dd0eb74d7aa045aa2212b2947f1e36e9236e3b3fa4760e823',
 };
 
 describe('the embedded-text contract is pinned to its version', () => {
@@ -700,12 +713,13 @@ describe('the readers above actually read something', () => {
     }
   });
 
-  it('embedText still truncates before it prefixes, and posts to /api/embeddings', () => {
+  it('embedText still truncates before it prefixes, and embeds with TanStack AI', () => {
     for (const text of [normalizedClient.embedText, normalizedServer.embedText]) {
       // Order is the vector-relevant fact: slice the raw text, THEN prefix.
       // Prefix-then-slice would change every embedded string near the cap.
       expect(text).toContain('applyPrefix(trimmed.slice(0, MAX_EMBED_CHARS - 32), task)');
-      expect(text).toContain('/api/embeddings');
+      expect(text).toContain('embed({');
+      expect(text).toContain('createOllamaEmbedding(CURRENT_EMBEDDING_MODEL, OLLAMA_HOST)');
     }
   });
 

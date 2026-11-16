@@ -70,25 +70,56 @@ export async function embedText(
   const trimmed = text.trim();
   if (!trimmed) throw new Error('embedText: empty input');
   const body = applyPrefix(trimmed.slice(0, MAX_EMBED_CHARS - 32), task);
-  const res = await fetch(`${OLLAMA_HOST}/api/embeddings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: CURRENT_EMBEDDING_MODEL,
-      prompt: body,
-    }),
+  // The same TanStack AI call as the client: embed() with the Ollama
+  // embedding adapter.
+  const { embed, createOllamaEmbedding } = await loadTanStackEmbed();
+  const result = await embed({
+    adapter: createOllamaEmbedding(CURRENT_EMBEDDING_MODEL, OLLAMA_HOST),
+    input: body,
   });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(
-      `Ollama embeddings error ${res.status}: ${errText.slice(0, 200)}`,
-    );
-  }
-  const json = (await res.json()) as { embedding?: number[] };
-  if (!Array.isArray(json.embedding) || json.embedding.length === 0) {
+  const vector = result.embeddings[0]?.vector;
+  if (!Array.isArray(vector) || vector.length === 0) {
     throw new Error('Ollama returned no embedding');
   }
-  return json.embedding;
+  return vector;
+}
+
+// @tanstack/ai and @tanstack/ai-ollama ship as ES modules only, and their
+// package exports have no `require` entry. This server compiles to CommonJS,
+// where TypeScript rewrites `import()` into `require()`, which cannot load
+// them. A Function-built import() survives compilation, so Node loads the
+// packages as ES modules. The two types below are the slice of their API this
+// file uses (moduleResolution node10 cannot read their `exports` types).
+type TanStackEmbed = {
+  embed: (options: {
+    adapter: unknown;
+    input: string;
+  }) => Promise<{ embeddings: Array<{ vector: number[] }> }>;
+  createOllamaEmbedding: (model: string, host?: string) => unknown;
+};
+
+const importEsm = new Function('specifier', 'return import(specifier)') as (
+  specifier: string,
+) => Promise<Record<string, unknown>>;
+
+let tanStackEmbed: Promise<TanStackEmbed> | undefined;
+
+function loadTanStackEmbed(): Promise<TanStackEmbed> {
+  tanStackEmbed ??= Promise.all([
+    importEsm('@tanstack/ai'),
+    importEsm('@tanstack/ai-ollama'),
+  ])
+    .then(([ai, ollama]) => ({
+      embed: ai.embed as TanStackEmbed['embed'],
+      createOllamaEmbedding:
+        ollama.createOllamaEmbedding as TanStackEmbed['createOllamaEmbedding'],
+    }))
+    .catch((error) => {
+      // Let the next call try again instead of caching the failure.
+      tanStackEmbed = undefined;
+      throw error;
+    });
+  return tanStackEmbed;
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

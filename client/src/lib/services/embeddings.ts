@@ -24,6 +24,8 @@ import {
   EMBEDDING_VERSION,
   PASSAGE_EMBEDDING_VERSION,
 } from '#/lib/env';
+import { embed } from '@tanstack/ai';
+import { createOllamaEmbedding } from '@tanstack/ai-ollama';
 import { buildMusicExtractionText, type StrapiVideo } from './videos';
 import { chunkForPassages, type TimedTextSegment } from './transcript';
 
@@ -36,7 +38,7 @@ export const CURRENT_PASSAGE_VERSION = PASSAGE_EMBEDDING_VERSION;
 const MAX_EMBED_CHARS = 8000;
 
 // =============================================================================
-// Ollama native embeddings endpoint.
+// Embeddings through TanStack AI (embed() + the Ollama embedding adapter).
 //
 // Task-specific prefixes matter for nomic-embed-text (and other Matryoshka
 // / instruction-tuned embedders). Without the prefix, the model defaults
@@ -67,28 +69,38 @@ export async function embedText(
   // Reserve some headroom for the prefix within the overall char cap.
   const body = applyPrefix(trimmed.slice(0, MAX_EMBED_CHARS - 32), task);
 
-  const res = await fetch(`${OLLAMA_HOST}/api/embeddings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: CURRENT_EMBEDDING_MODEL,
-      prompt: body,
+  // TanStack AI's embed() with the Ollama embedding adapter, the same
+  // adapter pattern chat() uses. Swapping the embedding provider is a change
+  // to this one adapter line (plus a model/version bump, see above).
+  // The adapter calls Ollama's /api/embed, which returns unit-length vectors;
+  // the old /api/embeddings call returned the same direction unnormalized, and
+  // everything downstream compares vectors with cosineSimilarity, so stored
+  // vectors from either path rank the same.
+  const result = await withTimeout(
+    embed({
+      adapter: createOllamaEmbedding(CURRENT_EMBEDDING_MODEL, OLLAMA_HOST),
+      input: body,
     }),
     // Generous: batch paths (embedBatch, passage indexing) legitimately queue
     // behind map-reduce generation when OLLAMA_NUM_PARALLEL=1.
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(
-      `Ollama embeddings error ${res.status}: ${errText.slice(0, 200)}`,
-    );
-  }
-  const json = (await res.json()) as { embedding?: number[] };
-  if (!Array.isArray(json.embedding) || json.embedding.length === 0) {
+    60_000,
+  );
+  const vector = result.embeddings[0]?.vector;
+  if (!Array.isArray(vector) || vector.length === 0) {
     throw new Error('Ollama returned no embedding');
   }
-  return json.embedding;
+  return vector;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Ollama embeddings timed out after ${ms} ms`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 // =============================================================================
