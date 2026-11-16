@@ -2,6 +2,11 @@
 # yarn lockfile v1
 
 
+"@ag-ui/core@0.1.1-canary.beta.0":
+  version "0.1.1-canary.beta.0"
+  resolved "https://registry.yarnpkg.com/@ag-ui/core/-/core-0.1.1-canary.beta.0.tgz#b79accbfaac3bb0ceb1cce3962d9b288b6e5d670"
+  integrity sha512-zcP3RH5p3HJTZ0kyQxNOL1blnVFTDpaShitR7UMS/thwFdl48V6CAG+WQBcYEu/dfa8mKonRez88N0Ok+nEI+w==
+
 "@ai-sdk/gateway@2.0.109":
   version "2.0.109"
   resolved "https://registry.yarnpkg.com/@ai-sdk/gateway/-/gateway-2.0.109.tgz#5f95cba05378054de608c9e8e123ab41479fc60c"
@@ -2251,7 +2256,7 @@
     color "^5.0.2"
     text-hex "1.0.x"
 
-"@standard-schema/spec@^1.0.0":
+"@standard-schema/spec@^1.0.0", "@standard-schema/spec@^1.1.0":
   version "1.1.0"
   resolved "https://registry.yarnpkg.com/@standard-schema/spec/-/spec-1.1.0.tgz#a79b55dbaf8604812f52d140b2c9ab41bc150bb8"
   integrity sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==
@@ -3018,6 +3023,42 @@
   integrity sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==
   dependencies:
     "@swc/counter" "^0.1.3"
+
+"@tanstack/ai-event-client@^0.11.2":
+  version "0.11.3"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-event-client/-/ai-event-client-0.11.3.tgz#0e3927b54171d13b061bba8ac4a0283eaedd0a4d"
+  integrity sha512-K5Nw05TG2NPJNunV7LI/5m7S97XHHdxN7vwTYcbKbmA5txlToaiF4wCfYBT406m7BOeGlLHZJpr3m1M6Vaai4g==
+  dependencies:
+    "@tanstack/devtools-event-client" "^0.4.1"
+
+"@tanstack/ai-ollama@0.10.3":
+  version "0.10.3"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-ollama/-/ai-ollama-0.10.3.tgz#c31c00b6b5d14fbbc8072e6e4a85ccfe0010f755"
+  integrity sha512-NQCW0TfmXpgcW617PU8bfxMqws5N+SXdl3tlCLQiAvf2nwYrgg0SczcC5SUN2YbrblWBKc6oSiS18VoWvjSw4A==
+  dependencies:
+    "@tanstack/ai-utils" "^0.4.0"
+    ollama "^0.6.3"
+
+"@tanstack/ai-utils@^0.4.0":
+  version "0.4.2"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai-utils/-/ai-utils-0.4.2.tgz#3897be4b193e2b6d1b53da4aad483f9ff8b7428b"
+  integrity sha512-ucSgSK9kLloInqr/7s0VZlp1IFtbpgPnskISvnLXti/hc8koqXc4Zv9pfTTc8V80WzIKYWMf+ZgSIDeFM50eCw==
+
+"@tanstack/ai@0.52.0":
+  version "0.52.0"
+  resolved "https://registry.yarnpkg.com/@tanstack/ai/-/ai-0.52.0.tgz#3d05f487afe9424f4bbedc43eacc889cbcce1e10"
+  integrity sha512-a2a+A+QguzZ3b8D7dqaA94A+CT42WUgxGYfscLrKJ+e2gHuEI8VNFGLq17KFuJI60A481bGpoGZ17fKpJF7q1A==
+  dependencies:
+    "@ag-ui/core" "0.1.1-canary.beta.0"
+    "@standard-schema/spec" "^1.1.0"
+    "@tanstack/ai-event-client" "^0.11.2"
+    "@tanstack/ai-utils" "^0.4.0"
+    partial-json "^0.1.7"
+
+"@tanstack/devtools-event-client@^0.4.1":
+  version "0.4.4"
+  resolved "https://registry.yarnpkg.com/@tanstack/devtools-event-client/-/devtools-event-client-0.4.4.tgz#c58185e737bee28b3afce206509412225e9f9031"
+  integrity sha512-6T5Yop/793YI+H+5J8Hsyj4kCih9sl4t3ElLgKioW5hk3ocn+ZdSJ94tT7vL7uabxSugWYBZlOTMPzEw2puvQw==
 
 "@tanstack/react-virtual@^3.10.8":
   version "3.14.10"
@@ -7893,6 +7934,13 @@ oblivious-set@1.0.0:
   resolved "https://registry.yarnpkg.com/oblivious-set/-/oblivious-set-1.0.0.tgz#c8316f2c2fb6ff7b11b6158db3234c49f733c566"
   integrity sha512-z+pI07qxo4c2CulUHCDf9lcqDlMSo72N/4rLUpRXf6fu+q8vjt8y0xS+Tlf8NTJDdTXHbdeO1n3MlbctwEoXZw==
 
+ollama@^0.6.3:
+  version "0.6.4"
+  resolved "https://registry.yarnpkg.com/ollama/-/ollama-0.6.4.tgz#1f0886402dba4f7fee1bc479529d9499f26eddfc"
+  integrity sha512-KzM6b5Sq0TgipeMTdImuELr/V4eNqrTf37PRzUTHCPPieFmboYw6qPn+pX7+lg0nSP1jsKwy4AFkiQFXhqHeZA==
+  dependencies:
+    whatwg-fetch "^3.6.20"
+
 on-finished@^2.3.0, on-finished@^2.4.1:
   version "2.4.1"
   resolved "https://registry.yarnpkg.com/on-finished/-/on-finished-2.4.1.tgz#58c8c44116e54845ad57f14ab10b03533184ac3f"
@@ -8109,6 +8157,11 @@ parseurl@^1.3.2, parseurl@^1.3.3:
   version "1.3.3"
   resolved "https://registry.yarnpkg.com/parseurl/-/parseurl-1.3.3.tgz#9da19e7bee8d12dff0513ed5b76957793bc2e8d4"
   integrity sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==
+
+partial-json@^0.1.7:
+  version "0.1.7"
+  resolved "https://registry.yarnpkg.com/partial-json/-/partial-json-0.1.7.tgz#b735a89edb3e25f231a3c4caeaae71dc9f578605"
+  integrity sha512-Njv/59hHaokb/hRUjce3Hdv12wd60MtM9Z5Olmn+nehe0QDAsRtRbJPvJ0Z91TusF0SuZRIvnM+S4l6EIP8leA==
 
 pascal-case@^3.1.2:
   version "3.1.2"
@@ -10390,6 +10443,11 @@ webpack@5.109.2:
     tapable "^2.3.0"
     watchpack "^2.5.2"
     webpack-sources "^3.5.1"
+
+whatwg-fetch@^3.6.20:
+  version "3.6.20"
+  resolved "https://registry.yarnpkg.com/whatwg-fetch/-/whatwg-fetch-3.6.20.tgz#580ce6d791facec91d37c72890995a0b48d31c70"
+  integrity sha512-EqhiFU6daOA8kpjOWTL0olhVOF3i7OrFzSYiGsEMB8GcXS+RrzauAERX65xMeNWVqxA6HXH2m69Z9LaKKdisfg==
 
 which-pm@^4.0.0:
   version "4.0.0"
