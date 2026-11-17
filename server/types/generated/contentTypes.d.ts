@@ -114,6 +114,43 @@ export interface AdminApiTokenPermission extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface AdminAuditLog extends Struct.CollectionTypeSchema {
+  collectionName: 'strapi_audit_logs';
+  info: {
+    displayName: 'Audit Log';
+    pluralName: 'audit-logs';
+    singularName: 'audit-log';
+  };
+  options: {
+    draftAndPublish: false;
+    timestamps: false;
+  };
+  pluginOptions: {
+    'content-manager': {
+      visible: false;
+    };
+    'content-type-builder': {
+      visible: false;
+    };
+  };
+  attributes: {
+    action: Schema.Attribute.String & Schema.Attribute.Required;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    date: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<'oneToMany', 'admin::audit-log'> &
+      Schema.Attribute.Private;
+    payload: Schema.Attribute.JSON;
+    publishedAt: Schema.Attribute.DateTime;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    user: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+  };
+}
+
 export interface AdminPermission extends Struct.CollectionTypeSchema {
   collectionName: 'admin_permissions';
   info: {
@@ -469,6 +506,11 @@ export interface ApiChatConversationChatConversation
     messages: Schema.Attribute.JSON & Schema.Attribute.Required;
     publishedAt: Schema.Attribute.DateTime;
     resume: Schema.Attribute.JSON;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     surface: Schema.Attribute.String &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 60;
@@ -508,6 +550,11 @@ export interface ApiCompositionComposition extends Struct.CollectionTypeSchema {
     > &
       Schema.Attribute.Private;
     publishedAt: Schema.Attribute.DateTime;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     title: Schema.Attribute.String &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMaxLength<{
@@ -563,6 +610,11 @@ export interface ApiDigestDigest extends Struct.CollectionTypeSchema {
     sharedThemes: Schema.Attribute.Component<
       'content.digest-shared-theme',
       true
+    >;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
     >;
     title: Schema.Attribute.String &
       Schema.Attribute.Required &
@@ -649,6 +701,11 @@ export interface ApiLessonLesson extends Struct.CollectionTypeSchema {
     > &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'draft'>;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     summary: Schema.Attribute.Text &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 400;
@@ -733,6 +790,11 @@ export interface ApiLoopLoop extends Struct.CollectionTypeSchema {
         },
         number
       >;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -769,6 +831,11 @@ export interface ApiNoteNote extends Struct.CollectionTypeSchema {
     > &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'manual'>;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     title: Schema.Attribute.String &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 200;
@@ -810,6 +877,11 @@ export interface ApiProgressionProgression extends Struct.CollectionTypeSchema {
         minLength: 1;
       }>;
     publishedAt: Schema.Attribute.DateTime;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -844,6 +916,11 @@ export interface ApiTagTag extends Struct.CollectionTypeSchema {
       }>;
     publishedAt: Schema.Attribute.DateTime;
     slug: Schema.Attribute.UID<'name'>;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -892,6 +969,11 @@ export interface ApiTranscriptTranscript extends Struct.CollectionTypeSchema {
     publishedAt: Schema.Attribute.DateTime;
     rawSegments: Schema.Attribute.JSON;
     rawText: Schema.Attribute.RichText;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     thumbnailUrl: Schema.Attribute.Text &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 2000;
@@ -981,6 +1063,11 @@ export interface ApiVideoVideo extends Struct.CollectionTypeSchema {
         number
       >;
     signalScores: Schema.Attribute.JSON;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     summaryDescription: Schema.Attribute.Text &
       Schema.Attribute.SetMinMaxLength<{
         maxLength: 500;
@@ -1295,6 +1382,297 @@ export interface PluginReviewWorkflowsWorkflowStage
   };
 }
 
+export interface PluginStrapiOauthMcpManagerMcpOauthClient
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'mcp_oauth_clients';
+  info: {
+    description: 'OAuth clients allowed to connect to the Strapi MCP server';
+    displayName: 'MCP OAuth Client';
+    pluralName: 'mcp-oauth-clients';
+    singularName: 'mcp-oauth-client';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  pluginOptions: {
+    'content-manager': {
+      visible: false;
+    };
+    'content-type-builder': {
+      visible: false;
+    };
+  };
+  attributes: {
+    active: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<true>;
+    adminTokenId: Schema.Attribute.Integer;
+    clientId: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique;
+    clientSecret: Schema.Attribute.String & Schema.Attribute.Private;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    description: Schema.Attribute.Text;
+    endUserProvider: Schema.Attribute.Enumeration<['none', 'line']> &
+      Schema.Attribute.DefaultTo<'none'>;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'plugin::strapi-oauth-mcp-manager.mcp-oauth-client'
+    > &
+      Schema.Attribute.Private;
+    name: Schema.Attribute.String & Schema.Attribute.Required;
+    publishedAt: Schema.Attribute.DateTime;
+    redirectUris: Schema.Attribute.JSON;
+    registrationType: Schema.Attribute.Enumeration<['manual', 'dynamic']> &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'manual'>;
+    tokenEndpointAuthMethod: Schema.Attribute.Enumeration<
+      ['client_secret_basic', 'client_secret_post', 'none']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'client_secret_post'>;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface PluginStrapiOauthMcpManagerMcpOauthCode
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'mcp_oauth_codes';
+  info: {
+    description: 'Short-lived OAuth authorization codes';
+    displayName: 'MCP OAuth Code';
+    pluralName: 'mcp-oauth-codes';
+    singularName: 'mcp-oauth-code';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  pluginOptions: {
+    'content-manager': {
+      visible: false;
+    };
+    'content-type-builder': {
+      visible: false;
+    };
+  };
+  attributes: {
+    adminTokenId: Schema.Attribute.Integer;
+    adminUserId: Schema.Attribute.Integer & Schema.Attribute.Required;
+    clientId: Schema.Attribute.String & Schema.Attribute.Required;
+    codeChallenge: Schema.Attribute.String;
+    codeChallengeMethod: Schema.Attribute.String;
+    codeHash: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Private &
+      Schema.Attribute.Unique;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    expiresAt: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'plugin::strapi-oauth-mcp-manager.mcp-oauth-code'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    redirectUri: Schema.Attribute.Text & Schema.Attribute.Required;
+    resource: Schema.Attribute.String;
+    scope: Schema.Attribute.String;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface PluginStrapiOauthMcpManagerMcpOauthToken
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'mcp_oauth_grants';
+  info: {
+    description: 'An authorized MCP client session, backed by an admin token';
+    displayName: 'MCP OAuth Grant';
+    pluralName: 'mcp-oauth-tokens';
+    singularName: 'mcp-oauth-token';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  pluginOptions: {
+    'content-manager': {
+      visible: false;
+    };
+    'content-type-builder': {
+      visible: false;
+    };
+  };
+  attributes: {
+    accessTokenHash: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Private &
+      Schema.Attribute.Unique;
+    adminKeyHash: Schema.Attribute.String & Schema.Attribute.Private;
+    adminTokenId: Schema.Attribute.Integer & Schema.Attribute.Required;
+    adminUserId: Schema.Attribute.Integer & Schema.Attribute.Required;
+    clientId: Schema.Attribute.String & Schema.Attribute.Required;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    expiresAt: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    lastUsedAt: Schema.Attribute.DateTime;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'plugin::strapi-oauth-mcp-manager.mcp-oauth-token'
+    > &
+      Schema.Attribute.Private;
+    ownsAdminToken: Schema.Attribute.Boolean &
+      Schema.Attribute.DefaultTo<false>;
+    previousRefreshTokenHash: Schema.Attribute.String &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    refreshExpiresAt: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    refreshTokenHash: Schema.Attribute.String &
+      Schema.Attribute.Private &
+      Schema.Attribute.Unique;
+    resource: Schema.Attribute.String;
+    rotatedAt: Schema.Attribute.DateTime;
+    scope: Schema.Attribute.String;
+    subject: Schema.Attribute.String & Schema.Attribute.Private;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface PluginTanstackAiConversation
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'tanstack_ai_conversations';
+  info: {
+    displayName: 'TanStack AI Conversation';
+    pluralName: 'conversations';
+    singularName: 'conversation';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  pluginOptions: {
+    'content-manager': {
+      visible: false;
+    };
+    'content-type-builder': {
+      visible: false;
+    };
+  };
+  attributes: {
+    adminUserId: Schema.Attribute.Integer & Schema.Attribute.Required;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'plugin::tanstack-ai.conversation'
+    > &
+      Schema.Attribute.Private;
+    messages: Schema.Attribute.JSON & Schema.Attribute.Required;
+    publishedAt: Schema.Attribute.DateTime;
+    title: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'New conversation'>;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface PluginTanstackAiMemory extends Struct.CollectionTypeSchema {
+  collectionName: 'tanstack_ai_memories';
+  info: {
+    displayName: 'TanStack AI Memory';
+    pluralName: 'memories';
+    singularName: 'memory';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  pluginOptions: {
+    'content-manager': {
+      visible: false;
+    };
+    'content-type-builder': {
+      visible: false;
+    };
+  };
+  attributes: {
+    adminUserId: Schema.Attribute.Integer & Schema.Attribute.Required;
+    category: Schema.Attribute.Enumeration<
+      ['general', 'preference', 'personal', 'project']
+    > &
+      Schema.Attribute.DefaultTo<'general'>;
+    content: Schema.Attribute.Text & Schema.Attribute.Required;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'plugin::tanstack-ai.memory'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface PluginTanstackAiNote extends Struct.CollectionTypeSchema {
+  collectionName: 'tanstack_ai_notes';
+  info: {
+    displayName: 'TanStack AI Note';
+    pluralName: 'notes';
+    singularName: 'note';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  pluginOptions: {
+    'content-manager': {
+      visible: false;
+    };
+    'content-type-builder': {
+      visible: false;
+    };
+  };
+  attributes: {
+    adminUserId: Schema.Attribute.Integer & Schema.Attribute.Required;
+    category: Schema.Attribute.Enumeration<
+      ['research', 'snippet', 'idea', 'reference']
+    > &
+      Schema.Attribute.DefaultTo<'research'>;
+    content: Schema.Attribute.Text & Schema.Attribute.Required;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'plugin::tanstack-ai.note'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    source: Schema.Attribute.String;
+    tags: Schema.Attribute.Text;
+    title: Schema.Attribute.String;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
 export interface PluginUploadFile extends Struct.CollectionTypeSchema {
   collectionName: 'files';
   info: {
@@ -1546,6 +1924,11 @@ export interface PluginUsersPermissionsUser
       'manyToOne',
       'plugin::users-permissions.role'
     >;
+    strapi_assignee: Schema.Attribute.Relation<'oneToOne', 'admin::user'>;
+    strapi_stage: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::review-workflows.workflow-stage'
+    >;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -1563,6 +1946,7 @@ declare module '@strapi/strapi' {
     export interface ContentTypeSchemas {
       'admin::api-token': AdminApiToken;
       'admin::api-token-permission': AdminApiTokenPermission;
+      'admin::audit-log': AdminAuditLog;
       'admin::permission': AdminPermission;
       'admin::role': AdminRole;
       'admin::session': AdminSession;
@@ -1584,6 +1968,12 @@ declare module '@strapi/strapi' {
       'plugin::i18n.locale': PluginI18NLocale;
       'plugin::review-workflows.workflow': PluginReviewWorkflowsWorkflow;
       'plugin::review-workflows.workflow-stage': PluginReviewWorkflowsWorkflowStage;
+      'plugin::strapi-oauth-mcp-manager.mcp-oauth-client': PluginStrapiOauthMcpManagerMcpOauthClient;
+      'plugin::strapi-oauth-mcp-manager.mcp-oauth-code': PluginStrapiOauthMcpManagerMcpOauthCode;
+      'plugin::strapi-oauth-mcp-manager.mcp-oauth-token': PluginStrapiOauthMcpManagerMcpOauthToken;
+      'plugin::tanstack-ai.conversation': PluginTanstackAiConversation;
+      'plugin::tanstack-ai.memory': PluginTanstackAiMemory;
+      'plugin::tanstack-ai.note': PluginTanstackAiNote;
       'plugin::upload.file': PluginUploadFile;
       'plugin::upload.folder': PluginUploadFolder;
       'plugin::users-permissions.permission': PluginUsersPermissionsPermission;
