@@ -101,6 +101,77 @@ printf '%s\n' \
   ".exit" | npx strapi console
 ```
 
+### Sign in with OAuth instead of a pasted token
+
+`strapi-oauth-mcp-manager` (enabled in `server/config/plugins.ts`) makes Strapi
+an OAuth authorization server for `/mcp`. A request without a token gets a 401
+whose `WWW-Authenticate` header points at
+`/.well-known/oauth-protected-resource/mcp`; the client reads that and
+`/.well-known/oauth-authorization-server`, registers itself, and opens the
+consent page, where an admin signs in and picks one of their own admin tokens.
+The session can do what that token allows. Everything above about admin tokens
+and per-tool permissions is unchanged, and a pasted admin token still works.
+
+```bash
+claude mcp add --transport http music-kb http://localhost:1350/mcp
+```
+
+Then run `/mcp`, choose `music-kb` and **Authenticate**. Clients and sessions
+are listed on the **MCP OAuth** page in the admin.
+
+### The same tools in the admin chat
+
+`strapi-plugin-tanstack-ai` adds a chat page to the admin (**TanStack AI**).
+`chat.toolSources` in `server/config/plugins.ts` lists
+`api::music-kb-mcp.chat-tools`
+(`server/src/api/music-kb-mcp/services/chat-tools.ts`), which hands the 19
+read tools of `catalog.ts` to that chat. The chat calls them inside Strapi,
+without MCP, as `music-kb-mcp__<toolName>`, and offers an admin only the tools
+their role holds the `api::music-kb-mcp.tool.*` action for. The 10 write and
+maintenance tools stay on `/mcp` only. The plugin also puts eight tools of its
+own on `/mcp` (`search_content`, `aggregate_content`, …), gated by
+`plugin::tanstack-ai.tool.*`.
+
+Two things to know:
+
+- **The chat needs Strapi 5.53 or later.** On 5.52 every message failed with
+  "Schema is a Standard Schema validator but does not expose a JSON Schema
+  converter", because the plugin builds its own tool schemas with `z` from
+  `@strapi/utils`, and before 5.53 that is Zod 3.25's v4 build.
+- **Why the chat gets the read tools only.** The chat sends every tool's
+  schema with every message. Measured on Claude Sonnet 5 with all 29 tools:
+  about 39,000 input tokens per model call, and a context badge of
+  "100K / 200K, context tight" (the badge estimates from the serialized
+  schemas and overstates). With the 19 read tools: about 12,000 input tokens
+  per model call and a badge of "17K / 200K". `createLesson` and
+  `updateLesson` carry most of the difference, about 29,000 characters of
+  JSON Schema each. To offer every tool, remove the `.filter(...)` line in
+  `chat-tools.ts`.
+
+### Mint a token for the app (library chat)
+
+The app's own library chat (`/api/ask`) is an MCP client too: it loads
+`crossSearchTranscripts`, `searchVideos` and `getVideo` from `/mcp` and passes
+them to TanStack AI's `chat()` (`client/src/lib/services/strapi-mcp-tools.ts`,
+ADR 0017). Give it a token that can call exactly those three, and nothing that
+writes. An admin user must exist first (create one at
+`http://localhost:1350/admin`), because an admin token is owned by one. Stop
+the dev server, then:
+
+```bash
+cd server
+printf '%s\n' \
+  "const acts=['cross-search-transcripts','search-videos','get-video'].map(n=>({action:'api::music-kb-mcp.tool.'+n})); const u=(await strapi.db.query('admin::user').findMany({populate:['roles']}))[0]; const t=await strapi.service('admin::api-token-admin').create({name:'Music KB app (library chat)', description:'The Music KB app loads 3 read-only library tools over MCP for its library chat', lifespan:null, adminUserOwner:u.id, adminPermissions:acts}, u); console.log('TOKEN='+t.accessKey);" \
+  ".exit" | npx strapi console
+```
+
+Put the `TOKEN=` value in `client/.env` as `STRAPI_MCP_TOKEN` and restart the
+dev server. Without it the library chat still answers, with its own
+`load_passages` tool only, and logs
+`[strapi-mcp] STRAPI_MCP_TOKEN is not set`. To let the chat call another
+Strapi tool, add the tool's name to `LIBRARY_CHAT_TOOLS` in
+`strapi-mcp-tools.ts` and grant this token that tool's action.
+
 An unknown action id is rejected at mint time (`Unknown admin action: …`),
 so a typo fails loudly instead of quietly producing a token that sees fewer
 tools than you meant.

@@ -24,10 +24,11 @@ ADRs are append-only history. If a decision is replaced, write a new ADR that su
 | [0007](./0007-error-translation-strapi-ollama.md) | Boundary-layer error translation for Strapi + Ollama | Accepted |
 | [0008](./0008-official-strapi-mcp-over-hand-rolled.md) | Official Strapi MCP server over the hand-rolled one | Accepted |
 | [0009](./0009-monorepo-with-shared-music-package.md) | Monorepo with a shared music package | Accepted |
-| [0010](./0010-duplicated-retrieval-guarded-not-shared.md) | Duplicated retrieval is guarded, not shared | Accepted |
+| [0010](./0010-duplicated-retrieval-guarded-not-shared.md) | Duplicated retrieval is guarded, not shared | Accepted; partly superseded by 0017 |
 | [0011](./0011-model-switcher-on-interactive-surfaces.md) | A model switcher on interactive surfaces; bulk stays local | Accepted; partly superseded by 0016 |
 | [0012](./0012-usechat-owns-chat-state-parser-kept-for-library-ask.md) | useChat owns chat state; the AG-UI parser is kept for library-ask | Partly superseded by 0013 and 0016 |
 | [0013](./0013-one-chat-component-across-all-three-surfaces.md) | One <Chat> component across all three surfaces | Accepted; its custom-frame transport is superseded by 0016 |
 | [0014](./0014-chat-transcripts-in-strapi-not-localstorage.md) | Chat transcripts live in Strapi, not localStorage | Accepted |
 | [0015](./0015-two-lesson-write-paths-one-set-of-guarantees.md) | Two lesson write paths, one set of guarantees | Accepted |
 | [0016](./0016-tanstack-ai-1x-custom-events-and-system-prompts.md) | TanStack AI 1.x: citations travel as a CUSTOM event, system prompts as `systemPrompts` | Accepted |
+| [0017](./0017-library-chat-loads-its-library-tools-from-strapi-over-mcp.md) | The library chat loads its library tools from Strapi over MCP | Accepted; partly supersedes 0010 |

@@ -20,6 +20,7 @@
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/ai": "1.4.0",
     "@tanstack/ai-anthropic": "1.1.1",
+    "@tanstack/ai-mcp": "1.2.0",
     "@tanstack/ai-ollama": "1.1.1",
     "@tanstack/ai-react": "1.0.2",
     "@tanstack/query-core": "^5.99.0",

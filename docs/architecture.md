@@ -698,8 +698,10 @@ Cross-video QA with deterministic citations. Distinct from per-video chat (Secti
 ```
 question → retrievePassagesForQuery (Tier 2 embeddings, top-k passages
                                      across top-N videos)
-         → buildLibraryTools (load_passages / search_library / get_video_details
-                              / list_videos_by_topic — escape hatches)
+         → tools: load_passages (the app's own, bound to this request's
+                  passages) + crossSearchTranscripts / searchVideos / getVideo
+                  (Strapi's tools, loaded from /mcp with @tanstack/ai-mcp —
+                  escape hatches; absent when STRAPI_MCP_TOKEN is unset)
          → chat() with progressive retrieval prompt
          → AG-UI SSE stream; a chat middleware emits a CUSTOM event
            `library-ask:citations` at each TEXT_MESSAGE_START

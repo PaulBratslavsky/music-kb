@@ -28,7 +28,24 @@ vi.mock('#/lib/services/ask-library', () => ({
   formatSeedForPrompt: () => 'SEED',
   retrievePassagesForQuery: (...a: unknown[]) => retrieveMock(...a),
 }));
-vi.mock('#/lib/services/library-tools', () => ({ buildLibraryTools: () => ({}) }));
+vi.mock('#/lib/services/library-tools', () => ({
+  buildLoadPassagesTool: () => ({ name: 'load_passages' }),
+}));
+// No MCP connection in these tests. By default the route gets no Strapi tools,
+// as it does when STRAPI_MCP_TOKEN is unset; one test below hands it some.
+// strapi-mcp-tools.test.ts covers the wrapper itself.
+const strapiMock = vi.hoisted(() => ({
+  tools: [] as Array<{ name: string }>,
+  close: async () => {},
+}));
+const closeAfterMock = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock('#/lib/services/strapi-mcp-tools', () => ({
+  loadStrapiTools: async () => strapiMock,
+  closeAfter: (...args: unknown[]) => {
+    closeAfterMock.calls.push(args);
+    return args[0];
+  },
+}));
 vi.mock('#/lib/services/chat-model-request', () => ({
   resolveRequestModel: async () => ({
     model: { adapter: {}, modelOptions: () => ({}), tier: 'local' },
@@ -92,6 +109,8 @@ beforeEach(() => {
   condenseMock.mockImplementation(async (q: string) => ({ query: q, condensed: false }));
   toSSEMock.mockReset();
   toSSEMock.mockImplementation(() => new Response('ok'));
+  strapiMock.tools = [];
+  closeAfterMock.calls.length = 0;
 });
 
 describe('POST /api/ask — multi-turn', () => {
@@ -168,6 +187,30 @@ describe('POST /api/ask — multi-turn', () => {
     // 4 prior turns + the seeded question.
     expect(messages).toHaveLength(5);
     expect((messages[3] as { content: string }).content).toBe('turn 19');
+  });
+
+  it('gives chat() its own load_passages tool, then the tools loaded from Strapi', async () => {
+    strapiMock.tools = [{ name: 'crossSearchTranscripts' }, { name: 'getVideo' }];
+
+    await askHandler(thread('q'));
+
+    const names = chatMock.mock.calls[0][0].tools.map((t: { name: string }) => t.name);
+    expect(names).toEqual(['load_passages', 'crossSearchTranscripts', 'getVideo']);
+  });
+
+  it('still calls chat() with load_passages alone when Strapi gave no tools', async () => {
+    await askHandler(thread('q'));
+
+    const names = chatMock.mock.calls[0][0].tools.map((t: { name: string }) => t.name);
+    expect(names).toEqual(['load_passages']);
+  });
+
+  it('closes the MCP connection when the answer stream is over', async () => {
+    await askHandler(thread('q'));
+
+    // The stream handed to the SSE encoder is wrapped with the connection's close.
+    expect(closeAfterMock.calls).toHaveLength(1);
+    expect(closeAfterMock.calls[0][1]).toBe(strapiMock.close);
   });
 
   it('passes the request ids to chat() and the system prompt as systemPrompts', async () => {

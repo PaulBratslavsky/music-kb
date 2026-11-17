@@ -17,6 +17,11 @@ function readEnv(name: string): string | undefined {
 
 const STRAPI_URL = readEnv('STRAPI_URL') ?? 'http://localhost:1350';
 const STRAPI_API_TOKEN = readEnv('STRAPI_API_TOKEN');
+// Admin token for Strapi's MCP server at /mcp (kind: 'admin', see docs/mcp.md).
+// The library chat uses it to load its library tools from Strapi over MCP
+// (strapi-mcp-tools.ts). Server-side only, like STRAPI_API_TOKEN. Leave empty
+// and the library chat runs without those tools.
+const STRAPI_MCP_TOKEN = readEnv('STRAPI_MCP_TOKEN');
 
 const TRANSCRIPT_PROXY_URL = readEnv('TRANSCRIPT_PROXY_URL');
 
@@ -112,6 +117,7 @@ validateOnce();
 export {
   STRAPI_URL,
   STRAPI_API_TOKEN,
+  STRAPI_MCP_TOKEN,
   TRANSCRIPT_PROXY_URL,
   ANTHROPIC_API_KEY,
   LESSON_MODEL,

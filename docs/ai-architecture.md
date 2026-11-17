@@ -160,21 +160,40 @@ the server never saw.
 
 ## The two tool systems
 
-This is the part that surprises people: **there are two completely separate tool
-systems, and they share no code.**
+There are two places a tool can be defined. Since ADR 0017 (2026-11-16) the
+**library tools are defined in one of them only**: Strapi.
 
-### A — TanStack AI tools (in-app agent loop)
+### A — TanStack AI tools (defined in the app)
 
 Declared with `toolDefinition()` from `@tanstack/ai`. They run inside the client's
-Node process, called by the local model mid-turn.
+Node process, called by the model mid-turn. The app defines two, and neither is
+a library tool:
 
-- `services/chat-tools.ts` — `webSearchTool`
-- `services/library-tools.ts` — `search_library`, `get_video_details`,
-  `list_videos_by_topic`, and `buildLibraryTools({ pool })` → `load_passages`
+- `services/chat-tools.ts` — `webSearchTool` (`kb_web_search`), the video
+  chat's web search.
+- `services/library-tools.ts` — `buildLoadPassagesTool(pool)` → `load_passages`
   (progressive retrieval: the synthesizer starts with only the top candidate's
-  passages loaded and pulls the rest on demand)
+  passages loaded and pulls the rest on demand). It closes over the passages
+  one request retrieved, so the passages it returns carry that answer's `[N]`
+  citation indices. That binding is why it cannot live in Strapi.
 
 These are **never exposed over MCP.**
+
+### A′ — Strapi's MCP tools, used by the app's library chat
+
+`/api/ask` is an MCP client. `services/strapi-mcp-tools.ts` connects to Strapi's
+`/mcp` with `createMCPClient` from `@tanstack/ai-mcp`, keeps the three tools
+named in `LIBRARY_CHAT_TOOLS` (`crossSearchTranscripts`, `searchVideos`,
+`getVideo`, all read-only), and returns them as TanStack AI tools. The route
+passes `[load_passages, ...strapi.tools]` to `chat()` and closes the connection
+when the run ends (`closeAfter`). The token is `STRAPI_MCP_TOKEN`, an admin
+token scoped to those three tools. With no token, or with the MCP server
+unreachable, `loadStrapiTools()` logs one warning and returns no tools, and the
+chat answers from `load_passages` and the seeded passages.
+
+Until ADR 0017 this file held app-side tools for the same jobs:
+`search_library`, `get_video_details` and `list_videos_by_topic`. They are
+deleted.
 
 ### B — MCP tools (external clients)
 
@@ -207,13 +226,16 @@ Three files carry the wiring, and each owns exactly one thing:
 - **`permissions.ts`** — derives one admin action per tool,
   `api::music-kb-mcp.tool.<kebab-name>`, from the catalog. Never hand-listed.
 
-Keeping the in-app chat off MCP is deliberate: it keeps local inference
-protocol-free. The cost is the duplication described next.
+The video chat stays off MCP: its one tool, `kb_web_search`, is not a library
+tool. The library chat is an MCP client of this server since ADR 0017 (section
+A′ above), so the library tools exist once.
 
 ## What crosses the boundary
 
 `client` never imports from `server/`, and `server` never imports from `client/`.
-The only runtime channel is `strapiFetch<T>` in `services/strapi-client.ts`.
+There are two runtime channels: `strapiFetch<T>` in `services/strapi-client.ts`
+(REST), and the library chat's MCP connection to `/mcp` in
+`services/strapi-mcp-tools.ts`.
 
 But some knowledge has to agree on both sides, and **`server/` cannot import
 `@music-kb/music`**. The reason is bigger than the `TS2307` this used to say:
@@ -304,7 +326,13 @@ document, two consumers, one drift test in both directions.
    resolve inside their existing `try` so this lands as a normal failure rather
    than an unhandled rejection, but the user-facing string is raw.
 
-4. ~~**The two tool systems duplicate retrieval.**~~ **Closed** (2026-08-26) by
+4. ~~**The two tool systems duplicate retrieval.**~~ *Update 2026-11-16 (ADR
+   0017): the three app-side tools this entry compares against the MCP tools
+   (`search_library`, `get_video_details`, `list_videos_by_topic`) no longer
+   exist. The library chat now calls Strapi's `crossSearchTranscripts`,
+   `getVideo` and `searchVideos` over MCP. The retrieval that seeds every
+   answer (`retrievePassagesForQuery`) is unchanged and still runs in the app.
+   The text below describes the state ADR 0010 measured.* **Closed** (2026-08-26) by
    **ADR 0010** — and note what shipped, because it is the *opposite* of what
    this entry proposed. There is no shared retrieval module, and there will not
    be one.

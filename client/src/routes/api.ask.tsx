@@ -11,7 +11,8 @@ import {
   retrievePassagesForQuery,
   type RetrievedPassage,
 } from '#/lib/services/ask-library';
-import { buildLibraryTools } from '#/lib/services/library-tools';
+import { buildLoadPassagesTool } from '#/lib/services/library-tools';
+import { closeAfter, loadStrapiTools } from '#/lib/services/strapi-mcp-tools';
 import { resolveRequestModel } from '#/lib/services/chat-model-request';
 import { withFriendlyErrors } from '#/lib/services/stream-errors';
 import { emptyAnswerResponse } from '#/lib/services/ask-empty-answer';
@@ -175,14 +176,20 @@ export async function askHandler(request: Request): Promise<Response> {
   // Progressive retrieval: the model only sees #1 candidate's
   // passages up-front. The `load_passages` tool (built per-request
   // with the pool closed over) lets it expand to any of the 4
-  // remaining candidates. `search_library`, `get_video_details`,
-  // `list_videos_by_topic` stay as escape hatches.
+  // remaining candidates. It is the one tool this app defines itself.
   //
-  // Reliability caveat: Gemma 4B tool-calling is probabilistic.
+  // The other tools are Strapi's library tools. Strapi defines each one
+  // once, on its MCP server, and this route loads them over MCP: the same
+  // tools Claude Code and Claude Desktop call. They are escape hatches for
+  // work off the candidate list. Without a token, or with Strapi's MCP
+  // server down, `strapi.tools` is empty and the chat still answers.
+  //
+  // Reliability caveat: small local models call tools probabilistically.
   // The #1-candidate passages are the safety net — even if the
-  // model never calls load_passages, the answer is grounded in
+  // model never calls a tool, the answer is grounded in
   // the single best source.
-  const tools = buildLibraryTools({ pool: passages });
+  const strapi = await loadStrapiTools();
+  const tools = [buildLoadPassagesTool(passages), ...strapi.tools];
   const citations = passages.map(toCitation);
 
   // Sends the citations to the client as an AG-UI CUSTOM event (TanStack AI
@@ -224,7 +231,11 @@ export async function askHandler(request: Request): Promise<Response> {
   });
 
   // See api.chat.tsx — tier-correct error translation, server-side.
-  return toServerSentEventsResponse(withFriendlyErrors(model, stream, 'ask'));
+  // closeAfter closes the MCP connection when the run ends, fails or is
+  // cancelled.
+  return toServerSentEventsResponse(
+    closeAfter(withFriendlyErrors(model, stream, 'ask'), strapi.close),
+  );
 }
 
 export const Route = createFileRoute('/api/ask')({

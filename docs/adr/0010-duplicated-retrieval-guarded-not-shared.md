@@ -1,6 +1,10 @@
 # 0010. Duplicated retrieval is guarded, not shared
 
-**Status:** Accepted (2026-08-26).
+**Status:** Accepted (2026-08-26). Partly superseded by ADR 0017 (2026-11-16):
+the three app-side tools named below (`search_library`, `get_video_details`,
+`list_videos_by_topic`) were deleted, and the library chat calls Strapi's MCP
+tools instead. The guards this ADR added for the duplicated BM25 and embedding
+code still stand.
 
 ## Context
 

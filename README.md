@@ -30,7 +30,7 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 | AI (in-app) | [TanStack AI](https://tanstack.com/ai/latest) 1.4.0, with `@tanstack/ai-react` 1.0.2, `@tanstack/ai-ollama` 1.1.1 and `@tanstack/ai-anthropic` 1.1.1. Each `@tanstack/ai*` package is pinned **exactly**, not with a caret. The Strapi server uses `@tanstack/ai` 1.4.0 and `@tanstack/ai-ollama` 1.1.1 only for `embed()`. The docs' [Upgrade to 1.0](https://tanstack.com/ai/latest/docs/migration/v1) guide says to move every `@tanstack/ai*` package to 1.x at the same time, because a 1.0 client needs a 1.0 server |
 | Chat/summary model | Any Ollama chat model — default `gemma4-kb:latest` (custom [Gemma 4](https://ollama.com/library/gemma4) Modelfile, Q4) |
 | Embedding model | [`nomic-embed-text`](https://ollama.com/library/nomic-embed-text) via Ollama (768-dim, ~137MB). One vector per video; cosine similarity in-memory |
-| Backend | [Strapi 5](https://strapi.io) (5.52, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |
+| Backend | [Strapi 5](https://strapi.io) (5.57, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |
 | MCP server | Official Strapi MCP server (built into 5.47+) at `/mcp`, Streamable HTTP, auth via admin API tokens |
 | Transcripts | [youtubei.js](https://github.com/LuanRT/YouTube.js) directly against YouTube caption tracks |
 
@@ -180,7 +180,7 @@ The in-app chat stays local (Ollama). When you want a frontier model (Claude, GP
 Claude Code ──▶ POST /mcp  (Streamable HTTP + admin-token Bearer)
                 │
                 ▼
-              Strapi official MCP server (24 custom tools)
+              Strapi official MCP server (29 custom tools)
               ├── listVideos / getVideo / searchVideos / addVideo / saveSummary
               ├── listTranscripts / getTranscript / searchTranscript / findTranscripts / fetchTranscript
               ├── listTags / tagVideo / untagVideo / saveNote / getMusicData
@@ -200,7 +200,15 @@ Claude Code ──▶ POST /mcp  (Streamable HTTP + admin-token Bearer)
 
 Full walkthrough (Claude Desktop, Cursor, MCP Inspector, token minting) in [`docs/mcp.md`](./docs/mcp.md).
 
-**Design constraint: no tool duplication.** Tools are defined once in `server/src/mcp/tools/` and consumed via MCP. The in-app Ollama chat does not use MCP — it stays on its BM25 + `web_search` path so local inference doesn't pay the protocol overhead. The two worlds meet at the same Strapi data layer, not at the tool definitions.
+**Design constraint: no tool duplication.** The library tools are defined once, in `server/src/mcp/tools/`, and consumed over MCP — by Claude Code and Claude Desktop, and by the app's own library chat. `/api/ask` connects to `/mcp` with [`@tanstack/ai-mcp`](https://tanstack.com/ai/latest) (`client/src/lib/services/strapi-mcp-tools.ts`) and hands three of Strapi's read tools to `chat()`: `crossSearchTranscripts`, `searchVideos` and `getVideo`. The app defines two tools of its own, because neither is a library tool: `load_passages` (bound to the passages one question retrieved, so its results carry that answer's citation numbers) and `kb_web_search` (the video chat's web search). See ADR 0017.
+
+### Two plugins on the same tools
+
+`server/config/plugins.ts` enables two plugins. The TanStack Start app works without either.
+
+- **[`strapi-oauth-mcp-manager`](https://github.com/PaulBratslavsky/strapi-oauth-mcp-manager)** adds OAuth sign-in to `/mcp`, so an MCP client can connect without a pasted token: `claude mcp add --transport http music-kb http://localhost:1350/mcp`, then authenticate in the browser and pick an admin token. A pasted admin token keeps working. Clients are managed on the **MCP OAuth** page in the admin.
+- **[`strapi-plugin-tanstack-ai`](https://github.com/PaulBratslavsky/strapi-plugin-tanstack-ai)** adds a chat page to the admin (**TanStack AI**) and eight cross-type content tools on `/mcp`. The chat gets Music KB's 19 read tools from `server/src/api/music-kb-mcp/services/chat-tools.ts`, which maps `src/mcp/catalog.ts` and defines no tool, and calls them inside Strapi, without MCP. The 10 write and maintenance tools stay on `/mcp` only. Each tool is gated by the same admin action as on `/mcp`. The chat uses Claude when the server has `ANTHROPIC_API_KEY`, the local Ollama chat model otherwise. Its chat needs Strapi 5.53 or later (see `docs/mcp.md`).
+
 
 ---
 
@@ -212,6 +220,7 @@ Full walkthrough (Claude Desktop, Cursor, MCP Inspector, token minting) in [`doc
 |---|---|---|
 | `STRAPI_URL` | `http://localhost:1350` | Local Strapi |
 | `STRAPI_API_TOKEN` | *(empty)* | Optional bearer token for locked-down deployments |
+| `STRAPI_MCP_TOKEN` | *(empty)* | Optional **admin** token for Strapi's MCP server. The library chat (`/api/ask`) uses it to load `crossSearchTranscripts`, `searchVideos` and `getVideo` from Strapi over MCP. Mint it with the "Mint a token for the app" recipe in [`docs/mcp.md`](./docs/mcp.md). Empty = the library chat answers with `load_passages` only |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama endpoint (the `/v1` suffix is stripped for the TanStack AI adapter, but kept for env-file portability) |
 | `OLLAMA_MODEL` | `gemma4-kb:latest` | Summary generation model |
 | `OLLAMA_CHAT_MODEL` | *(inherits `OLLAMA_MODEL`)* | Separate model for chat Q&A if you want one |
