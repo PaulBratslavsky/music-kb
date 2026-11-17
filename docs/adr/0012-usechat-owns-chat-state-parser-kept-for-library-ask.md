@@ -7,7 +7,11 @@ given below — that no channel carries a message id to correlate a pre-message
 citation — was inferred from `onCustomEvent`'s type and is wrong about the
 stream as a whole: `TEXT_MESSAGE_START` carries `messageId`. Everything else
 here still holds. Supersedes the hand-rolled stream reducers. Builds on ADR 0011
-(per-request model choice).
+(per-request model choice). Partly superseded again (2026-11-16) by
+[ADR 0016](./0016-tanstack-ai-1x-custom-events-and-system-prompts.md): the
+routes now read the request with `chatParamsFromRequest`, not
+`chatParamsFromRequestBody`, and library-ask sends its citations as an AG-UI
+`CUSTOM` event that names its message.
 
 ## Context
 

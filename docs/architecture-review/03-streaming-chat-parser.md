@@ -1,5 +1,7 @@
 # 3. Streaming Chat Parser Module — turn raw SSE into a typed event stream
 
+> **Note (2026-11-16):** This review was written for TanStack AI 0.x. The parser it describes was deleted in August 2026, when all three chats moved to `useChat` (ADR 0013), and commit `36c966a` has since moved every `@tanstack/ai*` package to 1.x. For the current state, read [ADR 0016](../adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md) and [`docs/ai-architecture.md`](../ai-architecture.md).
+
 **Status:** ✅ Shipped 2026-05-05. New module: `client/src/lib/services/chat-stream.ts`.
 
 ## Files

@@ -1,5 +1,7 @@
 # MCP tool: auto-rewrite drifted citations
 
+> **Note (2026-11-16):** This plan was written while the app used TanStack AI 0.x. Its streaming follow-up names SSE events from that time. In 1.x, the app sends its own events as AG-UI `CUSTOM` events from chat middleware, which is how `/api/ask` sends citations. For the current state, read [ADR 0016](./adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md) and [`docs/ai-architecture.md`](./ai-architecture.md).
+
 **Status:** Shipped 2026-06-12 — option A (server-side duplicate of `verifyTimecodesInText` in `server/src/services/bm25-search.ts`; tool at `server/src/mcp/tools/verify-citations.ts`, includes `ungrounded` per decision #3).
 **Created:** 2026-05-05.
 **Origin:** Architecture review candidate [#6 Citation Grounding](./architecture-review/06-citation-grounding.md) — `verifyTimecodesInText` in `client/src/lib/services/transcript.ts:812` was found to be unused production code. Kept on purpose because of this planned feature.

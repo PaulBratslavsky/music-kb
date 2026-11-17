@@ -1,5 +1,7 @@
 # Architecture audit — 2026-05-09
 
+> **Note (2026-11-16):** This audit was written for TanStack AI 0.x. Commit `36c966a` has since moved every `@tanstack/ai*` package to 1.x, and `chat-stream.ts`, `useLibraryChat` and the `CITATIONS` frame no longer exist. For the current state, read [ADR 0016](./adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md) and [`docs/ai-architecture.md`](./ai-architecture.md).
+
 ## Summary
 
 Six candidates surfaced, ranked strongest first. Three are **strong** — the

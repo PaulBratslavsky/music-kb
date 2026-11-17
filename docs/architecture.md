@@ -4,7 +4,7 @@ Deep dive into how music-kb is wired. Covers data model, generation pipeline, re
 
 > **Where to look first:**
 > - **Setup + usage:** [README](../README.md).
-> - **Why the codebase looks the way it does:** [`./adr/`](./adr/) — ten ADRs covering local-first AI, Strapi, BM25-vs-embeddings, deterministic timecodes, hybrid scoring, digest upsert, error translation, the official Strapi MCP server, the monorepo's shared music package, and why the duplicated retrieval core is guarded rather than shared.
+> - **Why the codebase looks the way it does:** [`./adr/`](./adr/) — sixteen ADRs, listed in [`./adr/README.md`](./adr/README.md). They cover local-first AI, Strapi, BM25-vs-embeddings, deterministic timecodes, hybrid scoring, digest upsert, error translation, the official Strapi MCP server, the monorepo's shared music package, the guarded duplicate retrieval core, the model switcher, the chat component and its transcripts, lesson writes, and the TanStack AI 1.x move.
 > - **Field-by-field schema reference:** [`./data-model.md`](./data-model.md). Section 2 below is a short overview; the detailed table is there.
 > - **When something breaks:** [`./operations.md`](./operations.md) (runbook).
 > - **MCP integration:** [`./mcp.md`](./mcp.md).
@@ -32,6 +32,12 @@ Deep dive into how music-kb is wired. Covers data model, generation pipeline, re
 > - **Unified score writer** (`applyVideoScoreUpdateService` in `videos.ts`) — the only partial-score write surface; derives `finalScore` internally for every kind of update. `updateVideoSummaryService` derives it for the full-summary write. Callers never compute `finalScore`.
 > - **Generation spine seams** (`learning.ts`) — `resolveTranscriptForGeneration`, `saveSummaryWithScores`, `refreshVideoEmbeddings` are named steps composed by `generateVideoSummary`.
 > - **Chat SSE transport** (`chat-stream.ts`) now carries `citations` events, owns `friendlyOllamaError` translation + non-OK body extraction, and surfaces `RUN_ERROR` frames as thrown errors; all four streaming consumers (`VideoChat`, `DigestChat`, `useLibraryChat`, `NoteComposer`) parse through it.
+
+> **TanStack AI 1.x note (2026-11-16):** the chat transport in the two notes above no longer exists. Commit `36c966a` moved every `@tanstack/ai*` package to 1.x ([ADR 0016](./adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md)). The current homes are:
+> - **Chat client:** `client/src/components/chat/Chat.tsx` calls `useChat({ connection: fetchServerSentEvents(endpoint), threadId, … })` from `@tanstack/ai-react`, and `useChat` parses the AG-UI stream. `VideoChat`, `DigestChat` and `LibraryChat` all render `<Chat>`. `chat-stream.ts` was renamed to `chat-errors.ts` in August 2026 and now holds only the client half of error translation.
+> - **Chat routes:** `api.chat.tsx`, `api.digest-chat.tsx` and `api.ask.tsx` read the request with `chatParamsFromRequest(request)`. Every `chat()` call passes `systemPrompts` and a `threadId`.
+> - **Library chat citations:** `/api/ask` sends them as an AG-UI `CUSTOM` event named `library-ask:citations`, and `LibraryChat.tsx` reads it with `onCustomEvent`. The contract is in `client/src/lib/services/citations.ts`.
+> - **Embeddings:** `client/src/lib/services/embeddings.ts` and `server/src/mcp/utils/embeddings.ts` both call TanStack AI's `embed()` with `createOllamaEmbedding`.
 
 ---
 
@@ -304,14 +310,14 @@ const SummarySchema = z.object({
   })),
 });
 
+// client/src/lib/services/learning.ts (single-pass summary, trimmed)
 const object = await chat({
-  adapter: ollamaAdapter,
-  outputSchema: SummarySchema,
-  messages: [
-    { role: 'system', content: SUMMARY_SYSTEM },
-    { role: 'user', content: transcript.transcript },
-  ],
-  temperature: 0.3,
+  adapter: model.adapter,
+  systemPrompts: [SUMMARY_SYSTEM],                    // the adapter puts this before the messages
+  messages: [{ role: 'user', content: userPrompt }],
+  threadId: `summary:${transcript.videoId}`,          // required in TanStack AI 1.x
+  outputSchema: SummarySchema,                        // chat() resolves to the parsed object
+  modelOptions: model.modelOptions(0.3),              // temperature 0.3, nested for Ollama
 });
 ```
 
@@ -383,21 +389,27 @@ Chunks that surface across multiple phrasings rise to the top. Handles score-sca
 
 ### 6.2 Streaming endpoint
 
-> The server-side framing uses TanStack AI's `toServerSentEventsResponse(stream)`. Client-side parsing of the AG-UI event stream into a typed `StreamEvent` union (`text | tool_start | tool_end | citations`) lives in `client/src/lib/services/chat-stream.ts` and is the single transport for every streaming consumer (`VideoChat.tsx`, `DigestChat.tsx`, `useLibraryChat`, `NoteComposer`). The parser owns transport-level error handling: non-OK responses throw with the upstream body detail, and `RUN_ERROR` frames throw a `friendlyOllamaError`-translated error instead of being silently dropped.
+> The server-side framing uses TanStack AI's `toServerSentEventsResponse(stream)`. On the client, `client/src/components/chat/Chat.tsx` calls `useChat({ connection: fetchServerSentEvents(endpoint), threadId, … })` from `@tanstack/ai-react`, and `useChat` parses the AG-UI stream. `VideoChat.tsx`, `DigestChat.tsx` and `LibraryChat.tsx` all render `<Chat>`. The server translates a failed run before it reaches the wire: each route wraps the stream in `withFriendlyErrors(model, stream, …)` from `stream-errors.ts`, which uses the error mapper of the model that answered. `chat-errors.ts` translates, on the client, the transport failures the server never saw. `NoteComposer` does not stream: it posts JSON to `/api/notes/compose` and receives `{ markdown }`.
 
-`client/src/routes/api.chat.tsx` is a TanStack Start file-based route that returns an **AG-UI-format** SSE stream:
+`client/src/routes/api.chat.tsx` is a TanStack Start file-based route that returns an **AG-UI-format** SSE stream. A trimmed example, showing only the AG-UI spec fields:
 
 ```
-data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"...","delta":"Hello "}
+data: {"type":"TEXT_MESSAGE_START","messageId":"msg-…","role":"assistant"}
 
-data: {"type":"TOOL_CALL_START","toolCallId":"t_1","name":"web_search"}
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-…","delta":"Hello "}
 
-data: {"type":"TOOL_CALL_END","toolCallId":"t_1","result":"..."}
+data: {"type":"TOOL_CALL_START","toolCallId":"t_1","toolCallName":"kb_web_search"}
 
-data: [DONE]
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"t_1","delta":"{\"query\":\"…\"}"}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"t_1"}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"…","toolCallId":"t_1","content":"…"}
+
+data: {"type":"RUN_FINISHED","threadId":"…","runId":"…"}
 ```
 
-The server expands the client's message history into a proper ModelMessage sequence so the model sees its own prior tool calls:
+The route reads the request with `chatParamsFromRequest(request)`. That function validates the AG-UI `RunAgentInput` body and returns `messages` ready for `chat()`, with each assistant tool-call turn and its tool results rebuilt, so the model sees its own prior tool calls. `dropOrphanToolCalls` then removes any tool call that has no result ([ADR 0012](./adr/0012-usechat-owns-chat-state-parser-kept-for-library-ask.md)). The rebuilt sequence has this shape:
 
 ```ts
 // For each assistant message with tool calls:
@@ -415,7 +427,7 @@ Defined with TanStack AI's `toolDefinition` builder. Zero client plumbing — th
 ```ts
 // lib/services/chat-tools.ts
 export const webSearchTool = toolDefinition({
-  name: 'web_search',
+  name: 'kb_web_search',
   description: 'Search the public web ... Use this sparingly...',
   inputSchema: z.object({ query: z.string().min(2).max(200) }),
   outputSchema: z.object({
@@ -569,10 +581,10 @@ Where to plug in new features without tearing out existing scaffolding.
 | Feature | Plug-in point |
 |---|---|
 | Swap the LLM | Change `OLLAMA_MODEL` (or `OLLAMA_CHAT_MODEL`) — everything is routed through `@tanstack/ai-ollama` |
-| Use a non-Ollama adapter | Replace `createOllamaChat(...)` calls in `learning.ts` and `api.chat.tsx` with any [TanStack AI adapter](https://tanstack.com/ai/latest) |
+| Use a non-Ollama adapter | Adapters are built in two modules only: `model-policy.ts` calls `createOllamaChat` and `frontier-model.ts` calls `createAnthropicChat` (pinned by `model-policy.test.ts`). Add any [TanStack AI adapter](https://tanstack.com/ai/latest) there |
 | Use embeddings instead of BM25 | `getChatEvidence` in `chat-retrieval.ts` is the single injection point; `buildBM25Index` and `StoredTranscriptIndex` would be the replacements |
 | Add a new tool | Follow `webSearchTool` — define with `toolDefinition`, export from `chat-tools.ts`, pass into `chat({ tools: [...] })` in `api.chat.tsx`. (For MCP-side tools, follow the pattern in `server/src/mcp/tools/`.) |
-| Add a new chat surface | Read events with `streamChatSSE(response)` from `lib/services/chat-stream.ts`; control the player via `usePlayerControl()` from `components/player/`. |
+| Add a new chat surface | Render `<Chat>` from `components/chat/Chat.tsx` with an `endpoint`, a `surface` and a stable `threadId`. In the route, read the request with `chatParamsFromRequest(request)`, pass `systemPrompts` and the request's `threadId` to `chat()`, and wrap the stream in `withFriendlyErrors`. Control the player via `usePlayerControl()` from `components/player/`. |
 | Add a new generation pipeline | Wrap your async work in `ensureGenerationRunning(videoId, run, hooks?)` from `generation-state.ts`. Hooks let you inject persistence at start / terminal-throw boundaries. |
 | Postgres instead of SQLite | Set `DATABASE_CLIENT=postgres` + connection vars in `server/.env` — Strapi handles the rest |
 | Different transcript source | Replace `fetchYouTubeTranscript` in `lib/services/youtube-transcript.ts`; keep the `TimedTextSegment[]` return shape |
@@ -590,24 +602,24 @@ client/src/
 │   ├── DigestChat.tsx             — chat over a /digest
 │   ├── EmbeddingCoveragePanel.tsx — Settings: embedding backfill (Tier 1 + Tier 2)
 │   ├── GenerationModeSelect.tsx   — shared mode selector
-│   ├── LibraryChat.tsx            — dock-style cross-video chat (consumes useLibraryChat)
+│   ├── LibraryChat.tsx            — cross-video chat in a drawer; renders <Chat>, reads citations with onCustomEvent
 │   ├── NewPostForm.tsx            — /new-post form
 │   ├── NotesPane.tsx              — Notes tab on learn page
 │   ├── SectionTimecodeEditor.tsx  — right-click manual timecode override
 │   ├── TimecodeMarkdown.tsx       — renderer that chip-ifies [mm:ss]
 │   ├── TranscriptPane.tsx         — transcript tab + per-video substring search
 │   ├── VideoCard.tsx              — feed/grid card with verdict + Content score chip
-│   ├── VideoChat.tsx              — per-video chat UI, SSE parser, tool-call panel
+│   ├── VideoChat.tsx              — per-video chat; renders <Chat>, adds the tool-call panel and evidence
+│   ├── chat/Chat.tsx              — the one chat component: useChat + fetchServerSentEvents
 │   └── player/                    — react-player wrapper + Context + usePlayerControl()
 ├── data/server-functions/
 │   └── videos.ts                  — shareVideo, trigger, regenerate, score backfills, notes
-├── lib/hooks/
-│   └── useLibraryChat.ts          — library chat state + SSE + localStorage persistence
 ├── lib/services/
 │   ├── ask-library.ts             — Tier 2 passage retrieval for /api/ask
 │   ├── chat-retrieval.ts          — rewrite + multi-query BM25 + RRF (per-video chat)
-│   ├── chat-stream.ts             — AG-UI SSE → typed StreamEvent generator
-│   ├── chat-tools.ts              — web_search toolDefinition
+│   ├── chat-errors.ts             — client half of chat error translation (transport failures)
+│   ├── citations.ts               — /api/ask citations: CUSTOM event name, value type, type guard
+│   ├── chat-tools.ts              — kb_web_search toolDefinition
 │   ├── content-signals.ts         — programmatic score signals (filler, lexical, etc)
 │   ├── digest.ts / digests.ts     — digest synthesis pipeline + Strapi service
 │   ├── embeddings.ts              — Tier 1 per-video topical embedding
@@ -689,10 +701,11 @@ question → retrievePassagesForQuery (Tier 2 embeddings, top-k passages
          → buildLibraryTools (load_passages / search_library / get_video_details
                               / list_videos_by_topic — escape hatches)
          → chat() with progressive retrieval prompt
-         → SSE stream with CITATIONS frame up-front + text deltas
+         → AG-UI SSE stream; a chat middleware emits a CUSTOM event
+           `library-ask:citations` at each TEXT_MESSAGE_START
 ```
 
-Implementation in `client/src/routes/api.ask.tsx` (server) and `client/src/lib/hooks/useLibraryChat.ts` (client SSE consumer + persistence). Library chat panel survives navigation (state in localStorage) and is dock-style on every page.
+The server is `client/src/routes/api.ask.tsx`. The route retrieves the passages before the model writes, so it knows the citations before the answer starts. A chat middleware's `onChunk` emits them as an AG-UI `CUSTOM` event with the value `{ messageId, citations, model }`, and takes `messageId` from the `TEXT_MESSAGE_START` chunk. The client is `client/src/components/LibraryChat.tsx`, a button that opens a drawer holding the shared `<Chat>` component. `LibraryChat` reads the event with `onCustomEvent` and stores the citations by message id. The contract is in `client/src/lib/services/citations.ts`. The transcript is stored in Strapi through `components/chat/server-persistence.ts` ([ADR 0014](./adr/0014-chat-transcripts-in-strapi-not-localstorage.md)). See [ADR 0016](./adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md).
 
 ### 11.4 Digest pipeline
 
@@ -717,16 +730,16 @@ Code in `client/src/lib/services/notes.ts`, `client/src/components/NotesPane.tsx
 
 ### 11.6 MCP server
 
-24 tools (videos, transcripts, tags, notes, music data) served by the **official Strapi MCP server** (built into 5.47+) at `/mcp`, gated by admin API tokens. Registered from `server/src/index.ts` via the adapter in `server/src/mcp/` (`adapter.ts` + `catalog.ts`), reusing the tool bodies in `server/src/mcp/tools/`. Drives the knowledge base from Claude Desktop / Code / Cursor when you want a frontier model. **Tool implementations are defined once** — the in-app Ollama chat does not use MCP. The hand-rolled `/api/mcp` server was retired ([ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md)). See [`./mcp.md`](./mcp.md).
+29 tools (videos, transcripts, tags, notes, music data, lessons) served by the **official Strapi MCP server** (built into 5.47+) at `/mcp`, gated by admin API tokens. Registered from `server/src/index.ts` via the adapter in `server/src/mcp/` (`adapter.ts` + `catalog.ts`), reusing the tool bodies in `server/src/mcp/tools/`. Drives the knowledge base from Claude Desktop / Code / Cursor when you want a frontier model. **Tool implementations are defined once** — the in-app Ollama chat does not use MCP. The hand-rolled `/api/mcp` server was retired ([ADR 0008](./adr/0008-official-strapi-mcp-over-hand-rolled.md)). See [`./mcp.md`](./mcp.md).
 
 ### 11.7 Boundary-layer error translation
 
 Two helpers translate raw failures into recovery hints — see [ADR 0007](./adr/0007-error-translation-strapi-ollama.md).
 
 - **Strapi:** `friendlyBackendError(status, raw)` in `videos.ts`. Service helpers `fetchVideoByVideoIdWithStatusService` / `fetchVideoByDocumentIdWithStatusService` return `{ video, error }` so route loaders can render the shared `BackendErrorPanel` instead of falling back to "empty" / "not found". `PaginatedVideos` carries an optional `error` field.
-- **Ollama:** `friendlyOllamaError(raw)` in `client/src/lib/services/ollama-errors.ts`. Pattern-matches host-unreachable / model-not-found / timeout. Wired into `useLibraryChat`, `VideoChat`, `DigestChat`, and the `FailedState` on the learn page.
+- **Ollama:** `friendlyOllamaError(raw)` in `client/src/lib/services/ollama-errors.ts`. Pattern-matches host-unreachable / model-not-found / timeout. Used by the `FailedState` on the learn page, and by `friendlyStreamError` in `chat-errors.ts`, which `<Chat>` and `NoteComposer` call for transport failures. A failed chat run is translated on the server by `withFriendlyErrors` in `stream-errors.ts`, with the mapper of the model that answered.
 
-New chat surfaces should pipe caught errors through `friendlyOllamaError` before `setError`; new route loaders should use the `*WithStatusService` helpers and render `BackendErrorPanel` on failure.
+New chat surfaces should render `<Chat>` and wrap their route's stream in `withFriendlyErrors`; new route loaders should use the `*WithStatusService` helpers and render `BackendErrorPanel` on failure.
 
 ### 11.8 Per-video transcript search
 

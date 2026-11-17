@@ -1,7 +1,13 @@
 # 0013. One `<Chat>` component across all three surfaces
 
 **Status:** Accepted (2026-08-29). Supersedes ADR 0012's decision to keep
-library-ask on the hand-rolled parser.
+library-ask on the hand-rolled parser. Partly superseded (2026-11-16) by
+[ADR 0016](./0016-tanstack-ai-1x-custom-events-and-system-prompts.md): the
+decision "Custom frames are reconciled in the transport" no longer holds.
+`/api/ask` now sends its citations as an AG-UI `CUSTOM` event from chat
+middleware, and `createCapturingFetcher`, its custom fetcher and the
+`ask-wire-0.52.json` fixture are deleted. The one `<Chat>` component and
+`/api/ask` speaking AG-UI still hold.
 
 ## Context
 

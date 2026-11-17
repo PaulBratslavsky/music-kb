@@ -2,6 +2,8 @@
 
 # One chat component
 
+> **Note (2026-11-16):** This proposal was written for TanStack AI 0.x. Commit `36c966a` has since moved every `@tanstack/ai*` package to 1.x, and `/api/ask` now sends its citations as an AG-UI `CUSTOM` event. So its file names, line numbers and API names may not match the code. For the current state, read [ADR 0016](./adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md) and [`docs/ai-architecture.md`](./ai-architecture.md).
+
 ## The answer in three sentences
 
 Build one in-repo `<Chat>` component on `useChat` — do **not** adopt `@tanstack/ai-react-ui` — and give it seven props plus one render-prop; `VideoChat`, `DigestChat` and `LibraryChat` become three call sites of it, and LibraryChat's FAB/drawer becomes a shell *around* it rather than a variant *of* it. The one blocker that made the earlier "do not migrate library-ask" verdict look right (`docs/tanstack-ai-upgrade-plan.md`, §2 table row 3) is the bespoke pre-text `CITATIONS` frame; it dissolves once citations move to `TEXT_MESSAGE_START.metadata` as **pointers, not payloads**, and `answeredBy` turns out to need no work at all because it already arrives as `metadata.tanstack.model`. `/api/ask` also has to start accepting `messages[]` — not as a concession to the component, but because it is a shipped bug: `useLibraryChat.ts:95` posts only `{question, modelChoice}`, so every follow-up in a threaded UI is answered cold.

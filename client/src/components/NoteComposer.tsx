@@ -41,10 +41,10 @@ type Props = {
   onSaved: () => void;
 };
 
-// Issue the compose request and yield text deltas. Wire framing +
-// AG-UI parsing (including non-OK body extraction and RUN_ERROR
-// translation) live in `chat-stream.ts`; this wrapper owns only the
-// request shape for the note-composer endpoint.
+// Send the compose request and return the note's Markdown. The route
+// answers with JSON, not a stream. Error translation lives in
+// `chat-errors.ts`; this wrapper owns only the request shape for the
+// note-composer endpoint.
 async function compose(
   input: {
     videoId: string;

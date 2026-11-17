@@ -27,7 +27,7 @@ Forked from [yt-knowledge-base](https://github.com/) and reshaped for music lear
 | Layer | Tech |
 |---|---|
 | Client | [TanStack Start](https://tanstack.com/start) 1.168 + [Router](https://tanstack.com/router) 1.170, React 19, [Tailwind v4](https://tailwindcss.com), [Radix UI](https://www.radix-ui.com) |
-| AI (in-app) | [TanStack AI](https://tanstack.com/ai/latest) 0.45 + `@tanstack/ai-ollama` 0.9 — both pinned **exactly**, not caret: on a pre-1.0 line the core and the adapter must move as a matched pair |
+| AI (in-app) | [TanStack AI](https://tanstack.com/ai/latest) 1.4.0, with `@tanstack/ai-react` 1.0.2, `@tanstack/ai-ollama` 1.1.1 and `@tanstack/ai-anthropic` 1.1.1. Each `@tanstack/ai*` package is pinned **exactly**, not with a caret. The Strapi server uses `@tanstack/ai` 1.4.0 and `@tanstack/ai-ollama` 1.1.1 only for `embed()`. The docs' [Upgrade to 1.0](https://tanstack.com/ai/latest/docs/migration/v1) guide says to move every `@tanstack/ai*` package to 1.x at the same time, because a 1.0 client needs a 1.0 server |
 | Chat/summary model | Any Ollama chat model — default `gemma4-kb:latest` (custom [Gemma 4](https://ollama.com/library/gemma4) Modelfile, Q4) |
 | Embedding model | [`nomic-embed-text`](https://ollama.com/library/nomic-embed-text) via Ollama (768-dim, ~137MB). One vector per video; cosine similarity in-memory |
 | Backend | [Strapi 5](https://strapi.io) (5.52, SQLite for dev, Neon Postgres for prod — a `NODE_ENV` split in `server/config/database.ts`) |

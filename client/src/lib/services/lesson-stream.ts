@@ -1,12 +1,11 @@
 // SSE parser for the two lesson-generation streams (`/api/lesson-plan`,
-// `/api/lesson-write`). The server emits `data: <json>\n\n` blocks, same
-// wire shape as chat-stream.ts's AG-UI parser, but the payload here is
+// `/api/lesson-write`). The server emits `data: <json>\n\n` blocks, the
+// same SSE framing the chat routes use, but the payload here is
 // this app's own `LessonProgressEvent` / `LessonPlanFrame` vocabulary
 // (server: lesson-generation.ts, api.lesson-plan.tsx), not AG-UI's —
-// there's no chat text to accumulate, no citations, no tool calls. Kept as
-// a separate module from chat-stream.ts rather than folding one into the
-// other: the two wire formats are unrelated and forcing a shared parser
-// would just mean two dialects behind one function.
+// there's no chat text to accumulate, no citations, no tool calls. The chat
+// surfaces read their AG-UI stream through `useChat` from
+// `@tanstack/ai-react`, so this is the only hand-written SSE parser left.
 
 import type { LessonPlanFrame } from '#/routes/api.lesson-plan';
 import type { LessonProgressEvent } from '#/lib/services/lesson-generation';

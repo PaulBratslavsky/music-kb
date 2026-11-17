@@ -8,23 +8,30 @@ Companion to `docs/architecture.md` (the general deep dive) and `docs/mcp.md`
 
 ## The one-sentence version
 
-**Every model call lives in `client/`. Strapi calls a model exactly once — to
-build an embedding — and does it with a raw `fetch`, no SDK.**
+**Every chat model call lives in `client/`. Strapi calls a model for one job
+only, building an embedding, and does it with TanStack AI's `embed()`.**
 
 ## Package boundary
 
 | | `client/` | `server/` (Strapi) |
 |---|---|---|
-| `@tanstack/ai` | 0.45.1 | — |
-| `@tanstack/ai-ollama` | 0.9.1 | — |
-| `@tanstack/ai-anthropic` | 0.16.6 | — |
-| Model calls | all of them | one raw `fetch` to `/api/embeddings` |
+| `@tanstack/ai` | 1.4.0 | 1.4.0 |
+| `@tanstack/ai-react` | 1.0.2 | — |
+| `@tanstack/ai-ollama` | 1.1.1 | 1.1.1 |
+| `@tanstack/ai-anthropic` | 1.1.1 | — |
+| Model calls | every `chat()` call, plus `embed()` in `services/embeddings.ts` | `embed()` in `server/src/mcp/utils/embeddings.ts` |
 
-`@tanstack/ai-anthropic` is pinned at **0.16.6**, not 0.17.0: 0.17.0 declares a
-peer of `@tanstack/ai@^0.47.3` and throws at import against the pinned 0.45.1
-(`adapter-internals` doesn't export `assertUniqueToolNames` until after 0.45.1).
-Bumping the core to chase it is its own task — see
-`docs/tanstack-ai-upgrade-plan.md`.
+Every `@tanstack/ai*` package is pinned exactly, with no caret, in both
+`package.json` files. The docs'
+[Upgrade to 1.0](https://tanstack.com/ai/latest/docs/migration/v1) guide says to
+move every `@tanstack/ai*` package to 1.x at the same time, because a 1.0
+client needs a 1.0 server. So a bump changes both columns of this table in one
+commit.
+
+The Strapi server compiles to CommonJS, and `@tanstack/ai` and
+`@tanstack/ai-ollama` ship as ES modules only. So
+`server/src/mcp/utils/embeddings.ts` loads them with a `Function`-built
+`import()`, which survives compilation.
 
 ## How a TanStack AI call is assembled
 
@@ -35,18 +42,40 @@ Three layers, in every AI surface:
    lesson generation calls `resolveLessonModel()`. Those two modules are the
    only ones in `client/` that call `createOllamaChat` / `createAnthropicChat`
    — pinned by `services/model-policy.test.ts`.
-2. **`chat({ adapter, messages, tools, modelOptions })`** — the single entry point.
-   Tools declared with `toolDefinition()` are auto-executed server-side by the
-   agent loop; the model's tool call never reaches the browser.
-3. **Transport** — `toServerSentEventsResponse()` on the route, parsed back into a
-   typed `StreamEvent` iterator by `client/src/lib/services/chat-stream.ts`. That
-   parser is the one transport for every streaming consumer (`VideoChat`,
-   `DigestChat`, `useLibraryChat`, `NoteComposer`); it exists because the four had
-   drifted apart on field names.
+2. **`chat({ adapter, messages, systemPrompts, threadId, tools, modelOptions })`**
+   — the single entry point. `systemPrompts` carries the system prompt, and
+   `messages` holds only user, assistant and tool turns. The Ollama adapter puts
+   `systemPrompts` first as one system message, and the Anthropic adapter sends
+   them as its `system` parameter, so no call site branches on the tier.
+   `threadId` is required in 1.x. Tools declared with `toolDefinition()` are
+   auto-executed server-side by the agent loop; the model's tool call never
+   reaches the browser.
+3. **Transport** — the route returns `toServerSentEventsResponse()`. On the
+   client, `components/chat/Chat.tsx` calls `useChat` from `@tanstack/ai-react`
+   with `connection: fetchServerSentEvents(endpoint)`, and `useChat` parses the
+   AG-UI stream. `VideoChat`, `DigestChat` and `LibraryChat` all render
+   `<Chat>`. Their three routes (`api.chat.tsx`, `api.digest-chat.tsx`,
+   `api.ask.tsx`) read the request with `chatParamsFromRequest(request)` and pass
+   its `threadId` and `runId` to `chat()`. `NoteComposer` is the exception: it
+   posts plain JSON to `/api/notes/compose`, and that route reads the run with
+   `streamToText()` and returns `{ markdown }`.
 
-Two `@tanstack/ai` 0.45 quirks are encoded in
+`/api/ask` also sends each answer's citations as an AG-UI `CUSTOM` event named
+`library-ask:citations`, with the value `{ messageId, citations, model }`. A chat
+middleware in `routes/api.ask.tsx` emits the event from `onChunk` when it sees a
+`TEXT_MESSAGE_START` chunk, and takes the `messageId` from that chunk.
+`LibraryChat.tsx` reads the event with `useChat`'s `onCustomEvent` and stores
+the citations under that message id. The event name, the value type and its
+type guard are in `services/citations.ts`. See
+[ADR 0016](./adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md).
+
+In 1.x, `chat({ stream: false })` without an `outputSchema` resolves to
+`{ text, chunks }`, not a string, and `streamToText()` resolves to the same
+shape. Call sites destructure `text`.
+
+Two rules from the types of `@tanstack/ai-ollama` 1.1.1 are encoded in
 `client/src/lib/services/ollama-model-options.ts` so call sites don't repeat them:
-sampling knobs moved under `modelOptions.options`, and `model` is a required
+sampling knobs live under `modelOptions.options`, and `model` is a required
 field the adapter never reads.
 
 ## Which model backs which surface
@@ -72,28 +101,44 @@ silently re-point a model for anyone who sets the optional env overrides.
 | `digest-synthesis` | `services/digest.ts` `synthesizeDigest` | `OLLAMA_MODEL` | local default, frontier by inheritance — see below |
 | `digest-article` | `services/digest.ts` `synthesizeDigestArticle` | `OLLAMA_MODEL` | local |
 | *(no key)* | `services/lesson-generation.ts` | **`resolveLessonModel()`** | **frontier or local** |
-| *(no key)* | `services/embeddings.ts` | `OLLAMA_EMBEDDING_MODEL` | local (raw `fetch`, no adapter) |
-| *(no key)* | `server/src/mcp/utils/embeddings.ts` | `OLLAMA_EMBEDDING_MODEL` | local (raw `fetch`, no adapter) |
+| *(no key)* | `services/embeddings.ts` | `OLLAMA_EMBEDDING_MODEL` | local (`embed()` with `createOllamaEmbedding`) |
+| *(no key)* | `server/src/mcp/utils/embeddings.ts` | `OLLAMA_EMBEDDING_MODEL` | local (`embed()` with `createOllamaEmbedding`) |
 
-**Lesson generation is the only surface that can reach a frontier model.** That is
-the documented single exception to local-first (CLAUDE.md, decided 2026-08-21):
-`resolveLessonModel()` in `services/lesson-model.ts` returns an Anthropic adapter
-when `ANTHROPIC_API_KEY` is set and an Ollama adapter when it isn't. Both tiers run
-the identical staged pipeline, so the two are comparable rather than divergent code
-paths. `ANTHROPIC_API_KEY` is read once, there, and never appears as a property of
-the returned model — only the constructed adapter, the tier, and the model id.
+**Five surfaces can reach a frontier model: lesson generation and the four chat
+surfaces.** Lesson generation became the first exception to local-first on
+2026-08-21 (CLAUDE.md). ADR 0011 added the four chat surfaces on 2026-08-27.
+
+- **Lesson generation** calls `resolveLessonModel()` in `services/frontier-model.ts`.
+  It returns an Anthropic adapter when `ANTHROPIC_API_KEY` is set and an Ollama
+  adapter when it isn't. Both tiers run the same staged pipeline, so the two
+  results are comparable.
+- **The chat surfaces** are `SWITCHABLE_SURFACES` in `services/model-policy.ts`:
+  `video-chat`, `digest-chat`, `library-ask` and `note-compose`. Each one calls
+  `resolveChatModel()` in `services/frontier-model.ts` through
+  `services/chat-model-request.ts`. Each one uses the local model unless the user
+  picks another one. The browser sends a choice token (`'default'`, `'local:<id>'`
+  or `'frontier'`), never a model id and never a key.
+- **Every other surface** is in `LOCAL_ONLY_SURFACES` and has no way to reach a
+  frontier model.
+
+`frontier-model.ts` reads `ANTHROPIC_API_KEY` and never puts it on the returned
+model. The returned model carries only the adapter, the tier and the model id.
 (The adapter's own SDK client *does* hold the key at `.client.apiKey`, at Node's
 default inspect depth, so the frontier object carries `toJSON` + a custom-inspect
 hook to keep a stray `console.log(model)` from printing it.)
 
-**The exception is enforced in the type system, not by convention.**
+**The rule is enforced by types and tests, not by convention.**
 `resolveModel(surface)` accepts only a `LocalSurface` and returns only a
-`LocalModel`; there is no `'lesson'` key and no `Surface` union to widen. Three
-source-text guards in `services/model-policy.test.ts` close the routes around it:
-only `model-policy.ts` may call `createOllamaChat`, only `lesson-model.ts` may
-call `createAnthropicChat` or import `ANTHROPIC_API_KEY`, and `resolveLessonModel`
-has exactly one importer (`lesson-generation.ts`). Promoting a surface therefore
-takes a code change in two named modules *and* turns a test red.
+`LocalModel`. Source-text guards in `services/model-policy.test.ts` pin the rest:
+
+- Only `model-policy.ts` calls `createOllamaChat`.
+- Only `frontier-model.ts` calls `createAnthropicChat` or imports `ANTHROPIC_API_KEY`.
+- `resolveLessonModel` has exactly one importer: `lesson-generation.ts`.
+- `resolveChatModel` is imported only by the switchable-surface entry point,
+  `chat-model-request.ts`.
+
+So a surface can only be moved to a frontier model with a code change in these
+named modules, and that change turns a test red.
 
 **The one honest caveat:** `synthesizeDigest` takes an optional `ResolvedModel`,
 and lesson generation passes its own — so digest synthesis *is* frontier-reachable
@@ -106,9 +151,12 @@ Tier-specific behaviour travels **on** the resolved model rather than beside it:
 Anthropic models 400 on `temperature`), `model.friendlyError(raw)` (the echoing
 `friendlyOllamaError` vs. the never-echoing `friendlyAnthropicError`), and
 `model.redact(raw)`. Pairing the wrong mapper with a tier is unrepresentable.
-The four SSE surfaces are the gap this cannot close — they map errors
-*client-side*, hardcoded at `chat-stream.ts`, which is correct only because all
-four are `LocalSurface`s.
+The four interactive routes (`api.chat.tsx`, `api.digest-chat.tsx`,
+`api.ask.tsx`, `api.notes.compose.tsx`) wrap the `chat()` stream in
+`withFriendlyErrors(model, stream, …)` from `services/stream-errors.ts`. So the
+server translates a failed run with the mapper of the model that answered.
+`services/chat-errors.ts` translates, on the client, only the transport failures
+the server never saw.
 
 ## The two tool systems
 

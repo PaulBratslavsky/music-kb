@@ -2,8 +2,7 @@
 //
 // The `default` branch returns null on purpose. An AI-generated lesson (phase
 // 2) can name a block that does not exist; degrading to a gap keeps the rest
-// of the lesson readable, where throwing would blank the page. Same stance
-// chat-stream.ts takes toward unknown SSE events.
+// of the lesson readable, where throwing would blank the page.
 
 import { createContext, useContext, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';

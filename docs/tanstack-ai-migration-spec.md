@@ -1,5 +1,7 @@
 # TanStack AI migration — executable spec
 
+> **Note (2026-11-16):** This spec was written for TanStack AI 0.x. Commit `36c966a` has since moved every `@tanstack/ai*` package to 1.x, so its file names, line numbers and API names may not match the code. For the current state, read [ADR 0016](./adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md) and [`docs/ai-architecture.md`](./ai-architecture.md).
+
 **Status:** Ready to execute. Written 2026-08-27, not started.
 **Audience:** a coding agent working alone. Every step is exact; nothing is left to judgement.
 **Companion:** [`tanstack-ai-upgrade-plan.md`](tanstack-ai-upgrade-plan.md) — the assessment

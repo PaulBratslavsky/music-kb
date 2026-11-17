@@ -1,6 +1,6 @@
 # 0011. A model switcher on interactive surfaces; bulk stays local
 
-**Status:** Accepted (2026-08-27). Amends ADR 0001 and CLAUDE.md's local-first rule.
+**Status:** Accepted (2026-08-27). Amends ADR 0001 and CLAUDE.md's local-first rule. Partly superseded (2026-11-16) by [ADR 0016](./0016-tanstack-ai-1x-custom-events-and-system-prompts.md): system prompts are no longer delivered tier-specifically. Every `chat()` call passes them as `systemPrompts`.
 
 ## Context
 

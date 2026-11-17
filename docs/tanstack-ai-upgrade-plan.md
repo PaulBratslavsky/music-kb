@@ -1,5 +1,7 @@
 # TanStack AI upgrade + useChat adoption plan
 
+> **Note (2026-11-16):** This plan was written for TanStack AI 0.x. It covers the move from 0.45 to 0.52 and the `useChat` adoption, which shipped in August 2026 (see the OUTCOME note below and ADR 0012). It is not the 1.x upgrade. Commit `36c966a` did the 1.x upgrade, and ADR 0016 records it. For the current state, read [ADR 0016](./adr/0016-tanstack-ai-1x-custom-events-and-system-prompts.md) and [`docs/ai-architecture.md`](./ai-architecture.md).
+
 **Status:** Proposed, 2026-08-27. Not started.
 **Prompted by:** "would music-kb benefit from useChat — especially when the goal is to take
 advantage of TanStack AI?"
