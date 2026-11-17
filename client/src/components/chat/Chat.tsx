@@ -200,8 +200,8 @@ export function Chat({
       className={`flex min-h-0 flex-col ${className ?? ''}`}
       aria-label={chrome.ariaLabel}
     >
-      <header className="shrink-0 flex items-start justify-between gap-3 pb-4">
-        <div className="min-w-0 flex-1">
+      <header className="shrink-0 flex flex-wrap items-start justify-between gap-3 pb-4">
+        <div className="min-w-[12rem] flex-1">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--ink-muted)]">
             {chrome.title}
           </h2>
@@ -345,6 +345,9 @@ function MessageBubble({
   // An assistant turn with nothing in it yet is the gap between send and first
   // token — show that it is working rather than an empty bubble.
   const isEmpty = content.length === 0 && isStreaming;
+  // A finished turn with no text is a tool-only turn: its tool panel is the
+  // whole message, so no empty bubble is drawn under it.
+  const hasText = content.length > 0;
 
   return (
     <div className="mr-auto min-w-0 max-w-[95%]">
@@ -354,7 +357,7 @@ function MessageBubble({
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-(--ink-muted)" />
           <span>Thinking…</span>
         </div>
-      ) : (
+      ) : !hasText ? null : (
         <div className="chat-md min-w-0 rounded-2xl rounded-bl-sm border border-(--line) bg-(--bg-subtle) px-4 py-3 text-sm leading-relaxed text-[var(--ink)]">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
             {body}

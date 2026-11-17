@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { UIMessage } from '@tanstack/ai';
 import { Accordion } from 'radix-ui';
+import { ChevronDown, Globe, Wrench } from 'lucide-react';
 import { usePlayerControl } from '#/components/player';
 import { buildMarkdownComponents, stripInlineTimecodes } from './TimecodeMarkdown';
 import { Button } from '#/components/ui/button';
@@ -364,69 +365,57 @@ function EvidencePanel({
 // cluttering the reading flow.
 function ToolCallsPanel({ toolCalls }: Readonly<{ toolCalls: ToolCallRecord[] }>) {
   return (
-    <div className="mb-3 grid gap-1.5">
-      <Accordion.Root type="multiple" className="grid gap-1">
-        {toolCalls.map((tc) => (
+    <Accordion.Root type="multiple" className="mb-3 grid gap-2">
+      {toolCalls.map((tc) => {
+        const view = describeToolCall(tc);
+        const Icon = view.Icon;
+        return (
           <Accordion.Item
             key={tc.id}
             value={tc.id}
-            className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--bg-subtle)]"
+            className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--card)] shadow-sm"
           >
             <Accordion.Header className="flex">
-              <Accordion.Trigger className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-[var(--card)]">
-                {tc.status === 'running' ? (
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--ink)]"
-                  />
-                ) : (
-                  <svg
-                    viewBox="0 0 16 16"
-                    width="10"
-                    height="10"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                    className="flex-none text-[var(--ink)]"
-                  >
-                    <path d="M3 8l3.5 3.5L13 5" />
-                  </svg>
-                )}
-                <span className="font-mono text-[0.7rem] font-semibold text-[var(--ink)]">
-                  {tc.name}
+              <Accordion.Trigger className="flex w-full items-start gap-3 px-3.5 py-3 text-left hover:bg-[var(--bg-subtle)]">
+                <span className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
+                  {tc.status === 'running' ? (
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent)]/30 border-t-[var(--accent)]"
+                    />
+                  ) : (
+                    <Icon size={16} aria-hidden="true" />
+                  )}
                 </span>
-                {tc.status === 'running' ? (
-                  <span className="text-[0.65rem] text-[var(--ink-muted)]">running…</span>
-                ) : (
-                  <span className="truncate text-[0.65rem] text-[var(--ink-muted)]">
-                    {summarizeInput(tc.input)}
+                <span className="grid min-w-0 flex-1 gap-0.5">
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-sm font-semibold text-[var(--ink)]">{view.title}</span>
+                    {view.count && (
+                      <span className="rounded-full bg-[var(--bg-subtle)] px-2 py-0.5 text-[0.7rem] font-medium text-[var(--ink-muted)]">
+                        {view.count}
+                      </span>
+                    )}
                   </span>
-                )}
-                <span className="ml-auto text-[var(--ink-muted)]">
-                  <svg
-                    viewBox="0 0 16 16"
-                    width="10"
-                    height="10"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="transition-transform duration-200 [[data-state=open]_&]:rotate-180"
-                    aria-hidden="true"
-                  >
-                    <path d="M4 6l4 4 4-4" />
-                  </svg>
+                  {view.detail && (
+                    <span className="break-words text-sm text-[var(--ink-soft)]">{view.detail}</span>
+                  )}
+                  <span className="mt-0.5 whitespace-nowrap font-mono text-[0.7rem] text-[var(--ink-muted)]">
+                    {tc.name}
+                  </span>
                 </span>
+                <ChevronDown
+                  size={16}
+                  aria-hidden="true"
+                  className="mt-1.5 flex-none text-[var(--ink-muted)] transition-transform duration-200 [[data-state=open]_&]:rotate-180"
+                />
               </Accordion.Trigger>
             </Accordion.Header>
             <Accordion.Content className="overflow-hidden text-xs">
-              <div className="border-t border-[var(--line)] px-3 py-2 text-[var(--ink-soft)]">
+              <div className="border-t border-[var(--line)] px-3.5 py-2.5 text-[var(--ink-soft)]">
                 <div className="mb-1.5 text-[0.6rem] font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
                   Input
                 </div>
-                <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-words rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 font-mono text-[0.65rem]">
+                <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-words rounded border border-[var(--line)] bg-[var(--bg-subtle)] px-2 py-1.5 font-mono text-[0.65rem]">
                   {safeStringify(tc.input)}
                 </pre>
                 {tc.result !== null && (
@@ -434,7 +423,7 @@ function ToolCallsPanel({ toolCalls }: Readonly<{ toolCalls: ToolCallRecord[] }>
                     <div className="mb-1.5 text-[0.6rem] font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
                       Result
                     </div>
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 font-mono text-[0.65rem]">
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--line)] bg-[var(--bg-subtle)] px-2 py-1.5 font-mono text-[0.65rem]">
                       {formatResult(tc.result)}
                     </pre>
                   </>
@@ -442,10 +431,56 @@ function ToolCallsPanel({ toolCalls }: Readonly<{ toolCalls: ToolCallRecord[] }>
               </div>
             </Accordion.Content>
           </Accordion.Item>
-        ))}
-      </Accordion.Root>
-    </div>
+        );
+      })}
+    </Accordion.Root>
   );
+}
+
+// What one tool call shows in its card: an icon, a plain-language title, the
+// input that matters (the search query), and a result count when there is one.
+// `kb_web_search` gets its own wording; any other tool falls back to its name.
+function describeToolCall(tc: ToolCallRecord): {
+  Icon: typeof Globe;
+  title: string;
+  detail: string | null;
+  count: string | null;
+} {
+  const running = tc.status === 'running';
+  if (tc.name === 'kb_web_search') {
+    const query = inputString(tc.input, 'query');
+    return {
+      Icon: Globe,
+      title: running ? 'Searching the web…' : 'Searched the web',
+      detail: query ? `“${query}”` : null,
+      count: running ? null : resultCount(tc.result),
+    };
+  }
+  return {
+    Icon: Wrench,
+    title: running ? 'Running a tool…' : 'Ran a tool',
+    detail: summarizeInput(tc.input),
+    count: null,
+  };
+}
+
+function inputString(input: unknown, key: string): string | null {
+  if (input === null || typeof input !== 'object') return null;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+// "5 results" for a tool whose result is `{ results: [...] }`; null otherwise.
+function resultCount(result: string | null): string | null {
+  if (!result) return null;
+  try {
+    const parsed: unknown = JSON.parse(result);
+    const list = parsed !== null && typeof parsed === 'object' ? (parsed as { results?: unknown }).results : null;
+    if (!Array.isArray(list)) return null;
+    return `${list.length} ${list.length === 1 ? 'result' : 'results'}`;
+  } catch {
+    return null;
+  }
 }
 
 // One-line preview of a tool call's input args, shown in the accordion
